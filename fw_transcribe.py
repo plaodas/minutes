@@ -1,30 +1,23 @@
 import sys
-from faster_whisper import WhisperModel
+from minutes.transcribe import transcribe
 
-audio = sys.argv[1]
 
-# medium が一番安定
-model = WhisperModel("medium", device="cpu")
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python fw_transcribe.py <audio_file>")
+        sys.exit(1)
 
-prompt = (
-    "意向調査, GIS, 調査対象ポリゴン, 登記情報, 京都市, 森林組合, 集約化構想, "
-    "年間スケジュール, 分析, 調査地域, 昨年度の調査"
-)
+    audio = sys.argv[1]
 
-segments, info = model.transcribe(
-    audio,
-    language="ja",
-    initial_prompt=prompt,
-    beam_size=5,
-    vad_filter=True,          # 無音区切り（チャンクの代替）
-    vad_parameters=dict(
-        min_silence_duration_ms=500,
-        speech_pad_ms=200,
-    ),
-)
+    prompt = (
+        "意向調査, GIS, 調査対象ポリゴン, 登記情報, 京都市, 森林組合, 集約化構想, "
+        "年間スケジュール, 分析, 調査地域, 昨年度の調査"
+    )
 
-with open("raw_transcript.txt", "w", encoding="utf-8") as f:
-    for seg in segments:
-        f.write(seg.text + "\n")
+    raw_text, segments = transcribe(audio, model_size="medium", prompt=prompt, raw_out="raw_transcript.txt")
 
-print("raw_transcript.txt に書き出したよ")
+    print("raw_transcript.txt に書き出したよ")
+
+
+if __name__ == "__main__":
+    main()
