@@ -1,0 +1,17 @@
+version: "3.8"
+services:
+  minutes:
+    build:
+      context: .
+      args:
+        INSTALL_FULL: "false"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ./data/uploads:/app/uploads
+      - ./data/outputs:/app/outputs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

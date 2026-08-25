@@ -9,6 +9,9 @@ services:
       - "8000:8000"
     volumes:
       - ./:/app
+      - ./data/uploads:/app/uploads
+      - ./data/outputs:/app/outputs
+      - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
@@ -27,6 +30,9 @@ services:
       - redis
     volumes:
       - ./:/app
+      - ./data/uploads:/app/uploads
+      - ./data/outputs:/app/outputs
+      - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped

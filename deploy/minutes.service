@@ -1,0 +1,17 @@
+[Unit]
+Description=Minutes Service (Docker Compose minimal)
+After=network.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/agake/minutes
+ExecStart=/usr/bin/docker compose -f /home/agake/minutes/docker-compose.minimal.yml up -d --build
+ExecStop=/usr/bin/docker compose -f /home/agake/minutes/docker-compose.minimal.yml down
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+
+# Note: Replace '/home/agake/minutes' with the actual project path on the VPS if different.

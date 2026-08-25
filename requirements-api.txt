@@ -4,4 +4,5 @@ python-multipart==0.0.6
 aiofiles==23.1.0
 requests==2.33.1
 celery==5.3.1
-redis==5.0.11
+# Use redis-py 4.x series for broad compatibility with many Python versions
+redis>=4.6.0,<5

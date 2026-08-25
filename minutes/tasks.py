@@ -18,7 +18,9 @@ def process_audio(self, input_path: str):
         final_minutes = format_minutes_from_raw(raw_text)
 
         now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        out_file = f"minutes_{now}.txt"
+        outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
+        os.makedirs(outputs_dir, exist_ok=True)
+        out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(final_minutes)
 
