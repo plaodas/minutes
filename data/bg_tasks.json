@@ -21,8 +21,8 @@
     "error": null
   },
   "faa440ae32e8484b836687ef4933a59d": {
-    "status": "pending",
+    "status": "failed",
     "result": null,
-    "error": null
+    "error": "Failed to call Ollama at http://host.docker.internal:11434/api/chat: HTTPConnectionPool(host='host.docker.internal', port=11434): Max retries exceeded with url: /api/chat (Caused by NewConnectionError(\"HTTPConnection(host='host.docker.internal', port=11434): Failed to establish a new connection: [Errno 101] Network is unreachable\")). Ensure Ollama is running and the host is reachable from this process. If running Ollama on the Docker host, try setting OLLAMA_HOST=http://host.docker.internal:11434"
   }
 }
