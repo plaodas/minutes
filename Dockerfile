@@ -9,11 +9,14 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Copy requirements; keep API deps minimal for fast builds.
-COPY requirements-api.txt requirements.txt ./
+# Copy requirements; keep API deps minimal for fast builds. Copy both files so
+# INSTALL_FULL can install the full requirements when requested.
+COPY requirements-api.txt requirements-api.txt ./
+COPY requirements.txt requirements.txt ./
 
 RUN pip install --upgrade pip
 RUN pip install -r requirements-api.txt
+# If full install requested, install the main requirements.txt (may be large)
 RUN if [ "${INSTALL_FULL}" = "true" ]; then pip install -r requirements.txt; fi
 
 COPY . .

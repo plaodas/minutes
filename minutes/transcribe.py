@@ -1,5 +1,4 @@
 from typing import Optional, Tuple
-from faster_whisper import WhisperModel
 
 
 def transcribe(
@@ -11,8 +10,19 @@ def transcribe(
 ) -> Tuple[str, object]:
     """Transcribe audio using faster-whisper and optionally save raw transcript.
 
-    Returns: (raw_text, segments)
+    Delays importing `faster_whisper` so the API can start without heavy
+    dependencies. If `faster_whisper` is not installed, a RuntimeError is raised
+    at call time with instructions.
     """
+    try:
+        from faster_whisper import WhisperModel
+    except Exception as e:
+        raise RuntimeError(
+            "faster_whisper is not installed in this environment. "
+            "Install full dependencies or use the minimal API image. "
+            "To install: pip install faster-whisper"
+        ) from e
+
     model = WhisperModel(model_size, device=device)
 
     segments, info = model.transcribe(

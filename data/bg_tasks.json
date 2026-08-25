@@ -1,0 +1,12 @@
+{
+  "282b5032654441178b7d0aa5c920fb14": {
+    "status": "failed",
+    "result": null,
+    "error": "faster_whisper is not installed in this environment. Install full dependencies or use the minimal API image. To install: pip install faster-whisper"
+  },
+  "c6e24a8095074377b679511090ae516f": {
+    "status": "failed",
+    "result": null,
+    "error": "faster_whisper is not installed in this environment. Install full dependencies or use the minimal API image. To install: pip install faster-whisper"
+  }
+}
