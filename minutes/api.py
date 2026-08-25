@@ -27,9 +27,25 @@ def _run_pipeline_background(input_path: str, task_id: str):
         now = uuid.uuid4().hex
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
         os.makedirs(outputs_dir, exist_ok=True)
+        tmp_file = os.path.join(outputs_dir, f"minutes_{now}.txt.tmp")
         out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
-        with open(out_file, "w", encoding="utf-8") as f:
+
+        # write atomically and flush to disk before marking task success
+        with open(tmp_file, "w", encoding="utf-8") as f:
             f.write(final_minutes)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                # fsync may not be available in all environments; continue
+                pass
+
+        # atomic replace
+        os.replace(tmp_file, out_file)
+
+        # verify output exists and is non-empty before updating task store
+        if not os.path.exists(out_file) or os.path.getsize(out_file) == 0:
+            raise RuntimeError(f"Output file write failed or empty: {out_file}")
 
         update_task_success(task_id, {"output_file": out_file})
     except Exception as exc:

@@ -2,13 +2,27 @@
   "ad3986e895524ad98dd8a2eabc3b5263": {
     "status": "success",
     "result": {
-      "output_file": "outputs/minutes_cd42276b30dd4211a896aea3890e6189.txt"
+      "output_file": "outputs/minutes_934ae9ff35484ee99178d4eb6fbe93cd.txt"
     },
     "error": null
   },
   "4e8994f7604b4942a02138271cef138f": {
-    "status": "failed",
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_fdb05aabe1f346f3b94129eeb779e16f.txt"
+    },
+    "error": null
+  },
+  "8e10dc2792d74abda808376598441425": {
+    "status": "success",
+    "result": {
+      "output_file": "data/outputs/minutes_cd42276b30dd4211a896aea3890e6189.txt"
+    },
+    "error": null
+  },
+  "faa440ae32e8484b836687ef4933a59d": {
+    "status": "pending",
     "result": null,
-    "error": "HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/chat (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=11434): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+    "error": null
   }
 }
