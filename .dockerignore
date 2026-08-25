@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+.git/
+raw_*.txt
+voice_data/
+models/
+*.pth
+*.pt
+*.bin
+dist/
+build/

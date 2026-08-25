@@ -1,0 +1,32 @@
+version: "3.8"
+services:
+  minutes:
+    build:
+      context: .
+      args:
+        INSTALL_FULL: "false"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  worker:
+    build:
+      context: .
+      args:
+        INSTALL_FULL: "false"
+    command: celery -A minutes.tasks worker --loglevel=info
+    depends_on:
+      - redis
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

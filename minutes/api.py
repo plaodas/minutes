@@ -6,6 +6,9 @@ import os
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw
+from minutes.tasks import process_audio
+from minutes.celery_app import celery
+from celery.result import AsyncResult
 
 
 app = FastAPI(title="Minutes Service (prototype)")
@@ -22,26 +25,21 @@ def transcribe_upload(file: UploadFile = File(...)):
 
     This is a synchronous prototype endpoint intended for small/short audio files.
     """
+    # Save uploaded file into uploads/ so workers can access it (shared volume)
+    uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
     suffix = os.path.splitext(file.filename)[1] or ".wav"
     tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp_path = tmp.name
-            shutil.copyfileobj(file.file, tmp)
+        dest_path = os.path.join(uploads_dir, file.filename)
+        with open(dest_path, "wb") as out:
+            shutil.copyfileobj(file.file, out)
 
-        mono, norm, clean = preprocess(tmp_path)
-        raw_text, segments = transcribe(clean, model_size="medium", prompt=None)
-        minutes = format_minutes_from_raw(raw_text)
-
-        return PlainTextResponse(content=minutes)
+        # Enqueue Celery task
+        task = process_audio.delay(dest_path)
+        return JSONResponse({"task_id": task.id})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    finally:
-        try:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
 
 
 @app.post("/format-raw", response_class=PlainTextResponse)
@@ -56,3 +54,19 @@ def format_raw(payload: dict):
         return PlainTextResponse(content=minutes)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/status/{task_id}")
+def task_status(task_id: str):
+    res = AsyncResult(task_id, app=celery)
+    return {"task_id": task_id, "status": res.status, "info": str(res.info)}
+
+
+@app.get("/result/{task_id}")
+def task_result(task_id: str):
+    res = AsyncResult(task_id, app=celery)
+    if not res.ready():
+        return JSONResponse({"status": res.status}, status_code=202)
+    if res.failed():
+        return JSONResponse({"status": "failed", "info": str(res.info)}, status_code=500)
+    return JSONResponse({"status": "success", "result": res.result})
