@@ -1,8 +1,10 @@
 {
   "ad3986e895524ad98dd8a2eabc3b5263": {
-    "status": "failed",
-    "result": null,
-    "error": "Failed to call Ollama at http://host.docker.internal:11434/api/chat: HTTPConnectionPool(host='host.docker.internal', port=11434): Read timed out. (read timeout=120). Ensure Ollama is running and the host is reachable from this process. If running Ollama on the Docker host, try setting OLLAMA_HOST=http://host.docker.internal:11434"
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_cd42276b30dd4211a896aea3890e6189.txt"
+    },
+    "error": null
   },
   "4e8994f7604b4942a02138271cef138f": {
     "status": "failed",

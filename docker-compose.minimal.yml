@@ -15,4 +15,5 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_MODEL=qwen3:8b
     restart: unless-stopped
