@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        INSTALL_FULL: "false"
+        INSTALL_FULL: "true"
     ports:
       - "8000:8000"
     volumes:
