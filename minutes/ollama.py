@@ -68,11 +68,13 @@ def format_minutes_from_raw(
             continue
 
     if resp_json is None:
-        raise RuntimeError(
-            f"Failed to call Ollama at {host}/api/chat: {last_error}. "
-            "Ensure Ollama is running and the host is reachable from this process. "
-            "If running Ollama on the Docker host, try setting OLLAMA_HOST=http://host.docker.internal:11434"
-        ) from last_error
+        # Instead of raising, return a safe local fallback summary so the
+        # service can continue even when Ollama is unavailable or failing.
+        err_msg = f"Ollama call failed: {last_error}"
+        # produce a compact fallback: header + truncated raw transcript
+        max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
+        snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
+        return f"[FALLBACK] {err_msg}\n\n{snippet}"
 
     # extract content
     if "message" in resp_json and "content" in resp_json["message"]:
@@ -82,4 +84,8 @@ def format_minutes_from_raw(
     if "response" in resp_json:
         return resp_json["response"]
 
-    raise ValueError(f"Unexpected response from Ollama: {resp_json}")
+    # Unexpected structured response; return fallback instead of raising.
+    err_msg = f"Unexpected response from Ollama: {resp_json}"
+    max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
+    snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
+    return f"[FALLBACK] {err_msg}\n\n{snippet}"
