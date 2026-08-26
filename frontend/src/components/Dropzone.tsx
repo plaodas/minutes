@@ -1,7 +1,6 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { uploadAudioBg, uploadAudioBgWithProgress, getBgStatus, getBgResult } from '../api/client'
-import { useRef } from 'react'
+import { uploadAudioBgWithProgress, getBgStatus, getBgResult } from '../api/client'
 
 type Props = {
   setActiveIndex: (i: number) => void
@@ -26,7 +25,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
-  const pollRef = useRef<number | null>(null)
+  const pollRef = useRef<number | null>(0)
   const [running, setRunning] = useState(false)
 
   const onDrop = useCallback(async (files: FileList | null) => {
@@ -34,62 +33,80 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     if (!files || files.length === 0) return
     const f = files[0]
     setFileName(f.name)
+
+    // abort any previous operations
+    if (xhrRef.current) {
+      try { xhrRef.current.abort() } catch {}
+      xhrRef.current = null
+    }
+    if (pollRef.current) {
+      clearTimeout(pollRef.current)
+      pollRef.current = 0
+    }
+
     try {
       setActiveIndex(0)
       setUploadProgress(0)
-      const resp = await uploadAudioBgWithProgress(f, (p) => setUploadProgress(p))
+      const { xhr, promise } = uploadAudioBgWithProgress(f, (p) => setUploadProgress(p))
+      xhrRef.current = xhr
+      const resp = await promise
       const id = resp.task_id || resp.taskId || resp.id
       if (!id) throw new Error('no task id returned')
       setTaskId(id)
 
-      // clear upload progress after upload completes
+      // clear upload UI
       setUploadProgress(null)
+      setRunning(true)
 
-      // start polling
+      // polling function
       const poll = async () => {
         try {
           const st = await getBgStatus(id)
           const status = (st && st.status) || ''
           const backendError = st && (st.error || st.detail || st.message)
-          // stop polling if backend reports failed
-          if (status.toLowerCase().includes('fail') || backendError) {
+
+          if (backendError || status.toLowerCase().includes('fail')) {
             const msg = (backendError && String(backendError)) || 'Task failed'
             setError(msg)
             setActiveIndex(-1)
-            // show global toast
-            setRunning(true)
             window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message: msg } }))
+            setRunning(false)
             return
           }
+
           const idx = mapStatusToIndex(status)
           setActiveIndex(idx)
           if (status && idx >= 4) {
-            // finished
             const res = await getBgResult(id)
             setResult(res)
             setActiveIndex(4)
+            setRunning(false)
             return
           }
-                  setRunning(false)
-                  return
-          console.warn('poll error', e)
-          setError(String(e?.message || e))
+        } catch (err: any) {
+          console.warn('poll error', err)
+          setError(String(err?.message || err))
+          setRunning(false)
+          return
         }
-        setTimeout(poll, 2000)
+        // schedule next poll
+        pollRef.current = window.setTimeout(poll, 2000)
       }
-      setTimeout(poll, 1500)
+
+      // start first poll shortly after upload completes
+      pollRef.current = window.setTimeout(poll, 1500)
     } catch (e: any) {
       console.error(e)
-                  setRunning(false)
-                  return
+      setError(String(e?.message || e))
       setActiveIndex(-1)
       setUploadProgress(null)
+      setRunning(false)
     }
   }, [setActiveIndex, setResult])
 
-              pollRef.current = window.setTimeout(poll, 2000)
+  const handleDrop: React.DragEventHandler = (e) => {
     e.preventDefault()
-            pollRef.current = window.setTimeout(poll, 1500)
+    setDragActive(false)
     onDrop(e.dataTransfer.files)
   }
 
@@ -97,23 +114,23 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     onDrop(e.target.files)
   }
 
+  const cancelAll = useCallback(() => {
+    if (xhrRef.current) {
+      try { xhrRef.current.abort() } catch {}
+      xhrRef.current = null
+    }
+    if (pollRef.current) {
+      clearTimeout(pollRef.current)
+      pollRef.current = 0
+    }
+    setRunning(false)
+    setUploadProgress(null)
+    setTaskId(null)
+    setActiveIndex(-1)
+    window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'info', message: 'Upload cancelled' } }))
+  }, [setActiveIndex])
+
   return (
-        const cancelAll = useCallback(() => {
-          // abort upload
-          if (xhrRef.current) {
-            try { xhrRef.current.abort() } catch {}
-            xhrRef.current = null
-          }
-          // clear polling
-          if (pollRef.current) {
-            clearTimeout(pollRef.current)
-            pollRef.current = null
-          }
-          setRunning(false)
-          setUploadProgress(null)
-          setActiveIndex(-1)
-          window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'info', message: 'Upload cancelled' } }))
-        }, [setActiveIndex])
     <div>
       <label className={`block p-8 rounded-lg glass-card border border-transparent ${dragActive ? 'drag-active' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}

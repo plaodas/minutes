@@ -23,7 +23,11 @@ const pwaOptions = {
     runtimeCaching: [
       {
         urlPattern: /\/api\/.*$/,
-        handler: 'NetworkFirst',
+        // Avoid caching API calls in the service worker to prevent
+        // the SW from intercepting multipart uploads or producing
+        // unexpected network errors. Use NetworkOnly so requests
+        // are always forwarded to the network/backend.
+        handler: 'NetworkOnly',
         options: { cacheName: 'api-cache' }
       },
       {

@@ -15,5 +15,29 @@
     "status": "failed",
     "result": null,
     "error": "faster_whisper is not installed in this environment. Install full dependencies or use the minimal API image. To install: pip install faster-whisper"
+  },
+  "b855ff0d0c7a4fd794559b242f5f1010": {
+    "status": "failed",
+    "result": null,
+    "error": "faster_whisper is not installed in this environment. Install full dependencies or use the minimal API image. To install: pip install faster-whisper"
+  },
+  "113cac33bd7e48b6a7cb11687c5e9757": {
+    "status": "failed",
+    "result": null,
+    "error": "faster_whisper is not installed in this environment. Install full dependencies or use the minimal API image. To install: pip install faster-whisper"
+  },
+  "0c3114cf301b429b8965f46b6e7f7bc7": {
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_7be5fea43872480096ae83f8768aa374.txt"
+    },
+    "error": null
+  },
+  "56dcbc9ccbab433392aced9e330a50dc": {
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_a9736da4d2d14afd8f12486332e85193.txt"
+    },
+    "error": null
   }
 }
