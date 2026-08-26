@@ -1,4 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+import asyncio
+import logging
 import logging
 from fastapi.responses import PlainTextResponse, JSONResponse
 import tempfile
@@ -17,6 +19,7 @@ from minutes.bg_store import (
     get_task,
 )
 import uuid
+from minutes.reconcile_bg_tasks import reconcile_once
 
 
 def _run_pipeline_background(input_path: str, task_id: str):
@@ -60,6 +63,49 @@ def _run_pipeline_background(input_path: str, task_id: str):
 
 
 app = FastAPI(title="Minutes Service (prototype)")
+
+
+@app.on_event("startup")
+async def startup_reconciler():
+    """Run a single reconciliation at startup, then schedule periodic runs.
+
+    Interval is controlled by `RECONCILE_INTERVAL_SECONDS` (default 3600).
+    """
+    logger = logging.getLogger("minutes.api")
+    try:
+        # run once immediately in a thread to avoid blocking the event loop
+        await asyncio.to_thread(reconcile_once)
+        logger.info("Initial bg task reconciliation completed")
+    except Exception as exc:
+        logger.exception("Initial reconciliation failed: %s", exc)
+
+    interval = int(os.environ.get("RECONCILE_INTERVAL_SECONDS", "3600"))
+
+    async def reconcile_loop():
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                await asyncio.to_thread(reconcile_once)
+                logger.info("Periodic bg task reconciliation completed")
+            except asyncio.CancelledError:
+                logger.info("Reconcile loop cancelled")
+                break
+            except Exception:
+                logger.exception("Reconcile loop error")
+
+    # store the task so it can be cancelled on shutdown
+    app.state.reconcile_task = asyncio.create_task(reconcile_loop())
+
+
+@app.on_event("shutdown")
+async def shutdown_reconciler():
+    task = getattr(app.state, "reconcile_task", None)
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 @app.get("/health")
