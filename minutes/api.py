@@ -3,6 +3,14 @@ import asyncio
 import logging
 import logging
 from fastapi.responses import PlainTextResponse, JSONResponse
+from typing import Dict, Any
+from minutes.schemas import (
+    CreateTaskResponse,
+    FormatRawRequest,
+    FormatRawResponse,
+    StatusResponse,
+    ResultSuccess,
+)
 import tempfile
 import shutil
 import os
@@ -17,6 +25,7 @@ from minutes.bg_store import (
     update_task_success,
     update_task_failure,
     get_task,
+    update_task_status,
 )
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
@@ -24,8 +33,16 @@ from minutes.reconcile_bg_tasks import reconcile_once
 
 def _run_pipeline_background(input_path: str, task_id: str):
     try:
+        # update intermediate status: preprocessing
+        update_task_status(task_id, "preprocess")
         mono, norm, clean = preprocess(input_path)
+
+        # update intermediate status: transcribing
+        update_task_status(task_id, "transcribing")
         raw_text, segments = transcribe(clean, model_size="medium", prompt=None)
+
+        # update intermediate status: formatting
+        update_task_status(task_id, "formatting")
         final_minutes = format_minutes_from_raw(raw_text)
 
         # detect Ollama fallback (service-wide behavior: fallback responses are
@@ -113,7 +130,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/transcribe-upload", response_class=PlainTextResponse)
+@app.post("/transcribe-upload", response_model=CreateTaskResponse)
 def transcribe_upload(file: UploadFile = File(...)):
     """Accept an audio file upload, run preprocess->transcribe->format, return minutes as plain text.
 
@@ -131,21 +148,21 @@ def transcribe_upload(file: UploadFile = File(...)):
 
         # Enqueue Celery task
         task = process_audio.delay(dest_path)
-        return JSONResponse({"task_id": task.id})
+        return {"task_id": task.id}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/format-raw", response_class=PlainTextResponse)
-def format_raw(payload: dict):
-    """Accept JSON {"raw": "..."} and return formatted minutes."""
-    raw = payload.get("raw")
+@app.post("/format-raw", response_model=FormatRawResponse)
+def format_raw(payload: FormatRawRequest):
+    """Accept JSON {"raw": "..."} and return formatted minutes as JSON."""
+    raw = payload.raw
     if not raw:
         return JSONResponse({"error": "missing 'raw' field"}, status_code=400)
 
     try:
         minutes = format_minutes_from_raw(raw)
-        return PlainTextResponse(content=minutes)
+        return {"minutes": minutes}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -166,7 +183,7 @@ def task_result(task_id: str):
     return JSONResponse({"status": "success", "result": res.result})
 
 
-@app.post("/transcribe-upload-bg", response_class=JSONResponse)
+@app.post("/transcribe-upload-bg", response_model=CreateTaskResponse)
 def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
     """Minimal async endpoint using FastAPI BackgroundTasks (no Redis/Celery).
 
@@ -186,22 +203,29 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
     create_task(task_id)
     # schedule background work
     background_tasks.add_task(_run_pipeline_background, dest_path, task_id)
-    return JSONResponse({"task_id": task_id})
+    return {"task_id": task_id}
 
 
-@app.get("/bg/status/{task_id}")
+@app.get("/bg/status/{task_id}", response_model=StatusResponse)
 def bg_status(task_id: str):
     t = get_task(task_id)
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
-    return JSONResponse({"task_id": task_id, "status": t["status"], "error": t.get("error")})
+    return {"task_id": task_id, "status": t["status"], "error": t.get("error")}
 
 
-@app.get("/bg/result/{task_id}")
+@app.get(
+    "/bg/result/{task_id}",
+    responses={
+        200: {"description": "success", "content": {"application/json": {}}},
+        202: {"description": "pending or failed"},
+        404: {"description": "unknown task"},
+    },
+)
 def bg_result(task_id: str):
     t = get_task(task_id)
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
     if t["status"] != "success":
         return JSONResponse({"status": t["status"], "error": t.get("error")}, status_code=202)
-    return JSONResponse({"status": "success", "result": t.get("result")})
+    return {"status": "success", "result": t.get("result")}

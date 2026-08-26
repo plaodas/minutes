@@ -49,6 +49,20 @@ def update_task_failure(task_id: str, error_msg: str):
         _write_db(db)
 
 
+def update_task_status(task_id: str, status: str):
+    """Set an arbitrary status string for the task (e.g. 'preprocess', 'transcribing').
+
+    This is intentionally simple: callers should use a small controlled set
+    of status strings to indicate progress stages. Existing helpers
+    `update_task_success`/`update_task_failure` still set final states.
+    """
+    with _lock:
+        db = _read_db()
+        db.setdefault(task_id, {})
+        db[task_id]["status"] = status
+        _write_db(db)
+
+
 def get_task(task_id: str) -> Optional[Dict[str, Any]]:
     with _lock:
         db = _read_db()

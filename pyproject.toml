@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "minutes"
+version = "0.1.0"
+description = "CLI wrappers and packaging for minutes project"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+minutes-cli = "minutes_cli.cli_wrappers:_main_from_argv"

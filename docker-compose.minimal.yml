@@ -4,6 +4,9 @@ services:
     build:
       context: .
       args:
+        # Avoid installing the large `requirements.txt` by default to keep
+        # the API image lightweight. Set to "true" only when you need the
+        # full environment (transcription/modeling) and have sufficient bandwidth.
         INSTALL_FULL: "true"
     ports:
       - "8000:8000"
