@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+import logging
 from fastapi.responses import PlainTextResponse, JSONResponse
 import tempfile
 import shutil
@@ -23,6 +24,12 @@ def _run_pipeline_background(input_path: str, task_id: str):
         mono, norm, clean = preprocess(input_path)
         raw_text, segments = transcribe(clean, model_size="medium", prompt=None)
         final_minutes = format_minutes_from_raw(raw_text)
+
+        # detect Ollama fallback (service-wide behavior: fallback responses are
+        # prefixed with "[FALLBACK] ") and log it for observability.
+        logger = logging.getLogger("minutes.api")
+        if isinstance(final_minutes, str) and final_minutes.startswith("[FALLBACK]"):
+            logger.warning("Task %s used Ollama fallback: %s", task_id, final_minutes.splitlines()[0])
 
         now = uuid.uuid4().hex
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")

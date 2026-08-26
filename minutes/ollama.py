@@ -1,6 +1,7 @@
 import os
 import requests
 from typing import Optional
+from minutes.summary import summarize_local
 
 
 DEFAULT_SYSTEM_PROMPT = """
@@ -68,13 +69,17 @@ def format_minutes_from_raw(
             continue
 
     if resp_json is None:
-        # Instead of raising, return a safe local fallback summary so the
-        # service can continue even when Ollama is unavailable or failing.
+        # Instead of raising, return a small local summary so the service can
+        # continue even when Ollama is unavailable or failing.
         err_msg = f"Ollama call failed: {last_error}"
-        # produce a compact fallback: header + truncated raw transcript
-        max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
-        snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
-        return f"[FALLBACK] {err_msg}\n\n{snippet}"
+        # produce a concise extractive summary via local summarizer
+        try:
+            summary = summarize_local(raw_text, max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")))
+            return f"[FALLBACK] {err_msg}\n\n{summary}"
+        except Exception:
+            max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
+            snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
+            return f"[FALLBACK] {err_msg}\n\n{snippet}"
 
     # extract content
     if "message" in resp_json and "content" in resp_json["message"]:
@@ -84,8 +89,12 @@ def format_minutes_from_raw(
     if "response" in resp_json:
         return resp_json["response"]
 
-    # Unexpected structured response; return fallback instead of raising.
+    # Unexpected structured response; attempt local summarization as fallback.
     err_msg = f"Unexpected response from Ollama: {resp_json}"
-    max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
-    snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
-    return f"[FALLBACK] {err_msg}\n\n{snippet}"
+    try:
+        summary = summarize_local(raw_text, max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")))
+        return f"[FALLBACK] {err_msg}\n\n{summary}"
+    except Exception:
+        max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
+        snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
+        return f"[FALLBACK] {err_msg}\n\n{snippet}"
