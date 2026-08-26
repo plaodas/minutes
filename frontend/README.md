@@ -11,8 +11,8 @@ npm run dev
 ```
 
 Environment:
-- `VITE_API_BASE` can be used to point to your backend (default http://localhost:8000)
 
 Notes:
-- Service worker and push flow are provided as stubs; real push subscription requires backend VAPID keys.
-- API endpoints in `src/api/client.ts` are placeholders — adapt to your backend OpenAPI paths.
+PWA notes:
+- `vite-plugin-pwa` is integrated in `vite.config.ts`. Service worker is only enabled in production builds by default.
+- SW update events trigger a `swUpdated` event on `window`; the app shows a small update toast to apply the new version.

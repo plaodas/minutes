@@ -5,5 +5,15 @@
       "output_file": "data/outputs/minutes_b3da6ff094094942b5fd15cadf8a0b8d.txt"
     },
     "error": null
+  },
+  "9ce6ed68ba014c4a9337e572207b3423": {
+    "status": "failed",
+    "result": null,
+    "error": "faster_whisper is not installed in this environment. Install full dependencies or use the minimal API image. To install: pip install faster-whisper"
+  },
+  "e3b4c72673204f56bf0dab37be6e368a": {
+    "status": "failed",
+    "result": null,
+    "error": "faster_whisper is not installed in this environment. Install full dependencies or use the minimal API image. To install: pip install faster-whisper"
   }
 }

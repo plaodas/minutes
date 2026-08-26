@@ -3,9 +3,7 @@ import { motion } from 'framer-motion'
 
 const steps = ['Uploading', 'preprocess', 'transcribing', 'formatting']
 
-export default function ProcessingSteps() {
-  const activeIndex = 1 // TODO: wire to real state
-
+export default function ProcessingSteps({ activeIndex }: { activeIndex: number }) {
   return (
     <div className="flex items-center gap-6">
       {steps.map((s, i) => (
