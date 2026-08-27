@@ -3,6 +3,8 @@ import os
 import json
 import contextlib
 import wave
+import logging
+from requests.exceptions import ChunkedEncodingError, RequestException
 from minutes.celery_app import celery
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
@@ -42,6 +44,8 @@ def process_audio(self, input_path: str):
                 return None
 
         audio_duration = _get_wav_duration(clean)
+        logger = logging.getLogger("minutes.tasks")
+        logger.info("Determined audio_duration=%s for %s", audio_duration, clean)
 
         # If an external inference service is configured, call it via HTTP.
         inference_url = os.environ.get("INFERENCE_URL")
@@ -50,44 +54,110 @@ def process_audio(self, input_path: str):
             update_task_status(task_id, "transcribing")
 
         if inference_url:
-            # Call inference endpoint and stream NDJSON lines for progress
-            with open(clean, "rb") as fh:
-                files = {"file": (os.path.basename(clean), fh, "audio/wav")}
-                resp = requests.post(inference_url, files=files, stream=True, timeout=600)
-            resp.raise_for_status()
+            # Call inference endpoint and stream NDJSON lines for progress.
+            # If the chunked stream unexpectedly ends, retry once using a
+            # non-streaming fallback to obtain the final output.
+            logger = logging.getLogger("minutes.tasks")
             raw_text = ""
             segments = []
-            # parse NDJSON stream
-            for line in resp.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
+            files = {"file": (os.path.basename(clean), open(clean, "rb"), "audio/wav")}
+            try_stream = True
+            attempts = 0
+            max_attempts = 2
+            while attempts < max_attempts:
+                attempts += 1
                 try:
-                    obj = json.loads(line)
-                except Exception:
-                    continue
-                typ = obj.get("type")
-                if typ == "segment":
-                    # update progress using end time as a heuristic
+                    resp = requests.post(inference_url, files=files, stream=True, timeout=600)
+                    resp.raise_for_status()
+                    # parse NDJSON stream
+                    for line in resp.iter_lines(decode_unicode=True):
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except Exception:
+                            continue
+                        typ = obj.get("type")
+                        if typ == "segment":
+                            try:
+                                end = float(obj.get("end", 0.0) or 0.0)
+                                if task_id:
+                                    update_task_status(task_id, f"transcribing:{end:.1f}s")
+                                    if audio_duration and audio_duration > 0:
+                                        pct = min(100.0, (end / audio_duration) * 100.0)
+                                        logger.debug("Updating progress for %s: %.2f%% (end=%.2f)", task_id, pct, end)
+                                        update_task_progress(task_id, pct)
+                            except Exception:
+                                pass
+                            segments.append(obj)
+                        elif typ == "final":
+                            raw_text = obj.get("raw_text", "")
+                            if isinstance(obj.get("segments"), list):
+                                segments = obj.get("segments")
+                            if task_id:
+                                update_task_progress(task_id, 100.0)
+                                logger.debug("Marking progress 100%% for %s (final)", task_id)
+                        elif typ == "error":
+                            raise RuntimeError(obj.get("error"))
+                    # if we completed without exception, break
+                    break
+                except ChunkedEncodingError as e:
+                    logger.warning("ChunkedEncodingError from inference (attempt %s): %s", attempts, e)
+                    # fallthrough to retry/fallback
+                    try_stream = False
+                except RequestException as e:
+                    logger.warning("RequestException from inference (attempt %s): %s", attempts, e)
+                    try_stream = False
+
+                # fallback: non-streaming request to get whole response body
+                if not try_stream and attempts < max_attempts:
                     try:
-                        end = float(obj.get("end", 0.0) or 0.0)
-                        if task_id:
-                            update_task_status(task_id, f"transcribing:{end:.1f}s")
-                            if audio_duration and audio_duration > 0:
-                                pct = min(100.0, (end / audio_duration) * 100.0)
-                                update_task_progress(task_id, pct)
-                    except Exception:
-                        pass
-                    segments.append(obj)
-                elif typ == "final":
-                    raw_text = obj.get("raw_text", "")
-                    # if final contains segments, extend
-                    if isinstance(obj.get("segments"), list):
-                        segments = obj.get("segments")
-                    # mark final progress as 100%
-                    if task_id:
-                        update_task_progress(task_id, 100.0)
-                elif typ == "error":
-                    raise RuntimeError(obj.get("error"))
+                        logger.info("Attempting non-streaming fallback request to inference (attempt %s)", attempts + 1)
+                        # need to re-open the file for the new request
+                        with open(clean, "rb") as fh2:
+                            files2 = {"file": (os.path.basename(clean), fh2, "audio/wav")}
+                            resp2 = requests.post(inference_url, files=files2, timeout=600)
+                        resp2.raise_for_status()
+                        body = resp2.text
+                        for line in body.splitlines():
+                            if not line:
+                                continue
+                            try:
+                                obj = json.loads(line)
+                            except Exception:
+                                continue
+                            typ = obj.get("type")
+                            if typ == "segment":
+                                try:
+                                    end = float(obj.get("end", 0.0) or 0.0)
+                                    if task_id:
+                                        update_task_status(task_id, f"transcribing:{end:.1f}s")
+                                        if audio_duration and audio_duration > 0:
+                                            pct = min(100.0, (end / audio_duration) * 100.0)
+                                            logger.debug("Updating progress for %s: %.2f%% (end=%.2f)", task_id, pct, end)
+                                            update_task_progress(task_id, pct)
+                                except Exception:
+                                    pass
+                                segments.append(obj)
+                            elif typ == "final":
+                                raw_text = obj.get("raw_text", "")
+                                if isinstance(obj.get("segments"), list):
+                                    segments = obj.get("segments")
+                                if task_id:
+                                    update_task_progress(task_id, 100.0)
+                                    logger.debug("Marking progress 100%% for %s (final-fallback)", task_id)
+                            elif typ == "error":
+                                raise RuntimeError(obj.get("error"))
+                        break
+                    except Exception as e:
+                        logger.exception("Fallback inference request failed: %s", e)
+                        # loop will retry if attempts < max_attempts
+                        continue
+            # close the original file object in files
+            try:
+                files["file"][1].close()
+            except Exception:
+                pass
         else:
             # Use local transcribe with progress callback to update task status
             def _progress(seg):
@@ -108,6 +178,7 @@ def process_audio(self, input_path: str):
 
         # mark formatting stage
         if task_id:
+                                    logger.debug("Marking progress 100%% for %s (final-fallback)", task_id)
             update_task_status(task_id, "formatting")
 
         final_minutes = format_minutes_from_raw(raw_text)
