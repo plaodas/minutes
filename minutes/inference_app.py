@@ -59,8 +59,15 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
     threading.Thread(target=worker, daemon=True).start()
 
     def event_stream():
+        import time
+        heartbeat_interval = 2.0
         while True:
-            item = q.get()
+            try:
+                item = q.get(timeout=heartbeat_interval)
+            except queue.Empty:
+                hb = json.dumps({"type": "heartbeat", "ts": time.time()}) + "\n"
+                yield hb
+                continue
             if item is None:
                 break
             yield item

@@ -1,8 +1,60 @@
 {
+  "2d79f984-f70e-4eb6-b496-9eb8e43196bb": {
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_20260827195150.txt"
+    },
+    "error": null,
+    "progress": 100.0
+  },
   "c287bbad-3507-4586-9070-097c8ed722db": {
-    "status": "pending",
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_20260827194945.txt"
+    },
+    "error": null,
+    "progress": 100.0
+  },
+  "1b099648-3745-4926-8b19-fddcf5460eb1": {
+    "status": "formatting",
     "result": null,
     "error": null,
     "progress": null
+  },
+  "9ede980d-b3f6-410c-852b-c1a7b550dbc4": {
+    "status": "transcribing",
+    "result": null,
+    "error": null,
+    "progress": null
+  },
+  "6680343a-8ff9-4dde-a01f-30607aeffbf2": {
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_20260827205526.txt"
+    },
+    "error": null,
+    "progress": 100.0
+  },
+  "d81136f4-9567-43c1-9171-32c23af2a92d": {
+    "status": "formatting",
+    "result": null,
+    "error": null,
+    "progress": 100.0
+  },
+  "2b287016-86b5-42ae-bc58-cf908eec6558": {
+    "status": "formatting",
+    "result": null,
+    "error": null,
+    "progress": 100.0
+  },
+  "75be50bb-c742-4fbe-84dd-2df0c7408372": {
+    "status": "formatting",
+    "result": null,
+    "error": null,
+    "progress": 100.0,
+    "fail_count": 0,
+    "last_failure_ts": null,
+    "last_failure_error": null,
+    "last_success_ts": null
   }
 }

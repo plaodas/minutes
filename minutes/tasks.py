@@ -40,8 +40,23 @@ def process_audio(self, input_path: str):
                     frames = wf.getnframes()
                     rate = wf.getframerate()
                     return frames / float(rate)
-            except Exception:
-                return None
+            except Exception as e:
+                logger = logging.getLogger("minutes.tasks")
+                logger.debug("wave.open failed for %s: %s", path, e)
+                # fallback: try ffprobe
+                try:
+                    import subprocess
+                    out = subprocess.check_output([
+                        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1", path
+                    ], stderr=subprocess.DEVNULL)
+                    try:
+                        return float(out.strip())
+                    except Exception:
+                        return None
+                except Exception as e2:
+                    logger.debug("ffprobe fallback failed for %s: %s", path, e2)
+                    return None
 
         audio_duration = _get_wav_duration(clean)
         logger = logging.getLogger("minutes.tasks")
@@ -63,14 +78,15 @@ def process_audio(self, input_path: str):
             files = {"file": (os.path.basename(clean), open(clean, "rb"), "audio/wav")}
             try_stream = True
             attempts = 0
-            max_attempts = 2
+            max_attempts = 3
+            backoff = 1
             while attempts < max_attempts:
                 attempts += 1
                 try:
-                    resp = requests.post(inference_url, files=files, stream=True, timeout=600)
+                    resp = requests.post(inference_url, files=files, stream=True, timeout=(5, 360), headers={"Connection": "keep-alive"})
                     resp.raise_for_status()
                     # parse NDJSON stream
-                    for line in resp.iter_lines(decode_unicode=True):
+                    for line in resp.iter_lines(decode_unicode=True, chunk_size=1024):
                         if not line:
                             continue
                         try:
@@ -78,6 +94,9 @@ def process_audio(self, input_path: str):
                         except Exception:
                             continue
                         typ = obj.get("type")
+                        if typ == "heartbeat":
+                            # ignore heartbeats
+                            continue
                         if typ == "segment":
                             try:
                                 end = float(obj.get("end", 0.0) or 0.0)
@@ -103,7 +122,6 @@ def process_audio(self, input_path: str):
                     break
                 except ChunkedEncodingError as e:
                     logger.warning("ChunkedEncodingError from inference (attempt %s): %s", attempts, e)
-                    # fallthrough to retry/fallback
                     try_stream = False
                 except RequestException as e:
                     logger.warning("RequestException from inference (attempt %s): %s", attempts, e)
@@ -116,7 +134,7 @@ def process_audio(self, input_path: str):
                         # need to re-open the file for the new request
                         with open(clean, "rb") as fh2:
                             files2 = {"file": (os.path.basename(clean), fh2, "audio/wav")}
-                            resp2 = requests.post(inference_url, files=files2, timeout=600)
+                            resp2 = requests.post(inference_url, files=files2, timeout=(5, 300), headers={"Connection": "keep-alive"})
                         resp2.raise_for_status()
                         body = resp2.text
                         for line in body.splitlines():
@@ -127,6 +145,8 @@ def process_audio(self, input_path: str):
                             except Exception:
                                 continue
                             typ = obj.get("type")
+                            if typ == "heartbeat":
+                                continue
                             if typ == "segment":
                                 try:
                                     end = float(obj.get("end", 0.0) or 0.0)
@@ -151,7 +171,13 @@ def process_audio(self, input_path: str):
                         break
                     except Exception as e:
                         logger.exception("Fallback inference request failed: %s", e)
-                        # loop will retry if attempts < max_attempts
+                        # sleep exponential backoff before retrying
+                        try:
+                            import time
+                            time.sleep(backoff)
+                            backoff = min(60, backoff * 2)
+                        except Exception:
+                            pass
                         continue
             # close the original file object in files
             try:
@@ -178,7 +204,6 @@ def process_audio(self, input_path: str):
 
         # mark formatting stage
         if task_id:
-                                    logger.debug("Marking progress 100%% for %s (final-fallback)", task_id)
             update_task_status(task_id, "formatting")
 
         final_minutes = format_minutes_from_raw(raw_text)
