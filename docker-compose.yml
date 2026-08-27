@@ -14,6 +14,7 @@ services:
       - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
+      - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
     restart: unless-stopped
   redis:
@@ -36,6 +37,7 @@ services:
       - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
+      - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
     restart: unless-stopped
 

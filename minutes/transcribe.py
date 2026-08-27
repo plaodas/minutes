@@ -7,6 +7,7 @@ def transcribe(
     prompt: Optional[str] = None,
     device: str = "cpu",
     raw_out: Optional[str] = None,
+    progress_callback: Optional[callable] = None,
 ) -> Tuple[str, object]:
     """Transcribe audio using faster-whisper and optionally save raw transcript.
 
@@ -33,10 +34,21 @@ def transcribe(
         vad_filter=True,
     )
 
-    raw_text = "\n".join([seg.text for seg in segments])
+    # `segments` may be a generator; iterate and optionally call progress callback
+    seg_list = []
+    for seg in segments:
+        seg_list.append(seg)
+        if progress_callback is not None:
+            try:
+                progress_callback(seg)
+            except Exception:
+                # ignore callback errors
+                pass
+
+    raw_text = "\n".join([seg.text for seg in seg_list])
 
     if raw_out:
         with open(raw_out, "w", encoding="utf-8") as f:
             f.write(raw_text)
 
-    return raw_text, segments
+    return raw_text, seg_list

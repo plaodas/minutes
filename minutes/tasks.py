@@ -7,6 +7,7 @@ from minutes.ollama import format_minutes_from_raw
 import datetime
 import os
 from minutes.bg_store import update_task_success, update_task_failure
+from minutes.bg_store import update_task_status
 import requests
 from typing import Tuple, Any
 
@@ -22,10 +23,17 @@ def process_audio(self, input_path: str):
     """
     task_id = getattr(self.request, "id", None)
     try:
+        # mark preprocessing stage
+        if task_id:
+            update_task_status(task_id, "preprocess")
         mono, norm, clean = preprocess(input_path)
 
         # If an external inference service is configured, call it via HTTP.
         inference_url = os.environ.get("INFERENCE_URL")
+        # mark transcribing stage before calling inference/local transcribe
+        if task_id:
+            update_task_status(task_id, "transcribing")
+
         if inference_url:
             with open(clean, "rb") as fh:
                 files = {"file": (os.path.basename(clean), fh, "audio/wav")}
@@ -36,7 +44,20 @@ def process_audio(self, input_path: str):
             raw_text = j.get("raw_text")
             segments = j.get("segments")
         else:
-            raw_text, segments = transcribe(clean, model_size="medium", prompt=None)
+            # Use local transcribe with progress callback to update task status
+            def _progress(seg):
+                try:
+                    end = float(getattr(seg, "end", 0.0) or 0.0)
+                    if task_id:
+                        update_task_status(task_id, f"transcribing:{end:.1f}s")
+                except Exception:
+                    pass
+
+            raw_text, segments = transcribe(clean, model_size="medium", prompt=None, progress_callback=_progress)
+
+        # mark formatting stage
+        if task_id:
+            update_task_status(task_id, "formatting")
 
         final_minutes = format_minutes_from_raw(raw_text)
 
