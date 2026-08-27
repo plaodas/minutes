@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        INSTALL_FULL: "false"
+        INSTALL_FULL: "true"
     ports:
       - "8000:8000"
     volumes:
@@ -24,7 +24,7 @@ services:
     build:
       context: .
       args:
-        INSTALL_FULL: "false"
+        INSTALL_FULL: "true"
     command: celery -A minutes.tasks worker --loglevel=info
     depends_on:
       - redis
@@ -35,4 +35,15 @@ services:
       - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: "/api"
+    ports:
+      - "8080:80"
+    depends_on:
+      - minutes
     restart: unless-stopped

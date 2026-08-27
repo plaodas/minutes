@@ -1,7 +1,9 @@
 {
   "535ca88cb5cf43b69bcac6372d821c3d": {
-    "status": "formatting",
-    "result": null,
+    "status": "success",
+    "result": {
+      "output_file": "outputs/minutes_8339474a123344cf8d8e9de963c6a208.txt"
+    },
     "error": null
   }
 }

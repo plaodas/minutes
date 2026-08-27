@@ -19,7 +19,7 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
       # Use the host-installed model found on the Ollama host.
-      - OLLAMA_MODEL=qwen3.5:4b
+      - OLLAMA_MODEL=gemma4:e4b
     restart: unless-stopped
   frontend:
     build:
