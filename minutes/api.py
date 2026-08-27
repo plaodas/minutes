@@ -27,6 +27,7 @@ from minutes.bg_store import (
     get_task,
     update_task_status,
 )
+from minutes.bg_store import update_task_cancelled
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 
@@ -199,11 +200,14 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    task_id = uuid.uuid4().hex
-    create_task(task_id)
-    # schedule background work
-    background_tasks.add_task(_run_pipeline_background, dest_path, task_id)
-    return {"task_id": task_id}
+    # Enqueue as a Celery task so we can support revoke/terminate later.
+    try:
+        task = process_audio.delay(dest_path)
+        task_id = task.id
+        create_task(task_id)
+        return {"task_id": task_id}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/bg/status/{task_id}", response_model=StatusResponse)
@@ -229,3 +233,23 @@ def bg_result(task_id: str):
     if t["status"] != "success":
         return JSONResponse({"status": t["status"], "error": t.get("error")}, status_code=202)
     return {"status": "success", "result": t.get("result")}
+
+
+@app.post("/bg/cancel/{task_id}")
+def bg_cancel(task_id: str):
+    """Request cancellation for a background task started via Celery.
+
+    This attempts to revoke/terminate the Celery task and marks the
+    task cancelled in the local task store for immediate API visibility.
+    """
+    try:
+        celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
+    except Exception:
+        # best-effort: ignore revoke errors and still mark cancelled
+        pass
+    # mark cancelled in our bg store
+    try:
+        update_task_cancelled(task_id)
+    except Exception:
+        pass
+    return {"task_id": task_id, "cancelled": True}
