@@ -7,6 +7,8 @@ from minutes.ollama import format_minutes_from_raw
 import datetime
 import os
 from minutes.bg_store import update_task_success, update_task_failure
+import requests
+from typing import Tuple, Any
 
 
 @celery.task(bind=True)
@@ -21,7 +23,21 @@ def process_audio(self, input_path: str):
     task_id = getattr(self.request, "id", None)
     try:
         mono, norm, clean = preprocess(input_path)
-        raw_text, segments = transcribe(clean, model_size="medium", prompt=None)
+
+        # If an external inference service is configured, call it via HTTP.
+        inference_url = os.environ.get("INFERENCE_URL")
+        if inference_url:
+            with open(clean, "rb") as fh:
+                files = {"file": (os.path.basename(clean), fh, "audio/wav")}
+                resp = requests.post(inference_url, files=files, timeout=600)
+            resp.raise_for_status()
+            j = resp.json()
+            # Expecting {"raw_text": "...", "segments": [...]}
+            raw_text = j.get("raw_text")
+            segments = j.get("segments")
+        else:
+            raw_text, segments = transcribe(clean, model_size="medium", prompt=None)
+
         final_minutes = format_minutes_from_raw(raw_text)
 
         now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
