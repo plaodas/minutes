@@ -29,7 +29,7 @@ def format_minutes_from_raw(
 
     # allow overriding default model and fallback models via env
     primary_model = model or os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
-    fallback_models = [m.strip() for m in os.environ.get("OLLAMA_FALLBACK_MODELS", "gemma4-mini,gemma3").split(",") if m.strip()]
+    fallback_models = [m.strip() for m in os.environ.get("OLLAMA_FALLBACK_MODELS", "gemma2:2b,gemma4-mini,gemma3").split(",") if m.strip()]
 
     def _call_model(model_name: str):
         payload = {

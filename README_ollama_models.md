@@ -11,6 +11,7 @@
 
 ```bash
 ollama pull gemma4:e4b
+ollama pull gemma2:2b
 ```
 
 2. Ollama コンテナを再起動してモデルを反映させる:
@@ -24,13 +25,13 @@ docker restart ollama-container
 ```bash
 curl -v http://localhost:11435/
 curl -X POST http://localhost:11435/api/chat -H "Content-Type: application/json" \
-  -d '{"model":"gemma4:e4b","messages":[{"role":"user","content":"hello"}]}'
+  -d '{"model":"gemma2:2b","messages":[{"role":"user","content":"hello"}]}'
 ```
 
 ## コンテナ内で直接プルする（代替）
 - コマンド:
 ```bash
-docker exec -i ollama-container bash -lc "/bin/ollama pull gemma4:e4b"
+docker exec -i ollama-container bash -lc "/bin/ollama pull gemma2:2b"
 ```
 - 注意点: 容量が大きくダウンロード時間・I/O を消費します。サーバのメモリ/ディスク/ネットワークに負荷がかかるため、本番ではホスト側か init-job での実行を推奨します。
 
@@ -60,7 +61,7 @@ docker restart ollama-container
 - コンテナ内でオンデマンドプル:
 
 ```bash
-docker exec -i ollama-container bash -lc "/bin/ollama pull gemma4:e4b"
+docker exec -i ollama-container bash -lc "/bin/ollama pull gemma2:2b"
 ```
 
 ---
