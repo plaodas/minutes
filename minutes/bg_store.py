@@ -49,6 +49,16 @@ def update_task_failure(task_id: str, error_msg: str):
         _write_db(db)
 
 
+def update_task_cancelled(task_id: str):
+    with _lock:
+        db = _read_db()
+        db.setdefault(task_id, {})
+        db[task_id]["status"] = "cancelled"
+        db[task_id]["result"] = None
+        db[task_id]["error"] = "cancelled by user"
+        _write_db(db)
+
+
 def update_task_status(task_id: str, status: str):
     """Set an arbitrary status string for the task (e.g. 'preprocess', 'transcribing').
 
