@@ -32,6 +32,7 @@ env/
 .env
 env.bak/
 venv.bak/
+data/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
