@@ -27,7 +27,7 @@ services:
       context: .
       args:
         INSTALL_FULL: "false"
-    command: celery -A minutes.tasks worker --loglevel=info
+    command: celery -A minutes.tasks worker -Q minutes --loglevel=info
     depends_on:
       - redis
     volumes:

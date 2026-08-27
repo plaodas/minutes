@@ -7,8 +7,21 @@
     "error": null
   },
   "61553a2a-a734-4e58-a6cf-f41545b89cdd": {
-    "status": "preprocess-test-2",
+    "status": "failed",
     "result": null,
-    "error": null
+    "error": "Response ended prematurely",
+    "progress": null
+  },
+  "3c1950f9-6049-46de-bccd-3e6ee31eee4a": {
+    "status": "failed",
+    "result": null,
+    "error": "Response ended prematurely",
+    "progress": null
+  },
+  "888490ef-f346-4da7-9321-4792f00f5bcb": {
+    "status": "failed",
+    "result": null,
+    "error": "Response ended prematurely",
+    "progress": null
   }
 }
