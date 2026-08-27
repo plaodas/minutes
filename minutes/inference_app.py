@@ -1,7 +1,8 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import os
 import logging
+import json
 from minutes.transcribe import transcribe
 
 logging.basicConfig(level=logging.INFO)
@@ -22,8 +23,8 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    try:
-        # Use the project's transcribe wrapper (this will import faster_whisper)
+    # Stream NDJSON: emit one JSON object per line for segments, then a final object
+    def event_stream():
         segs = []
 
         def _progress(s):
@@ -31,20 +32,25 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
                 st = float(getattr(s, "start", 0.0) or 0.0)
                 ed = float(getattr(s, "end", 0.0) or 0.0)
                 txt = str(getattr(s, "text", ""))
-                logger.info("segment produced: start=%.3f end=%.3f text=%s", st, ed, txt[:80])
+                obj = {"type": "segment", "start": st, "end": ed, "text": txt}
+                segs.append(obj)
+                line = json.dumps(obj, ensure_ascii=False)
+                logger.info("stream segment: %s", line[:200])
+                yield line + "\n"
             except Exception:
-                logger.info("segment produced (unserializable): %s", str(s))
+                try:
+                    line = json.dumps({"type": "segment", "text": str(s)})
+                    yield line + "\n"
+                except Exception:
+                    pass
 
-        raw_text, segments = transcribe(dest_path, model_size="medium", prompt=None, progress_callback=_progress)
-        logger.info("transcribe returned types: raw_text=%s, segments=%s", type(raw_text), type(segments))
-        # Convert segments (materialized list) to serializable form
-        for s in segments:
-            try:
-                segs.append({"start": float(getattr(s, "start", None) or 0.0),
-                             "end": float(getattr(s, "end", None) or 0.0),
-                             "text": str(getattr(s, "text", ""))})
-            except Exception:
-                segs.append({"text": str(s)})
-        return JSONResponse({"raw_text": raw_text, "segments": segs})
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        try:
+            raw_text, _ = transcribe(dest_path, model_size="medium", prompt=None, progress_callback=_progress)
+            # final object
+            final = {"type": "final", "raw_text": raw_text, "segments": segs}
+            yield json.dumps(final, ensure_ascii=False) + "\n"
+        except Exception as exc:
+            err = {"type": "error", "error": str(exc)}
+            yield json.dumps(err, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")

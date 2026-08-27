@@ -25,7 +25,7 @@ def _write_db(data: Dict[str, Any]):
 def create_task(task_id: str):
     with _lock:
         db = _read_db()
-        db[task_id] = {"status": "pending", "result": None, "error": None}
+        db[task_id] = {"status": "pending", "result": None, "error": None, "progress": None}
         _write_db(db)
 
 
@@ -36,6 +36,7 @@ def update_task_success(task_id: str, result: Any):
         db[task_id]["status"] = "success"
         db[task_id]["result"] = result
         db[task_id]["error"] = None
+        db[task_id]["progress"] = 100.0
         _write_db(db)
 
 
@@ -46,6 +47,7 @@ def update_task_failure(task_id: str, error_msg: str):
         db[task_id]["status"] = "failed"
         db[task_id]["result"] = None
         db[task_id]["error"] = error_msg
+        db[task_id]["progress"] = None
         _write_db(db)
 
 
@@ -56,6 +58,7 @@ def update_task_cancelled(task_id: str):
         db[task_id]["status"] = "cancelled"
         db[task_id]["result"] = None
         db[task_id]["error"] = "cancelled by user"
+        db[task_id]["progress"] = None
         _write_db(db)
 
 
@@ -70,6 +73,16 @@ def update_task_status(task_id: str, status: str):
         db = _read_db()
         db.setdefault(task_id, {})
         db[task_id]["status"] = status
+        # when updating status, optionally clear or set progress separately
+        _write_db(db)
+
+
+def update_task_progress(task_id: str, progress: float):
+    """Set progress as a percentage (0.0-100.0)."""
+    with _lock:
+        db = _read_db()
+        db.setdefault(task_id, {})
+        db[task_id]["progress"] = float(progress)
         _write_db(db)
 
 

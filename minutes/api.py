@@ -215,7 +215,7 @@ def bg_status(task_id: str):
     t = get_task(task_id)
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
-    return {"task_id": task_id, "status": t["status"], "error": t.get("error")}
+    return {"task_id": task_id, "status": t["status"], "error": t.get("error"), "progress": t.get("progress")}
 
 
 @app.get(

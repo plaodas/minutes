@@ -35,14 +35,39 @@ def process_audio(self, input_path: str):
             update_task_status(task_id, "transcribing")
 
         if inference_url:
+            # Call inference endpoint and stream NDJSON lines for progress
             with open(clean, "rb") as fh:
                 files = {"file": (os.path.basename(clean), fh, "audio/wav")}
-                resp = requests.post(inference_url, files=files, timeout=600)
+                resp = requests.post(inference_url, files=files, stream=True, timeout=600)
             resp.raise_for_status()
-            j = resp.json()
-            # Expecting {"raw_text": "...", "segments": [...]}
-            raw_text = j.get("raw_text")
-            segments = j.get("segments")
+            raw_text = ""
+            segments = []
+            # parse NDJSON stream
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                typ = obj.get("type")
+                if typ == "segment":
+                    # update progress using end time as a heuristic
+                    try:
+                        end = float(obj.get("end", 0.0) or 0.0)
+                        if task_id:
+                            # naive progress: map end (seconds) to percent using audio duration if available
+                            update_task_status(task_id, f"transcribing:{end:.1f}s")
+                    except Exception:
+                        pass
+                    segments.append(obj)
+                elif typ == "final":
+                    raw_text = obj.get("raw_text", "")
+                    # if final contains segments, extend
+                    if isinstance(obj.get("segments"), list):
+                        segments = obj.get("segments")
+                elif typ == "error":
+                    raise RuntimeError(obj.get("error"))
         else:
             # Use local transcribe with progress callback to update task status
             def _progress(seg):
