@@ -14,20 +14,31 @@ if USE_DB:
     from sqlalchemy.exc import NoResultFound
     from datetime import datetime
 
-    def create_task(task_id: str):
+    def get_session():
+        """Return a new DB session (caller should close it)."""
+        return SessionLocal()
+
+    def create_task(task_id: str, db=None):
         with _lock:
-            db = SessionLocal()
+            close = False
+            if db is None:
+                db = SessionLocal()
+                close = True
             try:
                 t = Task(id=task_id, status="pending", progress=None, result=None, fail_count=0)
                 db.add(t)
                 db.commit()
             finally:
-                db.close()
+                if close:
+                    db.close()
 
 
-    def update_task_success(task_id: str, result: Any):
+    def update_task_success(task_id: str, result: Any, db=None):
         with _lock:
-            db = SessionLocal()
+            close = False
+            if db is None:
+                db = SessionLocal()
+                close = True
             try:
                 t = db.query(Task).get(task_id)
                 if not t:
@@ -40,12 +51,16 @@ if USE_DB:
                 t.last_success_ts = datetime.utcnow()
                 db.commit()
             finally:
-                db.close()
+                if close:
+                    db.close()
 
 
-    def update_task_failure(task_id: str, error_msg: str):
+    def update_task_failure(task_id: str, error_msg: str, db=None):
         with _lock:
-            db = SessionLocal()
+            close = False
+            if db is None:
+                db = SessionLocal()
+                close = True
             try:
                 t = db.query(Task).get(task_id)
                 if not t:
@@ -57,12 +72,16 @@ if USE_DB:
                 t.last_failure_ts = datetime.utcnow()
                 db.commit()
             finally:
-                db.close()
+                if close:
+                    db.close()
 
 
-    def update_task_cancelled(task_id: str):
+    def update_task_cancelled(task_id: str, db=None):
         with _lock:
-            db = SessionLocal()
+            close = False
+            if db is None:
+                db = SessionLocal()
+                close = True
             try:
                 t = db.query(Task).get(task_id)
                 if not t:
@@ -72,12 +91,16 @@ if USE_DB:
                 t.result = None
                 db.commit()
             finally:
-                db.close()
+                if close:
+                    db.close()
 
 
-    def update_task_status(task_id: str, status: str):
+    def update_task_status(task_id: str, status: str, db=None):
         with _lock:
-            db = SessionLocal()
+            close = False
+            if db is None:
+                db = SessionLocal()
+                close = True
             try:
                 t = db.query(Task).get(task_id)
                 if not t:
@@ -86,12 +109,16 @@ if USE_DB:
                 t.status = status
                 db.commit()
             finally:
-                db.close()
+                if close:
+                    db.close()
 
 
-    def update_task_progress(task_id: str, progress: float):
+    def update_task_progress(task_id: str, progress: float, db=None):
         with _lock:
-            db = SessionLocal()
+            close = False
+            if db is None:
+                db = SessionLocal()
+                close = True
             try:
                 t = db.query(Task).get(task_id)
                 if not t:
@@ -100,7 +127,8 @@ if USE_DB:
                 t.progress = float(progress)
                 db.commit()
             finally:
-                db.close()
+                if close:
+                    db.close()
 
 
     def get_task(task_id: str) -> Optional[Dict[str, Any]]:

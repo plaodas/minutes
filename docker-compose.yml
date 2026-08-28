@@ -16,7 +16,6 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
-      - DATABASE_URL=${DATABASE_URL}
     env_file:
       - .env
     depends_on:
@@ -42,7 +41,6 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
-      - DATABASE_URL=${DATABASE_URL}
     env_file:
       - .env
     depends_on:

@@ -2,10 +2,44 @@ import os
 import json
 from minutes.bg_store import DB_PATH, get_task, update_task_success, update_task_failure
 
+
 def reconcile_once(outputs_dir="data/outputs"):
-    # load tasks
-    with open(DB_PATH, "r", encoding="utf-8") as f:
-        tasks = json.load(f)
+    # load tasks either from file or DB
+    tasks = {}
+    if os.environ.get("DATABASE_URL"):
+        # DB-backed: query all tasks
+        session = None
+        try:
+            from minutes.db import SessionLocal
+            from minutes.models import Task
+            session = SessionLocal()
+            for t in session.query(Task).all():
+                tasks[str(t.id)] = {
+                    "status": t.status,
+                    "result": t.result or {},
+                    "fail_count": int(t.fail_count or 0),
+                    "last_failure_ts": t.last_failure_ts.isoformat() + "Z" if t.last_failure_ts else None,
+                    "last_success_ts": t.last_success_ts.isoformat() + "Z" if t.last_success_ts else None,
+                }
+        except Exception:
+            # fallback to file-based DB_PATH if DB access fails
+            try:
+                with open(DB_PATH, "r", encoding="utf-8") as f:
+                    tasks = json.load(f)
+            except Exception:
+                tasks = {}
+        finally:
+            try:
+                if session is not None:
+                    session.close()
+            except Exception:
+                pass
+    else:
+        try:
+            with open(DB_PATH, "r", encoding="utf-8") as f:
+                tasks = json.load(f)
+        except Exception:
+            tasks = {}
 
     pending = [tid for tid, v in tasks.items() if v.get("status") == "pending"]
     # gather referenced outputs

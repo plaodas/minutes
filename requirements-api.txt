@@ -6,3 +6,5 @@ requests==2.33.1
 celery==5.3.1
 # Use redis-py 4.x series for broad compatibility with many Python versions
 redis>=4.6.0,<5
+SQLAlchemy>=1.4
+psycopg2-binary>=2.9

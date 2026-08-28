@@ -13,6 +13,10 @@ import datetime
 import os
 from minutes.bg_store import update_task_success, update_task_failure
 from minutes.bg_store import update_task_status, update_task_progress
+try:
+    from minutes.bg_store import get_session
+except Exception:
+    get_session = None
 import requests
 from typing import Tuple, Any
 
@@ -27,10 +31,16 @@ def process_audio(self, input_path: str):
     or Celery.
     """
     task_id = getattr(self.request, "id", None)
+    db = None
+    if get_session:
+        try:
+            db = get_session()
+        except Exception:
+            db = None
     try:
         # mark preprocessing stage
         if task_id:
-            update_task_status(task_id, "preprocess")
+            update_task_status(task_id, "preprocess", db=db)
         mono, norm, clean = preprocess(input_path)
 
         # try to determine audio duration (seconds) from the cleaned wav file
@@ -66,7 +76,7 @@ def process_audio(self, input_path: str):
         inference_url = os.environ.get("INFERENCE_URL")
         # mark transcribing stage before calling inference/local transcribe
         if task_id:
-            update_task_status(task_id, "transcribing")
+            update_task_status(task_id, "transcribing", db=db)
 
         if inference_url:
             # Call inference endpoint and stream NDJSON lines for progress.
@@ -101,11 +111,11 @@ def process_audio(self, input_path: str):
                             try:
                                 end = float(obj.get("end", 0.0) or 0.0)
                                 if task_id:
-                                    update_task_status(task_id, f"transcribing:{end:.1f}s")
+                                    update_task_status(task_id, f"transcribing:{end:.1f}s", db=db)
                                     if audio_duration and audio_duration > 0:
                                         pct = min(100.0, (end / audio_duration) * 100.0)
                                         logger.debug("Updating progress for %s: %.2f%% (end=%.2f)", task_id, pct, end)
-                                        update_task_progress(task_id, pct)
+                                        update_task_progress(task_id, pct, db=db)
                             except Exception:
                                 pass
                             segments.append(obj)
@@ -114,7 +124,7 @@ def process_audio(self, input_path: str):
                             if isinstance(obj.get("segments"), list):
                                 segments = obj.get("segments")
                             if task_id:
-                                update_task_progress(task_id, 100.0)
+                                update_task_progress(task_id, 100.0, db=db)
                                 logger.debug("Marking progress 100%% for %s (final)", task_id)
                         elif typ == "error":
                             raise RuntimeError(obj.get("error"))
@@ -151,11 +161,11 @@ def process_audio(self, input_path: str):
                                 try:
                                     end = float(obj.get("end", 0.0) or 0.0)
                                     if task_id:
-                                        update_task_status(task_id, f"transcribing:{end:.1f}s")
+                                        update_task_status(task_id, f"transcribing:{end:.1f}s", db=db)
                                         if audio_duration and audio_duration > 0:
                                             pct = min(100.0, (end / audio_duration) * 100.0)
                                             logger.debug("Updating progress for %s: %.2f%% (end=%.2f)", task_id, pct, end)
-                                            update_task_progress(task_id, pct)
+                                            update_task_progress(task_id, pct, db=db)
                                 except Exception:
                                     pass
                                 segments.append(obj)
@@ -164,7 +174,7 @@ def process_audio(self, input_path: str):
                                 if isinstance(obj.get("segments"), list):
                                     segments = obj.get("segments")
                                 if task_id:
-                                    update_task_progress(task_id, 100.0)
+                                    update_task_progress(task_id, 100.0, db=db)
                                     logger.debug("Marking progress 100%% for %s (final-fallback)", task_id)
                             elif typ == "error":
                                 raise RuntimeError(obj.get("error"))
@@ -190,21 +200,21 @@ def process_audio(self, input_path: str):
                 try:
                     end = float(getattr(seg, "end", 0.0) or 0.0)
                     if task_id:
-                        update_task_status(task_id, f"transcribing:{end:.1f}s")
+                        update_task_status(task_id, f"transcribing:{end:.1f}s", db=db)
                         if audio_duration and audio_duration > 0:
                             pct = min(100.0, (end / audio_duration) * 100.0)
-                            update_task_progress(task_id, pct)
+                            update_task_progress(task_id, pct, db=db)
                 except Exception:
                     pass
 
             raw_text, segments = transcribe(clean, model_size="small", prompt=None, progress_callback=_progress)
             if task_id:
                 # ensure we mark progress complete when local transcribe finishes
-                update_task_progress(task_id, 100.0)
+                update_task_progress(task_id, 100.0, db=db)
 
         # mark formatting stage
         if task_id:
-            update_task_status(task_id, "formatting")
+            update_task_status(task_id, "formatting", db=db)
 
         final_minutes = format_minutes_from_raw(raw_text)
 
@@ -217,14 +227,20 @@ def process_audio(self, input_path: str):
 
         # Update shared task store for API visibility
         if task_id:
-            update_task_success(task_id, {"output_file": out_file})
+            update_task_success(task_id, {"output_file": out_file}, db=db)
 
         return {"status": "success", "output_file": out_file}
     except Exception as e:
         # Record failure in shared store if possible
         if task_id:
             try:
-                update_task_failure(task_id, str(e))
+                update_task_failure(task_id, str(e), db=db)
             except Exception:
                 pass
         raise
+    finally:
+        try:
+            if db is not None:
+                db.close()
+        except Exception:
+            pass
