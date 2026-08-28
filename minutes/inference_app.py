@@ -48,7 +48,7 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
 
     def worker():
         try:
-            raw_text, _ = transcribe(dest_path, model_size="medium", prompt=None, progress_callback=_progress)
+            raw_text, _ = transcribe(dest_path, model_size="small", prompt=None, progress_callback=_progress)
             final = {"type": "final", "raw_text": raw_text, "segments": segs}
             q.put(json.dumps(final, ensure_ascii=False) + "\n")
         except Exception as exc:

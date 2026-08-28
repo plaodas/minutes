@@ -197,7 +197,7 @@ def process_audio(self, input_path: str):
                 except Exception:
                     pass
 
-            raw_text, segments = transcribe(clean, model_size="medium", prompt=None, progress_callback=_progress)
+            raw_text, segments = transcribe(clean, model_size="small", prompt=None, progress_callback=_progress)
             if task_id:
                 # ensure we mark progress complete when local transcribe finishes
                 update_task_progress(task_id, 100.0)
