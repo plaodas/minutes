@@ -132,7 +132,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
 
   return (
     <div>
-      <label className={`block p-8 rounded-lg glass-card border border-transparent ${dragActive ? 'drag-active' : ''}`}
+      <label className={`block rounded-lg border border-transparent p-5 sm:p-8 glass-card ${dragActive ? 'drag-active' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
         onDragLeave={() => setDragActive(false)}
         onDrop={handleDrop}
@@ -146,7 +146,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
           {dragActive && (
             <div className="w-full h-8 mt-4 bg-gradient-to-r from-accent/30 to-transparent rounded-md" />
           )}
-          {fileName && <div className="mt-2 text-sm text-[var(--muted)]">Selected: {fileName}</div>}
+          {fileName && <div className="mt-2 max-w-full break-all text-sm text-[var(--muted)]">Selected: {fileName}</div>}
           {uploadProgress !== null && (
             <div className="w-full mt-3">
               <div className="w-full bg-gray-200 rounded-full h-2">
@@ -160,7 +160,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
               <button className="px-3 py-1 rounded bg-gray-200" onClick={cancelAll}>Cancel</button>
             </div>
           )}
-          {taskId && <div className="mt-2 text-sm">Task: {taskId}</div>}
+          {taskId && <div className="mt-2 max-w-full break-all text-sm">Task: {taskId}</div>}
           {error && <div className="mt-2 text-sm text-red-600">Error: {error}</div>}
         </div>
       </label>

@@ -1,45 +1,97 @@
 import React from 'react'
-import { Menu, Archive, Settings } from 'lucide-react'
+import { Archive, ChevronLeft, ChevronRight, Menu, Settings, Upload, X } from 'lucide-react'
 import useLocalStorage from '../hooks/useLocalStorage'
 
-const MenuItem: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
-  <div className="flex items-center gap-3 p-3 rounded-md hover:bg-[var(--bg-surface)] cursor-pointer">
-    <div className="w-6 h-6 text-[var(--accent)]">{icon}</div>
-    <div className="text-sm">{label}</div>
-  </div>
-)
+export type NavigationView = 'upload' | 'history' | 'settings'
 
-export default function Sidebar() {
+type Props = {
+  activeView: NavigationView
+  onNavigate: (view: NavigationView) => void
+}
+
+const items: Array<{ view: NavigationView; label: string; icon: React.ReactNode }> = [
+  { view: 'upload', label: 'Upload', icon: <Upload size={18} /> },
+  { view: 'history', label: 'History', icon: <Archive size={18} /> },
+  { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
+]
+
+export default function Sidebar({ activeView, onNavigate }: Props) {
   const [expanded, setExpanded] = useLocalStorage('sidebar-expanded', true)
+  const [mobileOpen, setMobileOpen] = React.useState(false)
+
+  const navigate = (view: NavigationView) => {
+    onNavigate(view)
+    setMobileOpen(false)
+  }
+
+  const navigation = (showLabels: boolean) => (
+    <nav className="flex-1 space-y-1" aria-label="Main navigation">
+      {items.map((item) => {
+        const isActive = activeView === item.view
+        return (
+          <button
+            key={item.view}
+            type="button"
+            aria-label={item.label}
+            title={!showLabels ? item.label : undefined}
+            onClick={() => navigate(item.view)}
+            className={`flex w-full items-center rounded-md p-3 text-left transition-colors ${
+              isActive ? 'bg-teal-50 text-[var(--accent)]' : 'hover:bg-[var(--bg-default)]'
+            } ${showLabels ? 'gap-3' : 'justify-center'}`}
+          >
+            <span className="shrink-0">{item.icon}</span>
+            {showLabels && <span className="text-sm font-medium">{item.label}</span>}
+          </button>
+        )
+      })}
+    </nav>
+  )
 
   return (
-    <aside
-      className={`flex flex-col transition-all duration-200 bg-[var(--bg-surface)] p-3 ${
-        expanded ? 'w-60' : 'w-16'
-      }`}
-      style={{ minHeight: '100vh' }}
-    >
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className="rounded-md w-8 h-8 bg-[var(--accent)]" />
-          {expanded && <div className="font-semibold">Minutes</div>}
+    <>
+      <button
+        type="button"
+        aria-label="Open menu"
+        aria-expanded={mobileOpen}
+        onClick={() => setMobileOpen(true)}
+        className="fixed left-4 top-4 z-30 rounded-md bg-white p-2 shadow-sm ring-1 ring-black/5 md:hidden"
+      >
+        <Menu size={20} />
+      </button>
+
+      {mobileOpen && <button type="button" aria-label="Close menu" className="fixed inset-0 z-30 bg-slate-950/20 md:hidden" onClick={() => setMobileOpen(false)} />}
+
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-white p-3 shadow-xl transition-transform duration-200 md:hidden ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-md bg-[var(--accent)]" />
+            <div className="font-semibold">Minutes</div>
+          </div>
+          <button type="button" aria-label="Close menu" onClick={() => setMobileOpen(false)} className="rounded p-1 hover:bg-[var(--bg-default)]"><X size={20} /></button>
         </div>
-        <button
-          aria-label="toggle sidebar"
-          onClick={() => setExpanded(!expanded)}
-          className="p-1 rounded"
-        >
-          <Menu size={18} />
-        </button>
-      </div>
+        {navigation(true)}
+        <footer className="mt-4 text-xs text-[var(--muted)]">v0.1 · Offline ready</footer>
+      </aside>
 
-      <nav className="flex-1 space-y-2">
-        <MenuItem icon={<Menu size={16} />} label="Upload" />
-        <MenuItem icon={<Archive size={16} />} label="History" />
-        <MenuItem icon={<Settings size={16} />} label="Settings" />
-      </nav>
-
-      <footer className="text-xs text-[var(--muted)] mt-4">v0.1 • Offline ready</footer>
-    </aside>
+      <aside className={`hidden min-h-screen shrink-0 flex-col bg-white p-3 transition-all duration-200 md:flex ${expanded ? 'w-60' : 'w-16'}`}>
+        <div className={`mb-5 flex items-center ${expanded ? 'justify-between' : 'justify-center'}`}>
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 shrink-0 rounded-md bg-[var(--accent)]" />
+            {expanded && <div className="font-semibold">Minutes</div>}
+          </div>
+          <button
+            type="button"
+            aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            onClick={() => setExpanded(!expanded)}
+            className={`rounded p-1 hover:bg-[var(--bg-default)] ${expanded ? '' : 'absolute left-20 top-5'}`}
+          >
+            {expanded ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+          </button>
+        </div>
+        {navigation(expanded)}
+        {expanded && <footer className="mt-4 text-xs text-[var(--muted)]">v0.1 · Offline ready</footer>}
+      </aside>
+    </>
   )
 }
