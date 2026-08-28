@@ -16,6 +16,11 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
+      - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env
+    depends_on:
+      - db
     restart: unless-stopped
   redis:
     image: redis:7-alpine
@@ -28,8 +33,6 @@ services:
       args:
         INSTALL_FULL: "false"
     command: celery -A minutes.tasks worker -Q minutes --loglevel=info
-    depends_on:
-      - redis
     volumes:
       - ./:/app
       - ./data/uploads:/app/uploads
@@ -39,6 +42,12 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
+      - DATABASE_URL=${DATABASE_URL}
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - db
     restart: unless-stopped
 
   frontend:
@@ -66,3 +75,19 @@ services:
       - PYTHONUNBUFFERED=1
     command: uvicorn minutes.inference_app:app --host 0.0.0.0 --port 5001
     restart: unless-stopped
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-minutes}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-minutes_password}
+      - POSTGRES_DB=${POSTGRES_DB:-minutes}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local
+
