@@ -27,7 +27,7 @@ export default function App() {
                 </div>
                 <Dropzone setActiveIndex={setActiveIndex} setResult={setResult} />
                 <div className="mt-6">
-                  <ProcessingSteps activeIndex={activeIndex >= 0 ? activeIndex : 0} />
+                  <ProcessingSteps activeIndex={activeIndex} />
                 </div>
                 <div className="mt-6">
                   <ResultCards result={result} />

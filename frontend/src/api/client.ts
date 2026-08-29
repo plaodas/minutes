@@ -48,7 +48,7 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
 }
 
 export async function getBgStatus(taskId: string) {
-  const res = await fetch(`${BASE}/bg/status/${taskId}`)
+  const res = await fetch(`${BASE}/bg/status/${taskId}a`)
   if (!res.ok) throw new Error('status fetch failed')
   return res.json()
 }
