@@ -23,6 +23,7 @@ var/
 .installed.cfg
 *.egg
 node_modules/
+.playwright-browsers/
 
 # Virtual environments
 .venv/
