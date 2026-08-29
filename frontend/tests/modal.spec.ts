@@ -1,104 +1,73 @@
 import { test, expect } from '@playwright/test'
-
-const modalHtml = (id = 'test-modal') => `
-  <div id="overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:flex-start;justify-content:center;padding:24px">
-    <div role="dialog" aria-modal="true" aria-label="Full history for ${id}" style="background:#fff;padding:16px;border-radius:8px;max-height:70vh;overflow:auto;min-width:320px">
-      <button id="close" aria-label="Close">✕</button>
-      <h2>Full history for ${id}</h2>
-      <div>
-        <button id="action-1">Action 1</button>
-        <a id="link-1" href="#">Link 1</a>
-        <input id="input-1" />
-      </div>
-    </div>
-    </div>
-  `
-
 test.describe('modal focus trap', () => {
   test.beforeEach(async ({ page }) => {
-    // open the built app page
-    await page.goto('http://localhost:5173')
-    // inject a test modal into the page DOM and a focus-trap handler so tests run against built app context
-    await page.evaluate(() => {
-      const html = `
-      <div id="overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:flex-start;justify-content:center;padding:24px">
-        <div role="dialog" aria-modal="true" aria-label="Full history for test" style="background:#fff;padding:16px;border-radius:8px;max-height:70vh;overflow:auto;min-width:320px">
-          <button id="close" aria-label="Close">✕</button>
-          <h2>Full history for test</h2>
-          <div>
-            <button id="action-1">Action 1</button>
-            <a id="link-1" href="#">Link 1</a>
-            <input id="input-1" />
-          </div>
-        </div>
-      </div>`
-      const wrapper = document.createElement('div')
-      wrapper.innerHTML = html
-      document.body.appendChild(wrapper.firstElementChild)
-      // simple focus trap for the injected modal
-      const root = document.querySelector('[role="dialog"]')
-      const getFocusable = () => {
-        if (!root) return []
-        return Array.from(root.querySelectorAll('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'))
-      }
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          const ov = document.getElementById('overlay')
-          ov?.remove()
-          return
-        }
-        if (e.key !== 'Tab') return
-        const list = getFocusable()
-        if (list.length === 0) { e.preventDefault(); return }
-        const idx = list.indexOf(document.activeElement)
-        if (e.shiftKey) {
-          if (idx <= 0) { e.preventDefault(); list[list.length - 1].focus() }
-        } else {
-          if (idx === list.length - 1) { e.preventDefault(); list[0].focus() }
-        }
-      })
-      const ov = document.getElementById('overlay')
-      ov?.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove() })
-      // focus first
-      setTimeout(() => { document.getElementById('close')?.focus() }, 20)
+    page.on('console', (msg) => console.log('PAGE LOG>', msg.text()))
+    page.on('pageerror', (err) => console.log('PAGE ERROR>', err.message))
+    // seed localStorage before the app loads so the real UI renders with histories
+    await page.addInitScript(() => {
+      const now = new Date().toISOString()
+      const sample = [{
+        id: 'sample-1',
+        name: 'rd1487.mp3',
+        created_at: now,
+        histories: [
+          { event_ts: now, event_type: 'status', payload: { result: { output_file: 'outputs/1.txt' } } },
+          { event_ts: now, event_type: 'progress', payload: {} },
+          { event_ts: now, event_type: 'success', payload: { result: { output_file: 'outputs/2.txt' } } }
+        ]
+      }]
+      try { localStorage.setItem('recent_tasks', JSON.stringify(sample)) } catch (e) {}
     })
+    await page.goto('http://localhost:5173')
+    // wait for UI to render (attached to DOM)
+    await page.waitForSelector('text=Recent minutes', { state: 'attached', timeout: 10000 })
+    // wait for the seeded history button to be attached then scroll into view and click
+    await page.waitForSelector('[data-testid="view-history-sample-1"]', { state: 'attached', timeout: 10000 })
+    const btn = page.locator('[data-testid="view-history-sample-1"]')
+    await btn.scrollIntoViewIfNeeded()
+    await btn.click()
+    await page.waitForSelector('[role="dialog"]')
   })
 
   test('tabs cycle within modal', async ({ page }) => {
-    // focus close button first
-    await page.locator('#close').focus()
-    // press Tab to go to first action
+    // close button should be focused first by the app
+    const close = page.locator('button[aria-label="Close"]')
+    await expect(close).toBeFocused()
+    // Tab to first link
     await page.keyboard.press('Tab')
-    await expect(page.locator('#action-1')).toBeFocused()
-    // Tab to link
+    const firstLink = page.locator('[role="dialog"] a').first()
+    await expect(firstLink).toBeFocused()
+    // Tab to second link
     await page.keyboard.press('Tab')
-    await expect(page.locator('#link-1')).toBeFocused()
-    // Tab to input
+    const secondLink = page.locator('[role="dialog"] a').nth(1)
+    await expect(secondLink).toBeFocused()
+    // Tab again should wrap back to close
     await page.keyboard.press('Tab')
-    await expect(page.locator('#input-1')).toBeFocused()
-    // Tab again should wrap to close
-    await page.keyboard.press('Tab')
-    await expect(page.locator('#close')).toBeFocused()
+    await expect(close).toBeFocused()
   })
 
   test('shift+tab wraps backwards', async ({ page }) => {
-    await page.locator('#close').focus()
-    // Shift+Tab from close should go to input (last)
+    const close = page.locator('button[aria-label="Close"]')
+    await expect(close).toBeFocused()
     await page.keyboard.down('Shift')
     await page.keyboard.press('Tab')
     await page.keyboard.up('Shift')
-    await expect(page.locator('#input-1')).toBeFocused()
+    const lastLink = page.locator('[role="dialog"] a').nth(1)
+    await expect(lastLink).toBeFocused()
   })
 
-  test('escape closes modal (simulate by removing from DOM)', async ({ page }) => {
-    // press Escape (beforeEach injected handler will remove overlay)
+  test('escape closes modal', async ({ page }) => {
     await page.keyboard.press('Escape')
-    await expect(page.locator('#overlay')).toHaveCount(0)
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0)
   })
 
   test('overlay click closes modal', async ({ page }) => {
-    // click overlay background (outside dialog)
-    await page.click('#overlay')
-    await expect(page.locator('#overlay')).toHaveCount(0)
+    // click outside the dialog by clicking above-left of its bounding box
+    const dialog = page.locator('[role="dialog"]')
+    const box = await dialog.boundingBox()
+    if (box) {
+      await page.mouse.click(Math.max(5, box.x - 10), Math.max(5, box.y - 10))
+    }
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0)
   })
 })
