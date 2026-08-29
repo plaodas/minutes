@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
 import logging
@@ -94,6 +95,15 @@ def _run_pipeline_background(input_path: str, task_id: str):
 
 
 app = FastAPI(title="Minutes Service (prototype)")
+
+# CORS: allow local dev origins used by the frontend and Playwright
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:8080", "http://localhost"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")

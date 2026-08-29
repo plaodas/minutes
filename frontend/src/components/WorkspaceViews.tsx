@@ -145,9 +145,16 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       const selector = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
       return Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((el) => !el.hasAttribute('disabled'))
     }
-    const focusables = getFocusable()
-    // focus first focusable element
-    setTimeout(() => { focusables[0]?.focus() }, 20)
+    // focus close button (if present) to make focus behavior deterministic
+    setTimeout(() => {
+      const closeBtn = document.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLElement | null
+      if (closeBtn) {
+        try { closeBtn.focus() } catch {}
+        return
+      }
+      const focusables = getFocusable()
+      focusables[0]?.focus()
+    }, 50)
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
