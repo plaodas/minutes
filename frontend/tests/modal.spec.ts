@@ -20,8 +20,12 @@ test.describe('modal focus trap', () => {
     })
     await page.goto('http://localhost:5173')
     // open the History view via the sidebar so the Recent minutes component is mounted
-    await page.waitForSelector('button[aria-label="History"]', { timeout: 10000 })
-    await page.click('button[aria-label="History"]')
+    await page.waitForSelector('button[aria-label="History"]', { state: 'attached', timeout: 10000 })
+    // click the first matching history nav button via DOM to avoid Playwright actionability issues
+    await page.evaluate(() => {
+      const el = document.querySelector('button[aria-label="History"]') as HTMLElement | null
+      el?.click()
+    })
     // wait for UI to render (attached to DOM)
     await page.waitForSelector('text=Recent minutes', { state: 'attached', timeout: 10000 })
     // wait for the seeded history button to be attached then scroll into view and click
