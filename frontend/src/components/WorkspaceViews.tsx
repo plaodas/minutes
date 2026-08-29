@@ -17,24 +17,32 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
     // ensure array
     if (!Array.isArray(arr)) arr = []
     setItems(arr)
-    // fetch latest history event for each item (non-blocking)
+    // fetch latest history for all recent items in one batch request
     const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
     setLoading(true)
-    Promise.all(
-      arr.slice(0, 20).map(async (it: any) => {
-        try {
-          const res = await fetch(`${BASE}/bg/history/${it.id}?limit=1`)
-          if (!res.ok) return { ...it, latest: null }
-          const j = await res.json()
-          const h = (j.history && j.history[0]) || null
-          return { ...it, latest: h }
-        } catch {
-          return { ...it, latest: null }
+    ;(async () => {
+      try {
+        const ids = arr.slice(0, 50).map((it: any) => it.id)
+        if (ids.length === 0) return
+        const res = await fetch(`${BASE}/bg/histories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        })
+        if (!res.ok) {
+          setLoading(false)
+          return
         }
-      })
-    )
-      .then((results) => setItems(results))
-      .finally(() => setLoading(false))
+        const j = await res.json()
+        const map = j.histories || {}
+        const merged = arr.map((it: any) => ({ ...it, latest: map[it.id] || null }))
+        setItems(merged)
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false)
+      }
+    })()
   }, [])
 
   return (

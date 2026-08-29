@@ -3,7 +3,8 @@ import asyncio
 import logging
 import logging
 from fastapi.responses import PlainTextResponse, JSONResponse
-from typing import Dict, Any
+from typing import Dict, Any, List
+from pydantic import BaseModel
 import json
 from minutes.schemas import (
     CreateTaskResponse,
@@ -283,6 +284,71 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     history = t.get("history", [])
     sliced = history[int(offset) : int(offset) + int(limit)]
     return {"task_id": task_id, "history": sliced}
+
+
+class IdList(BaseModel):
+    ids: List[str]
+
+
+@app.post("/bg/histories")
+def bg_histories(payload: IdList):
+    """Return latest history entry for multiple task ids in one request."""
+    ids = payload.ids or []
+    if not ids:
+        return {"histories": {}}
+
+    # DB-backed
+    if os.environ.get("DATABASE_URL"):
+        session = SessionLocal()
+        try:
+            # convert to UUID keys where possible
+            keys = []
+            for i in ids:
+                try:
+                    keys.append(uuid.UUID(i))
+                except Exception:
+                    keys.append(i)
+
+            rows = (
+                session.query(TaskHistory)
+                .filter(TaskHistory.task_id.in_(keys))
+                .order_by(TaskHistory.task_id, TaskHistory.event_ts.desc())
+                .all()
+            )
+            out = {}
+            seen = set()
+            for r in rows:
+                tid = str(r.task_id)
+                if tid in seen:
+                    continue
+                seen.add(tid)
+                out[tid] = {
+                    "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
+                    "event_type": r.event_type,
+                    "payload": r.payload,
+                }
+            return {"histories": out}
+        finally:
+            session.close()
+
+    # file-backed fallback
+    try:
+        with open(DB_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {"histories": {}}
+
+    out = {}
+    for i in ids:
+        t = data.get(i)
+        if not t:
+            continue
+        hist = t.get("history", [])
+        if not hist:
+            continue
+        latest = hist[-1]
+        out[i] = latest
+    return {"histories": out}
 
 
 @app.post("/bg/cancel/{task_id}")
