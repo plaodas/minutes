@@ -10,35 +10,9 @@ const sampleMinutes = [
 export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [items, setItems] = useState<Array<any>>([])
   const [loading, setLoading] = useState(false)
-  const [loadingMore, setLoadingMore] = useState<Record<string, boolean>>({})
-  const [loadedAll, setLoadedAll] = useState<Record<string, boolean>>({})
   const [modalTask, setModalTask] = useState<string | null>(null)
-  const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({})
-
-  const loadMore = async (taskId: string) => {
-    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-    const pageSize = Number(import.meta.env.VITE_BG_HISTORY_PAGE_SIZE || 10)
-    const item = items.find((it: any) => it.id === taskId)
-    if (!item) return
-    const offset = (item.histories || []).length
-    setLoadingMore((s) => ({ ...s, [taskId]: true }))
-    try {
-      const res = await fetch(`${BASE}/bg/histories`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [taskId], limit: pageSize, offset }),
-      })
-      if (!res.ok) return
-      const j = await res.json()
-      const more = (j.histories || {})[taskId] || []
-      setItems((prev) => prev.map((it) => (it.id === taskId ? { ...it, histories: [...(it.histories || []), ...more] } : it)))
-      if (more.length < pageSize) setLoadedAll((s) => ({ ...s, [taskId]: true }))
-    } catch (e) {
-      // ignore
-    } finally {
-      setLoadingMore((s) => ({ ...s, [taskId]: false }))
-    }
-  }
+  const [isModalVisible, setIsModalVisible] = useState(false)
+  const prevFocusRef = React.useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const raw = localStorage.getItem('recent_tasks')
@@ -73,6 +47,70 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
     fetchInitial()
   }, [])
 
+  // manage body scroll while modalTask is set
+  useEffect(() => {
+    if (modalTask) {
+      document.body.style.overflow = 'hidden'
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [modalTask])
+
+  const openModal = (id: string) => {
+    prevFocusRef.current = document.activeElement as HTMLElement | null
+    setModalTask(id)
+    // allow mount, then trigger visible for animation
+    setTimeout(() => setIsModalVisible(true), 10)
+  }
+
+  const closeModal = () => {
+    setIsModalVisible(false)
+    // wait for animation to finish then unmount
+    setTimeout(() => {
+      setModalTask(null)
+      // return focus to previous element
+      try { prevFocusRef.current?.focus() } catch {}
+    }, 220)
+  }
+
+  // focus trap and ESC handling when modal is open
+  useEffect(() => {
+    if (!modalTask) return
+    const root = document.querySelector('[role="dialog"]') as HTMLElement | null
+    const getFocusable = () => {
+      if (!root) return [] as HTMLElement[]
+      const selector = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+      return Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((el) => !el.hasAttribute('disabled'))
+    }
+    const focusables = getFocusable()
+    // focus first focusable element
+    setTimeout(() => { focusables[0]?.focus() }, 20)
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault(); closeModal(); return
+      }
+      if (e.key !== 'Tab') return
+      const list = getFocusable()
+      if (list.length === 0) {
+        e.preventDefault(); return
+      }
+      const idx = list.indexOf(document.activeElement as HTMLElement)
+      if (e.shiftKey) {
+        if (idx <= 0) {
+          e.preventDefault(); list[list.length - 1].focus()
+        }
+      } else {
+        if (idx === list.length - 1) {
+          e.preventDefault(); list[0].focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [modalTask])
+
   return (
     <>
       <section>
@@ -102,30 +140,16 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   <div className="mt-1 text-xs text-[var(--muted)]">
                     {item.histories.slice(0, 5).map((h: any, idx: number) => (
                       <div key={idx} className="truncate">
-                        <div className="flex items-center gap-2">
-                          <div>
-                            {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
-                            <strong>{h.event_type}</strong>
-                            {h.payload?.error ? ` — ${h.payload.error}` : ''}
-                          </div>
-                          <button onClick={() => setExpandedEvents((s) => ({ ...s, [item.id + '_' + idx]: !s[item.id + '_' + idx] }))} className="text-xs text-[var(--accent)]">{expandedEvents[item.id + '_' + idx] ? 'Hide' : 'Details'}</button>
-                        </div>
-                        {expandedEvents[item.id + '_' + idx] && (
-                          <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-50 p-2 text-xs">{JSON.stringify(h.payload, null, 2)}</pre>
-                        )}
+                        {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
+                        <strong>{h.event_type}</strong>
+                        {h.payload?.error ? ` — ${h.payload.error}` : ''}
                       </div>
                     ))}
                     {item.histories.length === 0 && <div>—</div>}
-                  </div>
-                )}
-
-                {item.histories && item.histories.length > 0 && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <button type="button" onClick={() => loadMore(item.id)} disabled={!!loadingMore[item.id] || !!loadedAll[item.id]} className="text-xs text-[var(--accent)]">
-                      {loadingMore[item.id] ? 'Loading...' : loadedAll[item.id] ? 'All loaded' : 'Load more'}
-                    </button>
-                    <button type="button" onClick={() => setModalTask(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
-                    <span className="text-xs text-[var(--muted)]">Showing {item.histories.length}{loadedAll[item.id] ? ' (all)' : ''}</span>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
+                        <span className="text-xs text-[var(--muted)]">Showing {item.histories.length}</span>
+                      </div>
                   </div>
                 )}
               </span>
@@ -140,11 +164,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       </section>
 
       {modalTask && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6">
-          <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded bg-white p-6">
-            <div className="mb-4 flex items-center justify-between">
+        <div onClick={(e) => { if (e.target === e.currentTarget) closeModal() }} className={`fixed inset-0 z-50 flex items-start justify-center p-6 transition-opacity duration-200 ${isModalVisible ? 'bg-black/40 opacity-100' : 'bg-black/0 opacity-0'}`}>
+          <div role="dialog" aria-modal="true" aria-label={`Full history for ${modalTask}`} className={`relative max-h-[80vh] w-full max-w-2xl overflow-auto rounded bg-white p-6 transform transition-all duration-200 ${isModalVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'}`}>
+            <button aria-label="Close" onClick={() => closeModal()} className="absolute right-3 top-3 rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-slate-100">✕</button>
+            <div className="mb-4">
               <h2 className="text-lg font-semibold">Full history for {modalTask}</h2>
-              <button onClick={() => setModalTask(null)} className="text-sm text-[var(--muted)]">Close</button>
             </div>
             <div>
               {(items.find((it) => it.id === modalTask)?.histories || []).map((h: any, idx: number) => (
