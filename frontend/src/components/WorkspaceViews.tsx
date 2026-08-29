@@ -116,14 +116,20 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   // infinite scroll: observe sentinel and load more items
   useEffect(() => {
     const sentinel = document.querySelector('[data-testid="history-list-sentinel"]') as HTMLElement | null
-    if (!sentinel) return
+    const container = listRef.current
+    if (!sentinel || !container) return
+    // only observe when the list is scrollable; avoid auto-loading when content fits
+    if (container.scrollHeight <= container.clientHeight) return
     const obs = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (e.isIntersecting) {
-          setVisibleCount((v) => Math.min(items.length, v + 5))
+          setVisibleCount((v) => {
+            if (v >= items.length) return v
+            return Math.min(items.length, v + 5)
+          })
         }
       }
-    }, { root: listRef.current, rootMargin: '200px' })
+    }, { root: container, rootMargin: '200px' })
     obs.observe(sentinel)
     return () => obs.disconnect()
   }, [items])
