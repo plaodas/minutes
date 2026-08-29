@@ -296,19 +296,35 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
 class IdList(BaseModel):
     ids: List[str]
     limit: int | None = 1
+    # backward-compatible: single numeric offset (applies to all ids when provided)
     offset: int | None = 0
+    # optional per-id offsets map: { "<id>": <offset>, ... }
+    offsets: Dict[str, int] | None = None
 
 
 @app.post("/bg/histories")
 def bg_histories(payload: IdList):
     """Return history entries for multiple task ids in one request.
 
-    Request body: { ids: [...], limit: int (per-id limit, default 1), offset: int }
+    Request body: { ids: [...], limit: int (per-id limit, default 1),
+                   offset: int }
+    Also supports per-id offsets map: { offsets: { "<id>": <offset>, ... } }
     Response: { histories: { id: [events...] } }
     """
     ids = payload.ids or []
     limit = int(payload.limit or 1)
-    offset = int(payload.offset or 0)
+    # build offsets map: prefer payload.offsets (per-id), fall back to single offset if provided
+    offsets_map: Dict[str, int] = {}
+    if getattr(payload, "offsets", None):
+        try:
+            offsets_map = {str(k): int(v) for k, v in (payload.offsets or {}).items()}
+        except Exception:
+            offsets_map = {}
+    else:
+        # single numeric offset (backward compat)
+        single_off = int(payload.offset or 0)
+        if single_off:
+            offsets_map = {i: single_off for i in ids}
     if not ids:
         return {"histories": {}}
 
@@ -333,11 +349,12 @@ def bg_histories(payload: IdList):
 
             from sqlalchemy import select, func
 
+            # For per-id offsets we execute per-task small window queries within each chunk
             for start in range(0, n_ids, BG_HISTORIES_BATCH_SIZE):
                 chunk = ids[start : start + BG_HISTORIES_BATCH_SIZE]
 
                 # build mapping of valid UUIDs in this chunk
-                valid_map = {}
+                valid_map: Dict[uuid.UUID, str] = {}
                 for i in chunk:
                     # skip obviously-invalid short strings to avoid accidental coercion
                     if not isinstance(i, str) or len(i) not in (32, 36):
@@ -352,39 +369,41 @@ def bg_histories(payload: IdList):
                 if not valid_map:
                     continue
 
-                # window function per task_id ordered by event_ts desc
-                rownum = func.row_number().over(partition_by=TaskHistory.task_id, order_by=TaskHistory.event_ts.desc()).label("rn")
-                subq = (
-                    select(
-                        TaskHistory.id,
-                        TaskHistory.task_id,
-                        TaskHistory.event_ts,
-                        TaskHistory.event_type,
-                        TaskHistory.payload,
-                        rownum,
+                # For each valid task_id in this chunk, fetch its rows using a window function
+                for u, orig_id in valid_map.items():
+                    off = int(offsets_map.get(orig_id, 0))
+                    rownum = func.row_number().over(partition_by=TaskHistory.task_id, order_by=TaskHistory.event_ts.desc()).label("rn")
+                    subq = (
+                        select(
+                            TaskHistory.id,
+                            TaskHistory.task_id,
+                            TaskHistory.event_ts,
+                            TaskHistory.event_type,
+                            TaskHistory.payload,
+                            rownum,
+                        )
+                        .where(TaskHistory.task_id == u)
+                        .subquery()
                     )
-                    .where(TaskHistory.task_id.in_(list(valid_map.keys())))
-                    .subquery()
-                )
 
-                q = (
-                    select(subq)
-                    .where(subq.c.rn > offset)
-                    .where(subq.c.rn <= (offset + limit))
-                    .order_by(subq.c.task_id, subq.c.rn)
-                )
-                res = session.execute(q).all()
-
-                for row in res:
-                    tid = str(row.task_id)
-                    entries = out.setdefault(tid, [])
-                    entries.append(
-                        {
-                            "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
-                            "event_type": row.event_type,
-                            "payload": row.payload,
-                        }
+                    q = (
+                        select(subq)
+                        .where(subq.c.rn > off)
+                        .where(subq.c.rn <= (off + limit))
+                        .order_by(subq.c.task_id, subq.c.rn)
                     )
+                    res = session.execute(q).all()
+
+                    for row in res:
+                        tid = str(row.task_id)
+                        entries = out.setdefault(tid, [])
+                        entries.append(
+                            {
+                                "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
+                                "event_type": row.event_type,
+                                "payload": row.payload,
+                            }
+                        )
 
             resp = {"histories": out}
             if warnings:
@@ -411,7 +430,9 @@ def bg_histories(payload: IdList):
             if not hist:
                 out[str(i)] = []
                 continue
-            sliced = hist[max(0, len(hist) - offset - limit) : len(hist) - offset]
+            # use per-id offset when provided, fall back to 0
+            off = int(offsets_map.get(i, 0))
+            sliced = hist[max(0, len(hist) - off - limit) : len(hist) - off]
             out[str(i)] = list(reversed(sliced))
 
     resp = {"histories": out}
