@@ -18,6 +18,25 @@ test.describe('modal focus trap', () => {
       }]
       try { localStorage.setItem('recent_tasks', JSON.stringify(sample)) } catch (e) {}
     })
+    // intercept GET /bg/tasks to return the seeded sample so the UI shows the task
+    await page.route('**/bg/tasks**', async (route) => {
+      const now = new Date().toISOString()
+      const sample = [{ id: 'sample-1', name: 'rd1487.mp3', created_at: now }]
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: sample }) })
+    })
+    // intercept GET /bg/tasks/:id/events to return full events including output_file links
+    await page.route('**/bg/tasks/sample-1/events', async (route) => {
+      const now = new Date().toISOString()
+      const resp = {
+        task_id: 'sample-1',
+        events: [
+          { event_ts: now, event_type: 'status', payload: { result: { output_file: 'outputs/1.txt' } } },
+          { event_ts: now, event_type: 'progress', payload: {} },
+          { event_ts: now, event_type: 'success', payload: { result: { output_file: 'outputs/2.txt' } } }
+        ]
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(resp) })
+    })
     await page.goto('http://localhost:5173')
     // open the History view via the sidebar so the Recent minutes component is mounted
     await page.waitForSelector('button[aria-label="History"]', { state: 'attached', timeout: 10000 })
@@ -30,7 +49,7 @@ test.describe('modal focus trap', () => {
     await page.waitForSelector('text=Recent minutes', { state: 'attached', timeout: 10000 })
     // wait for the seeded history button to be attached then scroll into view and click
     await page.waitForSelector('[data-testid="view-history-sample-1"]', { state: 'attached', timeout: 10000 })
-    const btn = page.locator('[data-testid="view-history-sample-1"]')
+    const btn = page.locator('[data-testid="view-history-sample-1"]').first()
     await btn.scrollIntoViewIfNeeded()
     await btn.click()
     await page.waitForSelector('[role="dialog"]')
@@ -40,6 +59,11 @@ test.describe('modal focus trap', () => {
     // close button should be focused first by the app
     const close = page.locator('button[aria-label="Close"]')
     await expect(close).toBeFocused()
+    // Tab to first link
+    await page.keyboard.press('Tab')
+    // After first Tab the Rename button is focused (header button)
+    const renameBtn = page.locator('button[data-testid^="rename-"]').first()
+    await expect(renameBtn).toBeFocused()
     // Tab to first link
     await page.keyboard.press('Tab')
     const firstLink = page.locator('[role="dialog"] a').first()

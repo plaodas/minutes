@@ -18,19 +18,23 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [isMinutesVisible, setIsMinutesVisible] = useState(false)
   const [loadingPerTask, setLoadingPerTask] = useState<Record<string, boolean>>({})
   const [hasMorePerTask, setHasMorePerTask] = useState<Record<string, boolean>>({})
+  const [hasMore, setHasMore] = useState<boolean>(true)
+  const [loadingMore, setLoadingMore] = useState<boolean>(false)
   const prevFocusRef = React.useRef<HTMLElement | null>(null)
   const listRef = React.useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    // Fetch the task list from the backend instead of reading from localStorage.
-    const fetchTasks = async () => {
+    // Fetch the initial page of tasks (server-side paging) and use server-provided preview_events when available.
+    const fetchTasks = async (offset = 0) => {
       const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
       setLoading(true)
       try {
-        const limit = 100
-        const res = await fetch(`${BASE}/bg/tasks?limit=${limit}`)
+        const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
+        const res = await fetch(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`)
         if (!res.ok) {
           setItems([])
+          setHasMorePerTask({})
+          setLoading(false)
           return
         }
         const j = await res.json()
@@ -41,30 +45,16 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           status: t.status,
           progress: t.progress,
           result: t.result,
-          histories: [],
+          // prefer server preview_events if provided, otherwise empty array
+          histories: (t.preview_events || []).slice(0, 3),
+          // expose event_count for UI
+          event_count: t.event_count || 0,
         }))
-        setItems(arr)
 
-        // After we have the list, fetch histories only for visible items
-        const toFetch = arr.slice(0, visibleCount).map((it: any) => it.id)
-        if (toFetch.length === 0) return
-        const body: any = { ids: toFetch, limit: Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5) }
-        const hres = await fetch(`${BASE}/bg/histories`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        if (!hres.ok) return
-        const hj = await hres.json()
-        const map = hj.histories || {}
-        const merged = arr.map((it: any) => ({ ...it, histories: map[it.id] || [] }))
-        setItems(merged)
-        const nextHasMore: Record<string, boolean> = {}
-        for (const id of toFetch) {
-          const got = (map[id] || []) as any[]
-          nextHasMore[id] = got.length >= Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
-        }
-        setHasMorePerTask((s) => ({ ...s, ...nextHasMore }))
+        // append to existing items when offset>0
+        setItems((prev) => (offset === 0 ? arr : [...prev, ...arr]))
+        // determine if more pages exist
+        setHasMore((prev) => (arr.length >= limit))
       } catch (e) {
         setItems([])
       } finally {
@@ -72,50 +62,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       }
     }
 
-    fetchTasks()
+    fetchTasks(0)
   }, [])
 
   // when visibleCount increases, fetch histories for newly visible items that don't have histories yet
-  useEffect(() => {
-    const idsToFetch = items.slice(0, visibleCount).filter((it: any) => !it.histories || it.histories.length === 0).map((it: any) => it.id)
-    if (idsToFetch.length === 0) return
-    const fetchChunk = async (ids: string[]) => {
-      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-      try {
-        const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
-        const offsets: Record<string, number> = {}
-        for (const id of ids) {
-          const found = items.find((x: any) => x.id === id)
-          if (found?.histories?.length) offsets[id] = found.histories.length
-        }
-        const body: any = { ids, limit }
-        if (Object.keys(offsets).length) body.offsets = offsets
-        const res = await fetch(`${BASE}/bg/histories`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-        if (!res.ok) return
-        const j = await res.json()
-        const map = j.histories || {}
-        setItems((prev) => prev.map((it) => ({ ...it, histories: it.histories && it.histories.length ? it.histories : map[it.id] || [] })))
-        const nextHasMore: Record<string, boolean> = {}
-        for (const id of ids) {
-          const got = (map[id] || []) as any[]
-          nextHasMore[id] = got.length >= limit
-        }
-        setHasMorePerTask((s) => ({ ...s, ...nextHasMore }))
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    // chunk ids to avoid long lists
-    const CHUNK = 25
-    for (let i = 0; i < idsToFetch.length; i += CHUNK) {
-      fetchChunk(idsToFetch.slice(i, i + CHUNK))
-    }
-  }, [visibleCount, items])
+  // No incremental per-task preview loading: server provides `preview_events` on /bg/tasks.
 
   // manage body scroll while modalTask is set
   useEffect(() => {
@@ -130,6 +81,24 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const openModal = (id: string) => {
     prevFocusRef.current = document.activeElement as HTMLElement | null
     setModalTask(id)
+    // fetch full events for this task once (modal will display full events)
+    ;(async () => {
+      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+      try {
+        setLoadingPerTask((s) => ({ ...s, [id]: true }))
+        const res = await fetch(`${BASE}/bg/tasks/${id}/events`)
+        if (res.ok) {
+          const j = await res.json()
+          const ev = j.events || []
+          setItems((prev) => prev.map((it) => it.id === id ? ({ ...it, histories: ev }) : it))
+          setHasMorePerTask((s) => ({ ...s, [id]: false }))
+        }
+      } catch (e) {
+        // ignore
+      } finally {
+        setLoadingPerTask((s) => ({ ...s, [id]: false }))
+      }
+    })()
     // allow mount, then trigger visible for animation
     setTimeout(() => setIsModalVisible(true), 10)
   }
@@ -189,22 +158,41 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   }, [modalTask])
 
   // infinite scroll: observe sentinel and load more items
+  // infinite scroll: when sentinel visible, fetch next page from server if available
   useEffect(() => {
     const sentinel = document.querySelector('[data-testid="history-list-sentinel"]') as HTMLElement | null
     if (!sentinel) return
-    // only observe when there are more items to load
-    if (items.length <= visibleCount) return
-    // use viewport as root so page scrolling triggers loading
     const obs = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (e.isIntersecting) {
-          setVisibleCount((v) => Math.min(items.length, v + 5))
+          // load next page
+          if (loadingMore || !hasMore) return
+          setLoadingMore(true)
+          const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+          const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
+          const offset = items.length
+          fetch(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`).then(async (res) => {
+            if (!res.ok) return
+            const j = await res.json()
+            const arr = (j.tasks || []).map((t: any) => ({
+              id: t.id,
+              name: t.name || t.result?.upload_filename || `task-${t.id.slice(0,8)}`,
+              created_at: t.created_at,
+              status: t.status,
+              progress: t.progress,
+              result: t.result,
+              histories: (t.preview_events || []).slice(0, 3),
+              event_count: t.event_count || 0,
+            }))
+            setItems((prev) => [...prev, ...arr])
+            setHasMore(arr.length >= limit)
+          }).catch(() => {}).finally(() => setLoadingMore(false))
         }
       }
     }, { root: null, rootMargin: '200px' })
     obs.observe(sentinel)
     return () => obs.disconnect()
-  }, [items, visibleCount])
+  }, [items, hasMore, loadingMore])
 
   return (
     <>
@@ -224,7 +212,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
             <div className="p-6 text-sm text-[var(--muted)]">No recent tasks. Upload audio to see history here.</div>
           )}
 
-          {items.slice(0, visibleCount).map((item) => (
+          {items.map((item) => (
             <div key={item.id} className="flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
               <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><FileAudio size={20} /></span>
               <span className="min-w-0 flex-1">
@@ -233,7 +221,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
 
                 <div className="mt-1 text-xs text-[var(--muted)]">
                   {item.histories && item.histories.length > 0 ? (
-                    item.histories.slice(0, 5).map((h: any, idx: number) => (
+                    item.histories.slice(0, 3).map((h: any, idx: number) => (
                       <div key={idx} className="truncate">
                         {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
                         <strong>{h.event_type}</strong>
@@ -243,10 +231,10 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   ) : (
                     <div>—</div>
                   )}
-                  <div className="mt-2 flex items-center gap-2">
-                      <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full events</button>
                       <button data-testid={`view-minutes-${item.id}`} type="button" onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} className="text-xs text-[var(--accent)]">View minutes</button>
-                    <span className="text-xs text-[var(--muted)]">Showing {item.histories ? item.histories.length : 0}</span>
+                    <span className="text-xs text-[var(--muted)]">Showing {item.histories ? item.histories.length : 0}{item.event_count ? ` of ${item.event_count}` : ''}</span>
                   </div>
                 </div>
               </span>
@@ -305,44 +293,9 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   </div>
                 </div>
               ))}
-              <div className="mt-4">
-                {hasMorePerTask[modalTask || ''] === false ? (
-                  <div className="text-sm text-[var(--muted)]">No more history</div>
-                ) : (
-                  <button data-testid={`load-more-${modalTask}`} onClick={async () => {
-                    if (!modalTask) return
-                    // prevent double clicks
-                    if (loadingPerTask[modalTask]) return
-                    setLoadingPerTask((s) => ({ ...s, [modalTask]: true }))
-                    try {
-                      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-                      const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
-                      const current = items.find((it) => it.id === modalTask)
-                      const offset = (current?.histories?.length) || 0
-                      const body: any = { ids: [modalTask], limit }
-                      if (offset) body.offsets = { [modalTask]: offset }
-                      const res = await fetch(`${BASE}/bg/histories`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(body),
-                      })
-                      if (res.ok) {
-                        const j = await res.json()
-                        const map = j.histories || {}
-                        setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, histories: [ ...(it.histories || []), ...(map[it.id] || []) ] }) : it))
-                        const got = (j.histories && j.histories[modalTask]) || []
-                        setHasMorePerTask((s) => ({ ...s, [modalTask]: got.length >= limit }))
-                      }
-                    } catch (e) {
-                      // ignore
-                    } finally {
-                      setLoadingPerTask((s) => ({ ...s, [modalTask]: false }))
-                    }
-                  }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white" disabled={Boolean(modalTask && loadingPerTask[modalTask])}>
-                    {modalTask && loadingPerTask[modalTask] ? 'Loading…' : 'Load more'}
-                  </button>
-                )}
-              </div>
+                    <div className="mt-4">
+                      <div className="text-sm text-[var(--muted)]">All events loaded</div>
+                    </div>
             </div>
           </div>
         </div>

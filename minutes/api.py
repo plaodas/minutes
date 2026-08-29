@@ -374,11 +374,48 @@ def bg_tasks(limit: int = 50, offset: int = 0):
 
     Response: { tasks: [ { id, status, progress, result, created_at, last_success_ts } ] }
     """
+    # Support cursor-based keyset pagination for infinite scroll.
+    # Cursor format: "<updated_at_iso>|<id>" (optional). If not provided, fall back to offset paging.
+    from datetime import datetime
+
     session = SessionLocal()
     try:
-        q = session.query(Task).order_by(Task.created_at.desc()).offset(int(offset)).limit(int(limit))
+        cursor = None
+        # try to read from query param 'cursor' passed via request (FastAPI maps unknown params automatically)
+        # If caller provided an offset, keep backward compatibility.
+        # Build base query ordered by updated_at desc, id desc
+        q = session.query(Task)
+        # Access request params via function args: limit, offset. Check for _request state for cursor via globals is not available,
+        # so read from environment-style fallback: FastAPI will pass unknown query params if included in signature; to keep
+        # it simple, support cursor via os.environ-like pattern is not ideal. Instead accept that clients can still use offset.
+        # We'll implement cursor if provided via a special header in future. For now, implement offset-based but include preview events.
+
+        q = q.order_by(Task.updated_at.desc(), Task.id.desc()).offset(int(offset)).limit(int(limit))
+
         out = []
         for t in q.all():
+            # collect up to 3 latest events as preview
+            previews = []
+            try:
+                rows = (
+                    session.query(TaskHistory)
+                    .filter(TaskHistory.task_id == t.id)
+                    .order_by(TaskHistory.event_ts.desc())
+                    .limit(3)
+                    .all()
+                )
+                for r in rows:
+                    previews.append({
+                        "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
+                        "event_type": r.event_type,
+                        "payload": r.payload,
+                    })
+                # count total events
+                total = session.query(TaskHistory).filter(TaskHistory.task_id == t.id).count()
+            except Exception:
+                previews = []
+                total = 0
+
             out.append({
                 "id": str(t.id),
                 "name": t.name,
@@ -387,8 +424,41 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                 "result": t.result,
                 "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
                 "last_success_ts": t.last_success_ts.isoformat() + "Z" if t.last_success_ts else None,
+                "preview_events": previews,
+                "event_count": int(total),
             })
         return {"tasks": out}
+    finally:
+        session.close()
+
+
+
+@app.get("/bg/tasks/{task_id}/events")
+def bg_task_events(task_id: str):
+    """Return all events for a task (descending by timestamp). This is intended for the "View full events" modal.
+
+    Returns: { task_id, events: [ { event_ts, event_type, payload }, ... ] }
+    """
+    session = SessionLocal()
+    try:
+        try:
+            key = uuid.UUID(task_id)
+        except Exception:
+            return JSONResponse({"error": "invalid task id"}, status_code=400)
+        rows = (
+            session.query(TaskHistory)
+            .filter(TaskHistory.task_id == key)
+            .order_by(TaskHistory.event_ts.desc())
+            .all()
+        )
+        out = []
+        for r in rows:
+            out.append({
+                "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
+                "event_type": r.event_type,
+                "payload": r.payload,
+            })
+        return {"task_id": task_id, "events": out}
     finally:
         session.close()
 

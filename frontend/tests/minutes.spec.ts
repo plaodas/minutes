@@ -8,6 +8,13 @@ test('minutes drawer shows fetched text and actions', async ({ page }) => {
     try { localStorage.setItem('recent_tasks', JSON.stringify(sample)) } catch (e) {}
   })
 
+  // intercept GET /bg/tasks so the UI renders the seeded task
+  await page.route('**/bg/tasks**', async (route) => {
+    const now = new Date().toISOString()
+    const sample = [{ id: 'sample-min-1', name: 'upload.mp3', created_at: now }]
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: sample }) })
+  })
+
   // stub fetch for minutes endpoint in-page to avoid cross-origin/network issues
   await page.addInitScript(() => {
     const orig = window.fetch.bind(window)

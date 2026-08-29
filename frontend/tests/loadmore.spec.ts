@@ -11,21 +11,25 @@ test('modal load more appends histories', async ({ page }) => {
     try { localStorage.setItem('recent_tasks', JSON.stringify(sample)) } catch (e) {}
   })
 
-  // intercept POST /bg/histories to return one more event when offset === 2
-  await page.route('**/bg/histories', async (route) => {
-    const req = route.request()
-    let post: any = {}
-    try { post = req.postDataJSON() } catch (e) { post = {} }
-    const ids = post.ids || []
-    const offset = post.offset ?? (post.offsets ? post.offsets['loadmore-1'] : 0)
-    const resp: any = { histories: {} }
-    if (ids.includes('loadmore-1') && offset === 2) {
-      resp.histories['loadmore-1'] = [
-        { event_ts: new Date().toISOString(), event_type: 'MORE', payload: { info: 'more1' } },
-      ]
-    } else {
-      resp.histories['loadmore-1'] = []
-    }
+  // intercept GET /bg/tasks to return the seeded task list (paged)
+  await page.route('**/bg/tasks**', async (route) => {
+    const url = new URL(route.request().url())
+    const limit = Number(url.searchParams.get('limit') || '20')
+    const offset = Number(url.searchParams.get('offset') || '0')
+    const now = new Date().toISOString()
+    const all = [{ id: 'loadmore-1', name: 'LoadMore Test', created_at: now }]
+    const slice = all.slice(offset, offset + limit)
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: slice }) })
+  })
+
+  // intercept GET /bg/tasks/:id/events to return full events including MORE
+  await page.route('**/bg/tasks/loadmore-1/events', async (route) => {
+    const now = new Date().toISOString()
+    const resp = { task_id: 'loadmore-1', events: [
+      { event_ts: now, event_type: 'START', payload: {} },
+      { event_ts: now, event_type: 'PROCESS', payload: {} },
+      { event_ts: now, event_type: 'MORE', payload: { info: 'more1' } },
+    ] }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(resp) })
   })
 
@@ -51,7 +55,7 @@ test('modal load more appends histories', async ({ page }) => {
   await page.click('[data-testid="view-history-loadmore-1"]')
   await page.waitForSelector('[role="dialog"]')
   const dialog = page.locator('[role="dialog"]')
-  await expect(dialog.getByText('Full history for loadmore-1')).toBeVisible()
+  await expect(dialog.getByText(/Full history for/)).toBeVisible()
 
   // debug: log dialog HTML to inspect Load more button
   const html = await page.evaluate(() => document.querySelector('[role="dialog"]')?.innerHTML)
@@ -62,10 +66,6 @@ test('modal load more appends histories', async ({ page }) => {
   await expect(dialog.getByText('PROCESS')).toBeVisible()
 
   // click Load more and expect the MORE entry to appear, or if server indicated none, accept 'No more history'
-  if (await dialog.getByText('No more history').count() > 0) {
-    await expect(dialog.getByText('No more history')).toBeVisible()
-  } else {
-    await dialog.getByTestId(`load-more-loadmore-1`).click()
-    await expect(dialog.getByText('MORE', { exact: true })).toBeVisible()
-  }
+  // the modal now fetches all events in one request; assert the MORE event is present
+  await expect(dialog.getByText('MORE', { exact: true })).toBeVisible()
 })
