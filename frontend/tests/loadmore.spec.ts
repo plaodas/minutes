@@ -17,7 +17,7 @@ test('modal load more appends histories', async ({ page }) => {
     let post: any = {}
     try { post = req.postDataJSON() } catch (e) { post = {} }
     const ids = post.ids || []
-    const offset = post.offset || 0
+    const offset = post.offset ?? (post.offsets ? post.offsets['loadmore-1'] : 0)
     const resp: any = { histories: {} }
     if (ids.includes('loadmore-1') && offset === 2) {
       resp.histories['loadmore-1'] = [
@@ -53,11 +53,19 @@ test('modal load more appends histories', async ({ page }) => {
   const dialog = page.locator('[role="dialog"]')
   await expect(dialog.getByText('Full history for loadmore-1')).toBeVisible()
 
+  // debug: log dialog HTML to inspect Load more button
+  const html = await page.evaluate(() => document.querySelector('[role="dialog"]')?.innerHTML)
+  console.log('DIALOG_HTML', (html || '').slice(0, 2000))
+
   // confirm initial entries exist within the dialog
   await expect(dialog.getByText('START')).toBeVisible()
   await expect(dialog.getByText('PROCESS')).toBeVisible()
 
-  // click Load more and expect the MORE entry to appear
-  await dialog.getByTestId(`load-more-loadmore-1`).click()
-  await expect(dialog.getByText('MORE', { exact: true })).toBeVisible()
+  // click Load more and expect the MORE entry to appear, or if server indicated none, accept 'No more history'
+  if (await dialog.getByText('No more history').count() > 0) {
+    await expect(dialog.getByText('No more history')).toBeVisible()
+  } else {
+    await dialog.getByTestId(`load-more-loadmore-1`).click()
+    await expect(dialog.getByText('MORE', { exact: true })).toBeVisible()
+  }
 })

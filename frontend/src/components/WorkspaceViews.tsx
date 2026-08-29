@@ -14,6 +14,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [modalTask, setModalTask] = useState<string | null>(null)
   const [isModalVisible, setIsModalVisible] = useState(false)
   const [loadingPerTask, setLoadingPerTask] = useState<Record<string, boolean>>({})
+  const [hasMorePerTask, setHasMorePerTask] = useState<Record<string, boolean>>({})
   const prevFocusRef = React.useRef<HTMLElement | null>(null)
   const listRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -28,18 +29,34 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       setLoading(true)
       try {
         const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
-        const ids = arr.slice(0, visibleCount).map((it: any) => it.id).filter(Boolean)
+        // only request histories for visible items that don't already have local histories
+        const ids = arr.slice(0, visibleCount).filter((it: any) => !it.histories || it.histories.length === 0).map((it: any) => it.id).filter(Boolean)
         if (ids.length === 0) return
+        // build offsets map from local data if present
+        const offsets: Record<string, number> = {}
+        for (const id of ids) {
+          const found = arr.find((x: any) => x.id === id)
+          if (found?.histories?.length) offsets[id] = found.histories.length
+        }
+        const body: any = { ids, limit }
+        if (Object.keys(offsets).length) body.offsets = offsets
         const res = await fetch(`${BASE}/bg/histories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids, limit, offset: 0 }),
+          body: JSON.stringify(body),
         })
         if (!res.ok) return
         const j = await res.json()
         const map = j.histories || {}
         const merged = arr.map((it: any) => ({ ...it, histories: it.histories && it.histories.length ? it.histories : map[it.id] || [] }))
         setItems(merged)
+        // update hasMore flags based on returned counts
+        const nextHasMore: Record<string, boolean> = {}
+        for (const id of ids) {
+          const got = (map[id] || []) as any[]
+          nextHasMore[id] = got.length >= limit
+        }
+        setHasMorePerTask((s) => ({ ...s, ...nextHasMore }))
       } catch (e) {
         // ignore
       } finally {
@@ -58,15 +75,28 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
       try {
         const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
+        const offsets: Record<string, number> = {}
+        for (const id of ids) {
+          const found = items.find((x: any) => x.id === id)
+          if (found?.histories?.length) offsets[id] = found.histories.length
+        }
+        const body: any = { ids, limit }
+        if (Object.keys(offsets).length) body.offsets = offsets
         const res = await fetch(`${BASE}/bg/histories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids, limit, offset: 0 }),
+          body: JSON.stringify(body),
         })
         if (!res.ok) return
         const j = await res.json()
         const map = j.histories || {}
         setItems((prev) => prev.map((it) => ({ ...it, histories: it.histories && it.histories.length ? it.histories : map[it.id] || [] })))
+        const nextHasMore: Record<string, boolean> = {}
+        for (const id of ids) {
+          const got = (map[id] || []) as any[]
+          nextHasMore[id] = got.length >= limit
+        }
+        setHasMorePerTask((s) => ({ ...s, ...nextHasMore }))
       } catch (e) {
         // ignore
       }
@@ -239,34 +269,42 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                 </div>
               ))}
               <div className="mt-4">
-                <button data-testid={`load-more-${modalTask}`} onClick={async () => {
-                  if (!modalTask) return
-                  // prevent double clicks
-                  if (loadingPerTask[modalTask]) return
-                  setLoadingPerTask((s) => ({ ...s, [modalTask]: true }))
-                  try {
-                    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-                    const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
-                    const current = items.find((it) => it.id === modalTask)
-                    const offset = (current?.histories?.length) || 0
-                    const res = await fetch(`${BASE}/bg/histories`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ ids: [modalTask], limit, offset }),
-                    })
-                    if (res.ok) {
-                      const j = await res.json()
-                      const map = j.histories || {}
-                      setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, histories: [ ...(it.histories || []), ...(map[it.id] || []) ] }) : it))
+                {hasMorePerTask[modalTask || ''] === false ? (
+                  <div className="text-sm text-[var(--muted)]">No more history</div>
+                ) : (
+                  <button data-testid={`load-more-${modalTask}`} onClick={async () => {
+                    if (!modalTask) return
+                    // prevent double clicks
+                    if (loadingPerTask[modalTask]) return
+                    setLoadingPerTask((s) => ({ ...s, [modalTask]: true }))
+                    try {
+                      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                      const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
+                      const current = items.find((it) => it.id === modalTask)
+                      const offset = (current?.histories?.length) || 0
+                      const body: any = { ids: [modalTask], limit }
+                      if (offset) body.offsets = { [modalTask]: offset }
+                      const res = await fetch(`${BASE}/bg/histories`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                      })
+                      if (res.ok) {
+                        const j = await res.json()
+                        const map = j.histories || {}
+                        setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, histories: [ ...(it.histories || []), ...(map[it.id] || []) ] }) : it))
+                        const got = (j.histories && j.histories[modalTask]) || []
+                        setHasMorePerTask((s) => ({ ...s, [modalTask]: got.length >= limit }))
+                      }
+                    } catch (e) {
+                      // ignore
+                    } finally {
+                      setLoadingPerTask((s) => ({ ...s, [modalTask]: false }))
                     }
-                  } catch (e) {
-                    // ignore
-                  } finally {
-                    setLoadingPerTask((s) => ({ ...s, [modalTask]: false }))
-                  }
-                }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white" disabled={Boolean(modalTask && loadingPerTask[modalTask])}>
-                  {modalTask && loadingPerTask[modalTask] ? 'Loading…' : 'Load more'}
-                </button>
+                  }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white" disabled={Boolean(modalTask && loadingPerTask[modalTask])}>
+                    {modalTask && loadingPerTask[modalTask] ? 'Loading…' : 'Load more'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
