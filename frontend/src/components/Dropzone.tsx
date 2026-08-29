@@ -116,7 +116,8 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
           return
         }
         // schedule next poll
-        pollRef.current = window.setTimeout(poll, 2000)
+        // 10 seconds between polls
+        pollRef.current = window.setTimeout(poll, 10000)
       }
 
       // start first poll shortly after upload completes

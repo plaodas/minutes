@@ -10,7 +10,7 @@ _lock = threading.Lock()
 import uuid
 from .db import SessionLocal
 from .models import Task, TaskHistory
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import NoResultFound, IntegrityError
 from datetime import datetime
 from .summary import summarize_local
 
@@ -75,10 +75,19 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                 t = Task(id=key if isinstance(key, uuid.UUID) else task_id,
                          status="pending", progress=None, result=metadata or None, fail_count=0)
                 db.add(t)
+                try:
+                    db.commit()
+                except IntegrityError:
+                    # another process inserted the same task concurrently; rollback
+                    db.rollback()
+                    t = db.get(Task, key)
             else:
                 if metadata:
                     t.result = metadata
-            db.commit()
+                try:
+                    db.commit()
+                except IntegrityError:
+                    db.rollback()
             try:
                 record_history(task_id, "created", {"status": "pending"}, db=db)
             except Exception:
@@ -123,7 +132,10 @@ def update_task_success(task_id: str, result: Any, db=None):
                     except Exception:
                         pass
 
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
             try:
                 record_history(task_id, "success", {"result": result}, db=db)
             except Exception:
@@ -149,7 +161,10 @@ def update_task_failure(task_id: str, error_msg: str, db=None):
             t.result = None
             t.fail_count = (t.fail_count or 0) + 1
             t.last_failure_ts = datetime.utcnow()
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
             try:
                 record_history(task_id, "failure", {"error": error_msg}, db=db)
             except Exception:
@@ -173,7 +188,10 @@ def update_task_cancelled(task_id: str, db=None):
                 db.add(t)
             t.status = "cancelled"
             t.result = None
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
             try:
                 record_history(task_id, "cancelled", {}, db=db)
             except Exception:
@@ -196,7 +214,10 @@ def update_task_status(task_id: str, status: str, db=None):
                 t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
                 db.add(t)
             t.status = status
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
             try:
                 record_history(task_id, "status", {"status": status}, db=db)
             except Exception:
