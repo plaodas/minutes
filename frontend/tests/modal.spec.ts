@@ -16,14 +16,30 @@ const modalHtml = (id = 'test-modal') => `
 
 test.describe('modal focus trap', () => {
   test.beforeEach(async ({ page }) => {
-    await page.setContent(modalHtml())
-    // inject a simple focus-trap implementation similar to app behavior
+    // open the built app page
+    await page.goto('http://localhost:5173')
+    // inject a test modal into the page DOM and a focus-trap handler so tests run against built app context
     await page.evaluate(() => {
-      const root = document.querySelector('[role="dialog"]') as HTMLElement | null
+      const html = `
+      <div id="overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:flex-start;justify-content:center;padding:24px">
+        <div role="dialog" aria-modal="true" aria-label="Full history for test" style="background:#fff;padding:16px;border-radius:8px;max-height:70vh;overflow:auto;min-width:320px">
+          <button id="close" aria-label="Close">✕</button>
+          <h2>Full history for test</h2>
+          <div>
+            <button id="action-1">Action 1</button>
+            <a id="link-1" href="#">Link 1</a>
+            <input id="input-1" />
+          </div>
+        </div>
+      </div>`
+      const wrapper = document.createElement('div')
+      wrapper.innerHTML = html
+      document.body.appendChild(wrapper.firstElementChild)
+      // simple focus trap for the injected modal
+      const root = document.querySelector('[role="dialog"]')
       const getFocusable = () => {
-        if (!root) return [] as HTMLElement[]
-        const selector = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-        return Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((el) => !el.hasAttribute('disabled'))
+        if (!root) return []
+        return Array.from(root.querySelectorAll('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'))
       }
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -34,16 +50,17 @@ test.describe('modal focus trap', () => {
         if (e.key !== 'Tab') return
         const list = getFocusable()
         if (list.length === 0) { e.preventDefault(); return }
-        const idx = list.indexOf(document.activeElement as HTMLElement)
+        const idx = list.indexOf(document.activeElement)
         if (e.shiftKey) {
           if (idx <= 0) { e.preventDefault(); list[list.length - 1].focus() }
         } else {
           if (idx === list.length - 1) { e.preventDefault(); list[0].focus() }
         }
       })
-      // overlay click closes
       const ov = document.getElementById('overlay')
       ov?.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove() })
+      // focus first
+      setTimeout(() => { document.getElementById('close')?.focus() }, 20)
     })
   })
 
