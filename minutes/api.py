@@ -37,6 +37,13 @@ from minutes.models import TaskHistory
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 
+# Configuration: request limits for /bg/histories
+MAX_IDS_PER_REQUEST = int(os.environ.get("MAX_BG_HISTORIES_IDS", "500"))
+# Hard cap to absolutely reject too-large requests
+HARD_IDS_LIMIT = int(os.environ.get("MAX_BG_HISTORIES_HARD_LIMIT", "5000"))
+# Internal batch size used to split large id lists into smaller DB IN(...) queries
+BG_HISTORIES_BATCH_SIZE = int(os.environ.get("BG_HISTORIES_BATCH_SIZE", "200"))
+
 
 def _run_pipeline_background(input_path: str, task_id: str):
     try:
@@ -288,67 +295,129 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
 
 class IdList(BaseModel):
     ids: List[str]
+    limit: int | None = 1
+    offset: int | None = 0
 
 
 @app.post("/bg/histories")
 def bg_histories(payload: IdList):
-    """Return latest history entry for multiple task ids in one request."""
+    """Return history entries for multiple task ids in one request.
+
+    Request body: { ids: [...], limit: int (per-id limit, default 1), offset: int }
+    Response: { histories: { id: [events...] } }
+    """
     ids = payload.ids or []
+    limit = int(payload.limit or 1)
+    offset = int(payload.offset or 0)
     if not ids:
         return {"histories": {}}
 
-    # DB-backed
+    n_ids = len(ids)
+    if n_ids > HARD_IDS_LIMIT:
+        raise HTTPException(status_code=413, detail=f"too many ids in request ({n_ids} > {HARD_IDS_LIMIT})")
+
+    # Warning for large requests; we'll still process but in batches
+    warnings: List[str] = []
+    if n_ids > MAX_IDS_PER_REQUEST:
+        warnings.append(f"request contains {n_ids} ids; processing in internal batches of {BG_HISTORIES_BATCH_SIZE}")
+
+    out: Dict[str, List[Dict[str, Any]]] = {}
+
+    # DB-backed path: reuse a single session and process ids in chunks to keep IN(...) lists small
     if os.environ.get("DATABASE_URL"):
         session = SessionLocal()
         try:
-            # convert to UUID keys where possible
-            keys = []
+            # pre-fill keys with empty lists so missing ids return []
             for i in ids:
-                try:
-                    keys.append(uuid.UUID(i))
-                except Exception:
-                    keys.append(i)
+                out[str(i)] = []
 
-            rows = (
-                session.query(TaskHistory)
-                .filter(TaskHistory.task_id.in_(keys))
-                .order_by(TaskHistory.task_id, TaskHistory.event_ts.desc())
-                .all()
-            )
-            out = {}
-            seen = set()
-            for r in rows:
-                tid = str(r.task_id)
-                if tid in seen:
+            from sqlalchemy import select, func
+
+            for start in range(0, n_ids, BG_HISTORIES_BATCH_SIZE):
+                chunk = ids[start : start + BG_HISTORIES_BATCH_SIZE]
+
+                # build mapping of valid UUIDs in this chunk
+                valid_map = {}
+                for i in chunk:
+                    # skip obviously-invalid short strings to avoid accidental coercion
+                    if not isinstance(i, str) or len(i) not in (32, 36):
+                        continue
+                    try:
+                        u = uuid.UUID(i)
+                        valid_map[u] = str(i)
+                    except Exception:
+                        # invalid UUIDs are left as empty lists
+                        continue
+
+                if not valid_map:
                     continue
-                seen.add(tid)
-                out[tid] = {
-                    "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
-                    "event_type": r.event_type,
-                    "payload": r.payload,
-                }
-            return {"histories": out}
+
+                # window function per task_id ordered by event_ts desc
+                rownum = func.row_number().over(partition_by=TaskHistory.task_id, order_by=TaskHistory.event_ts.desc()).label("rn")
+                subq = (
+                    select(
+                        TaskHistory.id,
+                        TaskHistory.task_id,
+                        TaskHistory.event_ts,
+                        TaskHistory.event_type,
+                        TaskHistory.payload,
+                        rownum,
+                    )
+                    .where(TaskHistory.task_id.in_(list(valid_map.keys())))
+                    .subquery()
+                )
+
+                q = (
+                    select(subq)
+                    .where(subq.c.rn > offset)
+                    .where(subq.c.rn <= (offset + limit))
+                    .order_by(subq.c.task_id, subq.c.rn)
+                )
+                res = session.execute(q).all()
+
+                for row in res:
+                    tid = str(row.task_id)
+                    entries = out.setdefault(tid, [])
+                    entries.append(
+                        {
+                            "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
+                            "event_type": row.event_type,
+                            "payload": row.payload,
+                        }
+                    )
+
+            resp = {"histories": out}
+            if warnings:
+                resp["warnings"] = warnings
+            return resp
         finally:
             session.close()
 
-    # file-backed fallback
+    # file-backed fallback: read once and process in chunks
     try:
         with open(DB_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         return {"histories": {}}
 
-    out = {}
-    for i in ids:
-        t = data.get(i)
-        if not t:
-            continue
-        hist = t.get("history", [])
-        if not hist:
-            continue
-        latest = hist[-1]
-        out[i] = latest
-    return {"histories": out}
+    for start in range(0, n_ids, BG_HISTORIES_BATCH_SIZE):
+        chunk = ids[start : start + BG_HISTORIES_BATCH_SIZE]
+        for i in chunk:
+            t = data.get(i)
+            if not t:
+                out[str(i)] = []
+                continue
+            hist = t.get("history", [])
+            if not hist:
+                out[str(i)] = []
+                continue
+            sliced = hist[max(0, len(hist) - offset - limit) : len(hist) - offset]
+            out[str(i)] = list(reversed(sliced))
+
+    resp = {"histories": out}
+    if warnings:
+        resp["warnings"] = warnings
+    return resp
 
 
 @app.post("/bg/cancel/{task_id}")
