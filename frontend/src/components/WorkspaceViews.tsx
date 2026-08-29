@@ -10,9 +10,11 @@ const sampleMinutes = [
 export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [items, setItems] = useState<Array<any>>([])
   const [loading, setLoading] = useState(false)
+  const [visibleCount, setVisibleCount] = useState<number>(5)
   const [modalTask, setModalTask] = useState<string | null>(null)
   const [isModalVisible, setIsModalVisible] = useState(false)
   const prevFocusRef = React.useRef<HTMLElement | null>(null)
+  const listRef = React.useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const raw = localStorage.getItem('recent_tasks')
@@ -111,6 +113,21 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [modalTask])
 
+  // infinite scroll: observe sentinel and load more items
+  useEffect(() => {
+    const sentinel = document.querySelector('[data-testid="history-list-sentinel"]') as HTMLElement | null
+    if (!sentinel) return
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          setVisibleCount((v) => Math.min(items.length, v + 5))
+        }
+      }
+    }, { root: listRef.current, rootMargin: '200px' })
+    obs.observe(sentinel)
+    return () => obs.disconnect()
+  }, [items])
+
   return (
     <>
       <section>
@@ -124,12 +141,12 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div ref={listRef} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           {items.length === 0 && (
             <div className="p-6 text-sm text-[var(--muted)]">No recent tasks. Upload audio to see history here.</div>
           )}
 
-          {items.map((item) => (
+          {items.slice(0, visibleCount).map((item) => (
             <div key={item.id} className="flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
               <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><FileAudio size={20} /></span>
               <span className="min-w-0 flex-1">
@@ -147,7 +164,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                     ))}
                     {item.histories.length === 0 && <div>—</div>}
                       <div className="mt-2 flex items-center gap-2">
-                        <button type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
+                          <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
                         <span className="text-xs text-[var(--muted)]">Showing {item.histories.length}</span>
                       </div>
                   </div>
@@ -158,6 +175,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
               <ChevronRight className="shrink-0 text-slate-400" size={18} />
             </div>
           ))}
+          {/* sentinel for infinite scroll */}
+          <div aria-hidden="true" data-testid="history-list-sentinel" />
         </div>
 
         <p className="mt-3 text-xs text-[var(--muted)]">{loading ? 'Loading history...' : 'History is loaded from the backend.'}</p>
