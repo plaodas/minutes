@@ -9,6 +9,7 @@ DB_PATH = os.environ.get("BG_TASK_DB", "data/bg_tasks.json")
 USE_DB = bool(os.environ.get("DATABASE_URL"))
 
 if USE_DB:
+    import uuid
     from .db import SessionLocal
     from .models import Task, TaskHistory
     from sqlalchemy.exc import NoResultFound
@@ -17,6 +18,19 @@ if USE_DB:
     def get_session():
         """Return a new DB session (caller should close it)."""
         return SessionLocal()
+
+    def record_history(task_id: str, event_type: str, payload: dict | None = None, db=None):
+        close = False
+        if db is None:
+            db = SessionLocal()
+            close = True
+        try:
+            h = TaskHistory(task_id=task_id, event_type=event_type, payload=payload or {})
+            db.add(h)
+            db.commit()
+        finally:
+            if close:
+                db.close()
 
     def create_task(task_id: str, db=None):
         with _lock:
@@ -28,6 +42,10 @@ if USE_DB:
                 t = Task(id=task_id, status="pending", progress=None, result=None, fail_count=0)
                 db.add(t)
                 db.commit()
+                try:
+                    record_history(task_id, "created", {"status": "pending"}, db=db)
+                except Exception:
+                    pass
             finally:
                 if close:
                     db.close()
@@ -40,9 +58,13 @@ if USE_DB:
                 db = SessionLocal()
                 close = True
             try:
-                t = db.query(Task).get(task_id)
+                try:
+                    key = uuid.UUID(task_id)
+                except Exception:
+                    key = task_id
+                t = db.get(Task, key)
                 if not t:
-                    t = Task(id=task_id)
+                    t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
                     db.add(t)
                 t.status = "success"
                 t.result = result
@@ -50,6 +72,10 @@ if USE_DB:
                 t.fail_count = 0
                 t.last_success_ts = datetime.utcnow()
                 db.commit()
+                try:
+                    record_history(task_id, "success", {"result": result}, db=db)
+                except Exception:
+                    pass
             finally:
                 if close:
                     db.close()
@@ -62,15 +88,23 @@ if USE_DB:
                 db = SessionLocal()
                 close = True
             try:
-                t = db.query(Task).get(task_id)
+                try:
+                    key = uuid.UUID(task_id)
+                except Exception:
+                    key = task_id
+                t = db.get(Task, key)
                 if not t:
-                    t = Task(id=task_id)
+                    t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
                     db.add(t)
                 t.status = "failed"
                 t.result = None
                 t.fail_count = (t.fail_count or 0) + 1
                 t.last_failure_ts = datetime.utcnow()
                 db.commit()
+                try:
+                    record_history(task_id, "failure", {"error": error_msg}, db=db)
+                except Exception:
+                    pass
             finally:
                 if close:
                     db.close()
@@ -83,13 +117,21 @@ if USE_DB:
                 db = SessionLocal()
                 close = True
             try:
-                t = db.query(Task).get(task_id)
+                try:
+                    key = uuid.UUID(task_id)
+                except Exception:
+                    key = task_id
+                t = db.get(Task, key)
                 if not t:
-                    t = Task(id=task_id)
+                    t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
                     db.add(t)
                 t.status = "cancelled"
                 t.result = None
                 db.commit()
+                try:
+                    record_history(task_id, "cancelled", {}, db=db)
+                except Exception:
+                    pass
             finally:
                 if close:
                     db.close()
@@ -102,12 +144,20 @@ if USE_DB:
                 db = SessionLocal()
                 close = True
             try:
-                t = db.query(Task).get(task_id)
+                try:
+                    key = uuid.UUID(task_id)
+                except Exception:
+                    key = task_id
+                t = db.get(Task, key)
                 if not t:
-                    t = Task(id=task_id)
+                    t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
                     db.add(t)
                 t.status = status
                 db.commit()
+                try:
+                    record_history(task_id, "status", {"status": status}, db=db)
+                except Exception:
+                    pass
             finally:
                 if close:
                     db.close()
@@ -120,12 +170,20 @@ if USE_DB:
                 db = SessionLocal()
                 close = True
             try:
-                t = db.query(Task).get(task_id)
+                try:
+                    key = uuid.UUID(task_id)
+                except Exception:
+                    key = task_id
+                t = db.get(Task, key)
                 if not t:
-                    t = Task(id=task_id)
+                    t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
                     db.add(t)
                 t.progress = float(progress)
                 db.commit()
+                try:
+                    record_history(task_id, "progress", {"progress": float(progress)}, db=db)
+                except Exception:
+                    pass
             finally:
                 if close:
                     db.close()
@@ -134,7 +192,11 @@ if USE_DB:
     def get_task(task_id: str) -> Optional[Dict[str, Any]]:
         db = SessionLocal()
         try:
-            t = db.query(Task).get(task_id)
+            try:
+                key = uuid.UUID(task_id)
+            except Exception:
+                key = task_id
+            t = db.get(Task, key)
             if not t:
                 return None
             return {
@@ -170,12 +232,26 @@ else:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+    def record_history(task_id: str, event_type: str, payload: dict | None = None):
+        db = _read_db()
+        db.setdefault(task_id, {})
+        hist = db[task_id].setdefault("history", [])
+        from datetime import datetime
+        entry = {"event_ts": datetime.utcnow().isoformat() + "Z", "event_type": event_type, "payload": payload or {}}
+        hist.append(entry)
+        _write_db(db)
+
+
     def create_task(task_id: str):
         with _lock:
             db = _read_db()
             db[task_id] = {"status": "pending", "result": None, "error": None, "progress": None,
                            "fail_count": 0, "last_failure_ts": None, "last_failure_error": None, "last_success_ts": None}
             _write_db(db)
+            try:
+                record_history(task_id, "created", {"status": "pending"})
+            except Exception:
+                pass
 
 
     def update_task_success(task_id: str, result: Any):
@@ -190,6 +266,10 @@ else:
             from datetime import datetime
             db[task_id]["last_success_ts"] = datetime.utcnow().isoformat() + "Z"
             _write_db(db)
+            try:
+                record_history(task_id, "success", {"result": result})
+            except Exception:
+                pass
 
 
     def update_task_failure(task_id: str, error_msg: str):
@@ -210,6 +290,10 @@ else:
             db[task_id]["last_failure_ts"] = datetime.utcnow().isoformat() + "Z"
             db[task_id]["last_failure_error"] = error_msg
             _write_db(db)
+            try:
+                record_history(task_id, "failure", {"error": error_msg})
+            except Exception:
+                pass
 
 
     def update_task_cancelled(task_id: str):
@@ -225,6 +309,10 @@ else:
             db[task_id]["last_failure_ts"] = None
             db[task_id]["last_failure_error"] = "cancelled by user"
             _write_db(db)
+            try:
+                record_history(task_id, "cancelled", {})
+            except Exception:
+                pass
 
 
     def update_task_status(task_id: str, status: str):
@@ -240,6 +328,10 @@ else:
             db[task_id]["status"] = status
             # when updating status, optionally clear or set progress separately
             _write_db(db)
+            try:
+                record_history(task_id, "status", {"status": status})
+            except Exception:
+                pass
 
 
     def update_task_progress(task_id: str, progress: float):
@@ -249,6 +341,10 @@ else:
             db.setdefault(task_id, {})
             db[task_id]["progress"] = float(progress)
             _write_db(db)
+            try:
+                record_history(task_id, "progress", {"progress": float(progress)})
+            except Exception:
+                pass
 
 
     def get_task(task_id: str) -> Optional[Dict[str, Any]]:

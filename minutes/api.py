@@ -4,6 +4,7 @@ import logging
 import logging
 from fastapi.responses import PlainTextResponse, JSONResponse
 from typing import Dict, Any
+import json
 from minutes.schemas import (
     CreateTaskResponse,
     FormatRawRequest,
@@ -28,6 +29,10 @@ from minutes.bg_store import (
     update_task_status,
 )
 from minutes.bg_store import update_task_cancelled
+from minutes.bg_store import DB_PATH
+import uuid
+from minutes.db import SessionLocal
+from minutes.models import TaskHistory
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 
@@ -233,6 +238,51 @@ def bg_result(task_id: str):
     if t["status"] != "success":
         return JSONResponse({"status": t["status"], "error": t.get("error")}, status_code=202)
     return {"status": "success", "result": t.get("result")}
+
+
+@app.get("/bg/history/{task_id}")
+def bg_history(task_id: str, limit: int = 100, offset: int = 0):
+    """Return task history events. Works with DB-backed store or file-backed fallback."""
+    # DB-backed
+    if os.environ.get("DATABASE_URL"):
+        session = SessionLocal()
+        try:
+            try:
+                key = uuid.UUID(task_id)
+            except Exception:
+                return JSONResponse({"error": "invalid task id"}, status_code=400)
+            rows = (
+                session.query(TaskHistory)
+                .filter(TaskHistory.task_id == key)
+                .order_by(TaskHistory.event_ts.desc())
+                .offset(int(offset))
+                .limit(int(limit))
+                .all()
+            )
+            out = []
+            for r in rows:
+                out.append({
+                    "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
+                    "event_type": r.event_type,
+                    "payload": r.payload,
+                })
+            return {"task_id": task_id, "history": out}
+        finally:
+            session.close()
+
+    # File-backed fallback
+    try:
+        with open(DB_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+
+    t = data.get(task_id)
+    if not t:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    history = t.get("history", [])
+    sliced = history[int(offset) : int(offset) + int(limit)]
+    return {"task_id": task_id, "history": sliced}
 
 
 @app.post("/bg/cancel/{task_id}")

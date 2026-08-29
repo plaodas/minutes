@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
 
 const sampleMinutes = [
@@ -8,6 +8,35 @@ const sampleMinutes = [
 ]
 
 export function HistoryView({ onCreate }: { onCreate: () => void }) {
+  const [items, setItems] = useState<Array<any>>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const raw = localStorage.getItem('recent_tasks')
+    let arr = raw ? JSON.parse(raw) : []
+    // ensure array
+    if (!Array.isArray(arr)) arr = []
+    setItems(arr)
+    // fetch latest history event for each item (non-blocking)
+    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+    setLoading(true)
+    Promise.all(
+      arr.slice(0, 20).map(async (it: any) => {
+        try {
+          const res = await fetch(`${BASE}/bg/history/${it.id}?limit=1`)
+          if (!res.ok) return { ...it, latest: null }
+          const j = await res.json()
+          const h = (j.history && j.history[0]) || null
+          return { ...it, latest: h }
+        } catch {
+          return { ...it, latest: null }
+        }
+      })
+    )
+      .then((results) => setItems(results))
+      .finally(() => setLoading(false))
+  }, [])
+
   return (
     <section>
       <div className="mb-7 flex items-start justify-between gap-4">
@@ -20,19 +49,25 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
         </button>
       </div>
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        {sampleMinutes.map((item) => (
-          <button key={item.name} type="button" className="flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
+        {items.length === 0 && (
+          <div className="p-6 text-sm text-[var(--muted)]">No recent tasks. Upload audio to see history here.</div>
+        )}
+        {items.map((item) => (
+          <button key={item.id} type="button" className="flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
             <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><FileAudio size={20} /></span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{item.name}</span>
-              <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]"><Clock3 size={13} /> {item.date} · {item.duration}</span>
+              <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]"><Clock3 size={13} /> {item.created_at ? new Date(item.created_at).toLocaleString() : ''}</span>
+              {item.latest && (
+                <div className="mt-1 text-xs text-[var(--muted)]">Latest: {item.latest.event_type} {item.latest.payload?.error ? `- ${item.latest.payload.error}` : ''}</div>
+              )}
             </span>
-            <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline">{item.status}</span>
+            <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline">{item.latest ? item.latest.event_type : '—'}</span>
             <ChevronRight className="shrink-0 text-slate-400" size={18} />
           </button>
         ))}
       </div>
-      <p className="mt-3 text-xs text-[var(--muted)]">Sample records are shown until the history API is connected.</p>
+      <p className="mt-3 text-xs text-[var(--muted)]">{loading ? 'Loading history...' : 'History is loaded from the backend.'}</p>
     </section>
   )
 }

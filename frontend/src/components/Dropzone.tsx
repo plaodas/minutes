@@ -61,6 +61,18 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       if (!id) throw new Error('no task id returned')
       setTaskId(id)
 
+      // persist recent task id for History view
+      try {
+        const raw = localStorage.getItem('recent_tasks')
+        const arr = raw ? JSON.parse(raw) : []
+        arr.unshift({ id, name: f.name, created_at: new Date().toISOString() })
+        // keep up to 50 entries
+        const trimmed = arr.slice(0, 50)
+        localStorage.setItem('recent_tasks', JSON.stringify(trimmed))
+      } catch {
+        // ignore
+      }
+
       // clear upload UI
       setUploadProgress(null)
       setRunning(true)
