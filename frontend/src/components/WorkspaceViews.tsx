@@ -21,18 +21,18 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
     let arr = raw ? JSON.parse(raw) : sampleMinutes
     if (!Array.isArray(arr)) arr = sampleMinutes
     setItems(arr)
-
-    const fetchInitial = async () => {
+    // set items first, then fetch histories only for visible items (avoid fetching all at once)
+    const fetchForVisible = async () => {
       const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
       setLoading(true)
       try {
-        const ids = arr.slice(0, 50).map((it: any) => it.id).filter(Boolean)
+        const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
+        const ids = arr.slice(0, visibleCount).map((it: any) => it.id).filter(Boolean)
         if (ids.length === 0) return
-        const initialLimit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 3)
         const res = await fetch(`${BASE}/bg/histories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids, limit: initialLimit, offset: 0 }),
+          body: JSON.stringify({ ids, limit, offset: 0 }),
         })
         if (!res.ok) return
         const j = await res.json()
@@ -46,8 +46,37 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       }
     }
 
-    fetchInitial()
+    fetchForVisible()
   }, [])
+
+  // when visibleCount increases, fetch histories for newly visible items that don't have histories yet
+  useEffect(() => {
+    const idsToFetch = items.slice(0, visibleCount).filter((it: any) => !it.histories || it.histories.length === 0).map((it: any) => it.id)
+    if (idsToFetch.length === 0) return
+    const fetchChunk = async (ids: string[]) => {
+      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+      try {
+        const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
+        const res = await fetch(`${BASE}/bg/histories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids, limit, offset: 0 }),
+        })
+        if (!res.ok) return
+        const j = await res.json()
+        const map = j.histories || {}
+        setItems((prev) => prev.map((it) => ({ ...it, histories: it.histories && it.histories.length ? it.histories : map[it.id] || [] })))
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // chunk ids to avoid long lists
+    const CHUNK = 25
+    for (let i = 0; i < idsToFetch.length; i += CHUNK) {
+      fetchChunk(idsToFetch.slice(i, i + CHUNK))
+    }
+  }, [visibleCount, items])
 
   // manage body scroll while modalTask is set
   useEffect(() => {
