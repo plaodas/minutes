@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
 
 const sampleMinutes = [
@@ -13,6 +14,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [visibleCount, setVisibleCount] = useState<number>(5)
   const [modalTask, setModalTask] = useState<string | null>(null)
   const [isModalVisible, setIsModalVisible] = useState(false)
+  const [minutesTask, setMinutesTask] = useState<string | null>(null)
+  const [isMinutesVisible, setIsMinutesVisible] = useState(false)
   const [loadingPerTask, setLoadingPerTask] = useState<Record<string, boolean>>({})
   const [hasMorePerTask, setHasMorePerTask] = useState<Record<string, boolean>>({})
   const prevFocusRef = React.useRef<HTMLElement | null>(null)
@@ -236,7 +239,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                     <div>—</div>
                   )}
                   <div className="mt-2 flex items-center gap-2">
-                    <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
+                      <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
+                      <button data-testid={`view-minutes-${item.id}`} type="button" onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} className="text-xs text-[var(--accent)]">View minutes</button>
                     <span className="text-xs text-[var(--muted)]">Showing {item.histories ? item.histories.length : 0}</span>
                   </div>
                 </div>
@@ -317,6 +321,10 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           </div>
         </div>
       )}
+        {/* Minutes drawer */}
+        {minutesTask && isMinutesVisible && (
+          <MinutesDrawer taskId={minutesTask} onClose={() => { setIsMinutesVisible(false); setMinutesTask(null) }} />
+        )}
     </>
   )
 }

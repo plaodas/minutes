@@ -469,3 +469,49 @@ def bg_cancel(task_id: str):
     except Exception:
         pass
     return {"task_id": task_id, "cancelled": True}
+
+
+@app.get("/bg/minutes/{task_id}")
+def bg_minutes_file(task_id: str):
+    """Return the rendered minutes text for a background task.
+
+    If the task is not found -> 404. If the task exists but is not yet successful -> 202.
+    If the task has a result with `output_file`, read and return it as text/plain.
+    """
+    try:
+        t = get_task(task_id)
+    except Exception:
+        t = None
+    if not t:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    if t.get("status") != "success":
+        return JSONResponse({"status": t.get("status")}, status_code=202)
+
+    res = t.get("result") or {}
+    output_file = None
+    # result may contain output_file path under different shapes
+    if isinstance(res, dict) and res.get("output_file"):
+        output_file = res.get("output_file")
+    # If still None, try nested result key
+    if not output_file and isinstance(res, dict) and res.get("result") and isinstance(res.get("result"), dict):
+        output_file = res.get("result").get("output_file")
+
+    if not output_file:
+        return JSONResponse({"error": "no output file available"}, status_code=404)
+
+    outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
+    # normalize path: if output_file is absolute, use basename to avoid escaping
+    if os.path.isabs(output_file):
+        fname = os.path.basename(output_file)
+    else:
+        fname = output_file
+
+    candidate = os.path.join(outputs_dir, os.path.basename(fname))
+    try:
+        with open(candidate, "r", encoding="utf-8") as f:
+            text = f.read()
+            return PlainTextResponse(text, status_code=200)
+    except FileNotFoundError:
+        return JSONResponse({"error": "output file not found"}, status_code=404)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
