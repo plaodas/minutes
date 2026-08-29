@@ -10,6 +10,31 @@ const sampleMinutes = [
 export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [items, setItems] = useState<Array<any>>([])
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState<Record<string, boolean>>({})
+
+  const loadMore = async (taskId: string) => {
+    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+    const pageSize = Number(import.meta.env.VITE_BG_HISTORY_PAGE_SIZE || 10)
+    const item = items.find((it: any) => it.id === taskId)
+    if (!item) return
+    const offset = (item.histories || []).length
+    setLoadingMore((s) => ({ ...s, [taskId]: true }))
+    try {
+      const res = await fetch(`${BASE}/bg/histories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [taskId], limit: pageSize, offset }),
+      })
+      if (!res.ok) return
+      const j = await res.json()
+      const more = (j.histories || {})[taskId] || []
+      setItems((prev) => prev.map((it) => (it.id === taskId ? { ...it, histories: [...(it.histories || []), ...more] } : it)))
+    } catch (e) {
+      // ignore
+    } finally {
+      setLoadingMore((s) => ({ ...s, [taskId]: false }))
+    }
+  }
 
   useEffect(() => {
     const raw = localStorage.getItem('recent_tasks')
@@ -24,10 +49,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       try {
         const ids = arr.slice(0, 50).map((it: any) => it.id)
         if (ids.length === 0) return
+        const initialLimit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 3)
         const res = await fetch(`${BASE}/bg/histories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids }),
+          body: JSON.stringify({ ids, limit: initialLimit, offset: 0 }),
         })
         if (!res.ok) {
           setLoading(false)
@@ -35,7 +61,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
         }
         const j = await res.json()
         const map = j.histories || {}
-        const merged = arr.map((it: any) => ({ ...it, latest: map[it.id] || null }))
+        // map entries are arrays (newest-first)
+        const merged = arr.map((it: any) => ({ ...it, histories: map[it.id] || [] }))
         setItems(merged)
       } catch {
         // ignore
@@ -66,8 +93,25 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{item.name}</span>
               <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]"><Clock3 size={13} /> {item.created_at ? new Date(item.created_at).toLocaleString() : ''}</span>
-              {item.latest && (
-                <div className="mt-1 text-xs text-[var(--muted)]">Latest: {item.latest.event_type} {item.latest.payload?.error ? `- ${item.latest.payload.error}` : ''}</div>
+              {item.histories && item.histories.length > 0 && (
+                <div className="mt-1 text-xs text-[var(--muted)]">
+                  {item.histories.slice(0, 5).map((h: any, idx: number) => (
+                    <div key={idx} className="truncate">
+                      {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
+                      <strong>{h.event_type}</strong>
+                      {h.payload?.error ? ` — ${h.payload.error}` : ''}
+                    </div>
+                  ))}
+                  {item.histories.length === 0 && <div>—</div>}
+                </div>
+              )}
+              {item.histories && item.histories.length > 0 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button type="button" onClick={() => loadMore(item.id)} disabled={!!loadingMore[item.id]} className="text-xs text-[var(--accent)]">
+                    {loadingMore[item.id] ? 'Loading...' : 'Show more'}
+                  </button>
+                  <span className="text-xs text-[var(--muted)]">Showing {item.histories.length}</span>
+                </div>
               )}
             </span>
             <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline">{item.latest ? item.latest.event_type : '—'}</span>
