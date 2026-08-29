@@ -11,6 +11,9 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [items, setItems] = useState<Array<any>>([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState<Record<string, boolean>>({})
+  const [loadedAll, setLoadedAll] = useState<Record<string, boolean>>({})
+  const [modalTask, setModalTask] = useState<string | null>(null)
+  const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({})
 
   const loadMore = async (taskId: string) => {
     const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
@@ -29,6 +32,10 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       const j = await res.json()
       const more = (j.histories || {})[taskId] || []
       setItems((prev) => prev.map((it) => (it.id === taskId ? { ...it, histories: [...(it.histories || []), ...more] } : it)))
+      // if fewer than pageSize returned, mark all loaded
+      if (more.length < pageSize) {
+        setLoadedAll((s) => ({ ...s, [taskId]: true }))
+      }
     } catch (e) {
       // ignore
     } finally {
@@ -73,7 +80,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   }, [])
 
   return (
-    <section>
+    <>
+      <section>
       <div className="mb-7 flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-[var(--accent)]">Workspace archive</p>
@@ -86,7 +94,34 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         {items.length === 0 && (
           <div className="p-6 text-sm text-[var(--muted)]">No recent tasks. Upload audio to see history here.</div>
-        )}
+          </section>
+          {modalTask && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6">
+              <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded bg-white p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Full history for {modalTask}</h2>
+                  <button onClick={() => setModalTask(null)} className="text-sm text-[var(--muted)]">Close</button>
+                </div>
+                <div>
+                  {(items.find((it) => it.id === modalTask)?.histories || []).map((h: any, idx: number) => (
+                    <div key={idx} className="mb-4 border-b pb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-[var(--muted)]">{h.event_ts ? new Date(h.event_ts).toLocaleString() : ''}</div>
+                        <div className="text-sm font-medium">{h.event_type}</div>
+                      </div>
+                      <div className="mt-2 text-xs">
+                        <pre className="rounded bg-slate-50 p-2 text-xs">{JSON.stringify(h.payload, null, 2)}</pre>
+                        {h.payload?.result?.output_file && (
+                          <div className="mt-2 text-sm"><a target="_blank" rel="noreferrer" href={(import.meta.env.VITE_API_BASE || 'http://localhost:8000') + '/' + h.payload.result.output_file}>Open output file</a></div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
         {items.map((item) => (
           <button key={item.id} type="button" className="flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
             <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><FileAudio size={20} /></span>
@@ -97,9 +132,17 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                 <div className="mt-1 text-xs text-[var(--muted)]">
                   {item.histories.slice(0, 5).map((h: any, idx: number) => (
                     <div key={idx} className="truncate">
-                      {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
-                      <strong>{h.event_type}</strong>
-                      {h.payload?.error ? ` — ${h.payload.error}` : ''}
+                      <div className="flex items-center gap-2">
+                        <div>
+                          {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
+                          <strong>{h.event_type}</strong>
+                          {h.payload?.error ? ` — ${h.payload.error}` : ''}
+                        </div>
+                        <button onClick={() => setExpandedEvents((s) => ({ ...s, [item.id + '_' + idx]: !s[item.id + '_' + idx] }))} className="text-xs text-[var(--accent)]">{expandedEvents[item.id + '_' + idx] ? 'Hide' : 'Details'}</button>
+                      </div>
+                      {expandedEvents[item.id + '_' + idx] && (
+                        <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-50 p-2 text-xs">{JSON.stringify(h.payload, null, 2)}</pre>
+                      )}
                     </div>
                   ))}
                   {item.histories.length === 0 && <div>—</div>}
@@ -107,10 +150,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
               )}
               {item.histories && item.histories.length > 0 && (
                 <div className="mt-2 flex items-center gap-2">
-                  <button type="button" onClick={() => loadMore(item.id)} disabled={!!loadingMore[item.id]} className="text-xs text-[var(--accent)]">
-                    {loadingMore[item.id] ? 'Loading...' : 'Show more'}
+                  <button type="button" onClick={() => loadMore(item.id)} disabled={!!loadingMore[item.id] || !!loadedAll[item.id]} className="text-xs text-[var(--accent)]">
+                    {loadingMore[item.id] ? 'Loading...' : loadedAll[item.id] ? 'All loaded' : 'Load more'}
                   </button>
-                  <span className="text-xs text-[var(--muted)]">Showing {item.histories.length}</span>
+                  <button type="button" onClick={() => setModalTask(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
+                  <span className="text-xs text-[var(--muted)]">Showing {item.histories.length}{loadedAll[item.id] ? ' (all)' : ''}</span>
                 </div>
               )}
             </span>
@@ -121,6 +165,32 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       </div>
       <p className="mt-3 text-xs text-[var(--muted)]">{loading ? 'Loading history...' : 'History is loaded from the backend.'}</p>
     </section>
+    {modalTask && (
+      <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6">
+        <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded bg-white p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Full history for {modalTask}</h2>
+            <button onClick={() => setModalTask(null)} className="text-sm text-[var(--muted)]">Close</button>
+          </div>
+          <div>
+            {(items.find((it) => it.id === modalTask)?.histories || []).map((h: any, idx: number) => (
+              <div key={idx} className="mb-4 border-b pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-[var(--muted)]">{h.event_ts ? new Date(h.event_ts).toLocaleString() : ''}</div>
+                  <div className="text-sm font-medium">{h.event_type}</div>
+                </div>
+                <div className="mt-2 text-xs">
+                  <pre className="rounded bg-slate-50 p-2 text-xs">{JSON.stringify(h.payload, null, 2)}</pre>
+                  {h.payload?.result?.output_file && (
+                    <div className="mt-2 text-sm"><a target="_blank" rel="noreferrer" href={(import.meta.env.VITE_API_BASE || 'http://localhost:8000') + '/' + h.payload.result.output_file}>Open output file</a></div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
   )
 }
 
