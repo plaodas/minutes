@@ -13,6 +13,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [visibleCount, setVisibleCount] = useState<number>(5)
   const [modalTask, setModalTask] = useState<string | null>(null)
   const [isModalVisible, setIsModalVisible] = useState(false)
+  const [loadingPerTask, setLoadingPerTask] = useState<Record<string, boolean>>({})
   const prevFocusRef = React.useRef<HTMLElement | null>(null)
   const listRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -37,7 +38,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
         if (!res.ok) return
         const j = await res.json()
         const map = j.histories || {}
-        const merged = arr.map((it: any) => ({ ...it, histories: map[it.id] || [] }))
+        const merged = arr.map((it: any) => ({ ...it, histories: it.histories && it.histories.length ? it.histories : map[it.id] || [] }))
         setItems(merged)
       } catch (e) {
         // ignore
@@ -185,22 +186,23 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                 <span className="block truncate text-sm font-medium">{item.name}</span>
                 <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]"><Clock3 size={13} /> {item.created_at ? new Date(item.created_at).toLocaleString() : ''}</span>
 
-                {item.histories && item.histories.length > 0 && (
-                  <div className="mt-1 text-xs text-[var(--muted)]">
-                    {item.histories.slice(0, 5).map((h: any, idx: number) => (
+                <div className="mt-1 text-xs text-[var(--muted)]">
+                  {item.histories && item.histories.length > 0 ? (
+                    item.histories.slice(0, 5).map((h: any, idx: number) => (
                       <div key={idx} className="truncate">
                         {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
                         <strong>{h.event_type}</strong>
                         {h.payload?.error ? ` — ${h.payload.error}` : ''}
                       </div>
-                    ))}
-                    {item.histories.length === 0 && <div>—</div>}
-                      <div className="mt-2 flex items-center gap-2">
-                          <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
-                        <span className="text-xs text-[var(--muted)]">Showing {item.histories.length}</span>
-                      </div>
+                    ))
+                  ) : (
+                    <div>—</div>
+                  )}
+                  <div className="mt-2 flex items-center gap-2">
+                    <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full history</button>
+                    <span className="text-xs text-[var(--muted)]">Showing {item.histories ? item.histories.length : 0}</span>
                   </div>
-                )}
+                </div>
               </span>
 
               <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline">{item.latest ? item.latest.event_type : '—'}</span>
@@ -236,6 +238,36 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   </div>
                 </div>
               ))}
+              <div className="mt-4">
+                <button data-testid={`load-more-${modalTask}`} onClick={async () => {
+                  if (!modalTask) return
+                  // prevent double clicks
+                  if (loadingPerTask[modalTask]) return
+                  setLoadingPerTask((s) => ({ ...s, [modalTask]: true }))
+                  try {
+                    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                    const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
+                    const current = items.find((it) => it.id === modalTask)
+                    const offset = (current?.histories?.length) || 0
+                    const res = await fetch(`${BASE}/bg/histories`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ ids: [modalTask], limit, offset }),
+                    })
+                    if (res.ok) {
+                      const j = await res.json()
+                      const map = j.histories || {}
+                      setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, histories: [ ...(it.histories || []), ...(map[it.id] || []) ] }) : it))
+                    }
+                  } catch (e) {
+                    // ignore
+                  } finally {
+                    setLoadingPerTask((s) => ({ ...s, [modalTask]: false }))
+                  }
+                }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white" disabled={Boolean(modalTask && loadingPerTask[modalTask])}>
+                  {modalTask && loadingPerTask[modalTask] ? 'Loading…' : 'Load more'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
