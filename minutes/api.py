@@ -34,7 +34,7 @@ from minutes.bg_store import update_task_cancelled
 from minutes.bg_store import DB_PATH
 import uuid
 from minutes.db import SessionLocal
-from minutes.models import TaskHistory
+from minutes.models import Task, TaskHistory
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 
@@ -227,7 +227,14 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
     try:
         task = process_audio.delay(dest_path)
         task_id = task.id
-        create_task(task_id)
+        # Store upload metadata (original filename) in the task record so
+        # the frontend can show a meaningful name when listing tasks.
+        try:
+            create_task(task_id, metadata={"upload_filename": file.filename})
+        except TypeError:
+            # backward-compat: if create_task signature hasn't been updated,
+            # call without metadata
+            create_task(task_id)
         return {"task_id": task_id}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -261,46 +268,86 @@ def bg_result(task_id: str):
 @app.get("/bg/history/{task_id}")
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return task history events. Works with DB-backed store or file-backed fallback."""
-    # DB-backed
-    if os.environ.get("DATABASE_URL"):
-        session = SessionLocal()
-        try:
-            try:
-                key = uuid.UUID(task_id)
-            except Exception:
-                return JSONResponse({"error": "invalid task id"}, status_code=400)
-            rows = (
-                session.query(TaskHistory)
-                .filter(TaskHistory.task_id == key)
-                .order_by(TaskHistory.event_ts.desc())
-                .offset(int(offset))
-                .limit(int(limit))
-                .all()
-            )
-            out = []
-            for r in rows:
-                out.append({
-                    "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
-                    "event_type": r.event_type,
-                    "payload": r.payload,
-                })
-            return {"task_id": task_id, "history": out}
-        finally:
-            session.close()
-
-    # File-backed fallback
+    # DB-backed only: query TaskHistory rows for the given task id.
+    session = SessionLocal()
     try:
-        with open(DB_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
+        try:
+            key = uuid.UUID(task_id)
+        except Exception:
+            return JSONResponse({"error": "invalid task id"}, status_code=400)
+        rows = (
+            session.query(TaskHistory)
+            .filter(TaskHistory.task_id == key)
+            .order_by(TaskHistory.event_ts.desc())
+            .offset(int(offset))
+            .limit(int(limit))
+            .all()
+        )
+        out = []
+        for r in rows:
+            out.append({
+                "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
+                "event_type": r.event_type,
+                "payload": r.payload,
+            })
+        return {"task_id": task_id, "history": out}
+    finally:
+        session.close()
 
-    t = data.get(task_id)
-    if not t:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    history = t.get("history", [])
-    sliced = history[int(offset) : int(offset) + int(limit)]
-    return {"task_id": task_id, "history": sliced}
+
+@app.post("/bg/task/{task_id}/rename")
+def bg_task_rename(task_id: str, payload: Dict[str, str]):
+    """Rename a task display `name`.
+
+    Body: { "name": "New title" }
+    """
+    name = (payload or {}).get("name")
+    if not name:
+        return JSONResponse({"error": "missing name"}, status_code=400)
+    session = SessionLocal()
+    try:
+        try:
+            key = uuid.UUID(task_id)
+        except Exception:
+            return JSONResponse({"error": "invalid task id"}, status_code=400)
+        t = session.get(Task, key)
+        if not t:
+            return JSONResponse({"error": "unknown task"}, status_code=404)
+        t.name = name
+        session.add(t)
+        session.commit()
+        # record a small history entry
+        h = TaskHistory(task_id=key, event_type="rename", payload={"name": name})
+        session.add(h)
+        session.commit()
+        return {"task_id": task_id, "name": name}
+    finally:
+        session.close()
+
+
+@app.get("/bg/tasks")
+def bg_tasks(limit: int = 50, offset: int = 0):
+    """Return a paginated list of background tasks (DB-backed only).
+
+    Response: { tasks: [ { id, status, progress, result, created_at, last_success_ts } ] }
+    """
+    session = SessionLocal()
+    try:
+        q = session.query(Task).order_by(Task.created_at.desc()).offset(int(offset)).limit(int(limit))
+        out = []
+        for t in q.all():
+            out.append({
+                "id": str(t.id),
+                "name": t.name,
+                "status": t.status,
+                "progress": float(t.progress) if t.progress is not None else None,
+                "result": t.result,
+                "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
+                "last_success_ts": t.last_success_ts.isoformat() + "Z" if t.last_success_ts else None,
+            })
+        return {"tasks": out}
+    finally:
+        session.close()
 
 
 class IdList(BaseModel):
@@ -349,106 +396,77 @@ def bg_histories(payload: IdList):
 
     out: Dict[str, List[Dict[str, Any]]] = {}
 
-    # DB-backed path: reuse a single session and process ids in chunks to keep IN(...) lists small
-    if os.environ.get("DATABASE_URL"):
-        session = SessionLocal()
-        try:
-            # pre-fill keys with empty lists so missing ids return []
-            for i in ids:
-                out[str(i)] = []
+    # DB-backed path only: reuse a single session and process ids in chunks
+    session = SessionLocal()
+    try:
+        # pre-fill keys with empty lists so missing ids return []
+        for i in ids:
+            out[str(i)] = []
 
-            from sqlalchemy import select, func
+        from sqlalchemy import select, func
 
-            # For per-id offsets we execute per-task small window queries within each chunk
-            for start in range(0, n_ids, BG_HISTORIES_BATCH_SIZE):
-                chunk = ids[start : start + BG_HISTORIES_BATCH_SIZE]
+        # For per-id offsets we execute per-task small window queries within each chunk
+        for start in range(0, n_ids, BG_HISTORIES_BATCH_SIZE):
+            chunk = ids[start : start + BG_HISTORIES_BATCH_SIZE]
 
-                # build mapping of valid UUIDs in this chunk
-                valid_map: Dict[uuid.UUID, str] = {}
-                for i in chunk:
-                    # skip obviously-invalid short strings to avoid accidental coercion
-                    if not isinstance(i, str) or len(i) not in (32, 36):
-                        continue
-                    try:
-                        u = uuid.UUID(i)
-                        valid_map[u] = str(i)
-                    except Exception:
-                        # invalid UUIDs are left as empty lists
-                        continue
-
-                if not valid_map:
+            # build mapping of valid UUIDs in this chunk
+            valid_map: Dict[uuid.UUID, str] = {}
+            for i in chunk:
+                # skip obviously-invalid short strings to avoid accidental coercion
+                if not isinstance(i, str) or len(i) not in (32, 36):
+                    continue
+                try:
+                    u = uuid.UUID(i)
+                    valid_map[u] = str(i)
+                except Exception:
+                    # invalid UUIDs are left as empty lists
                     continue
 
-                # For each valid task_id in this chunk, fetch its rows using a window function
-                for u, orig_id in valid_map.items():
-                    off = int(offsets_map.get(orig_id, 0))
-                    rownum = func.row_number().over(partition_by=TaskHistory.task_id, order_by=TaskHistory.event_ts.desc()).label("rn")
-                    subq = (
-                        select(
-                            TaskHistory.id,
-                            TaskHistory.task_id,
-                            TaskHistory.event_ts,
-                            TaskHistory.event_type,
-                            TaskHistory.payload,
-                            rownum,
-                        )
-                        .where(TaskHistory.task_id == u)
-                        .subquery()
+            if not valid_map:
+                continue
+
+            # For each valid task_id in this chunk, fetch its rows using a window function
+            for u, orig_id in valid_map.items():
+                off = int(offsets_map.get(orig_id, 0))
+                rownum = func.row_number().over(partition_by=TaskHistory.task_id, order_by=TaskHistory.event_ts.desc()).label("rn")
+                subq = (
+                    select(
+                        TaskHistory.id,
+                        TaskHistory.task_id,
+                        TaskHistory.event_ts,
+                        TaskHistory.event_type,
+                        TaskHistory.payload,
+                        rownum,
+                    )
+                    .where(TaskHistory.task_id == u)
+                    .subquery()
+                )
+
+                q = (
+                    select(subq)
+                    .where(subq.c.rn > off)
+                    .where(subq.c.rn <= (off + limit))
+                    .order_by(subq.c.task_id, subq.c.rn)
+                )
+                res = session.execute(q).all()
+
+                for row in res:
+                    tid = str(row.task_id)
+                    entries = out.setdefault(tid, [])
+                    entries.append(
+                        {
+                            "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
+                            "event_type": row.event_type,
+                            "payload": row.payload,
+                        }
                     )
 
-                    q = (
-                        select(subq)
-                        .where(subq.c.rn > off)
-                        .where(subq.c.rn <= (off + limit))
-                        .order_by(subq.c.task_id, subq.c.rn)
-                    )
-                    res = session.execute(q).all()
-
-                    for row in res:
-                        tid = str(row.task_id)
-                        entries = out.setdefault(tid, [])
-                        entries.append(
-                            {
-                                "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
-                                "event_type": row.event_type,
-                                "payload": row.payload,
-                            }
-                        )
-
-            resp = {"histories": out}
-            if warnings:
-                resp["warnings"] = warnings
-            return resp
-        finally:
-            session.close()
-
-    # file-backed fallback: read once and process in chunks
-    try:
-        with open(DB_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        return {"histories": {}}
-
-    for start in range(0, n_ids, BG_HISTORIES_BATCH_SIZE):
-        chunk = ids[start : start + BG_HISTORIES_BATCH_SIZE]
-        for i in chunk:
-            t = data.get(i)
-            if not t:
-                out[str(i)] = []
-                continue
-            hist = t.get("history", [])
-            if not hist:
-                out[str(i)] = []
-                continue
-            # use per-id offset when provided, fall back to 0
-            off = int(offsets_map.get(i, 0))
-            sliced = hist[max(0, len(hist) - off - limit) : len(hist) - off]
-            out[str(i)] = list(reversed(sliced))
-
-    resp = {"histories": out}
-    if warnings:
-        resp["warnings"] = warnings
-    return resp
+        resp = {"histories": out}
+        if warnings:
+            resp["warnings"] = warnings
+        return resp
+    finally:
+        session.close()
 
 
 @app.post("/bg/cancel/{task_id}")

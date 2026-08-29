@@ -19,6 +19,8 @@ class Task(Base):
     __tablename__ = 'tasks'
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)
+    # short display name for the task (e.g. "Meeting: Engineering sync")
+    name = Column(String, nullable=True, index=True)
     status = Column(String, nullable=False, index=True)
     progress = Column(Numeric, default=0)
     result = Column(JSON, nullable=True)

@@ -22,52 +22,57 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const listRef = React.useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    const raw = localStorage.getItem('recent_tasks')
-    let arr = raw ? JSON.parse(raw) : sampleMinutes
-    if (!Array.isArray(arr)) arr = sampleMinutes
-    setItems(arr)
-    // set items first, then fetch histories only for visible items (avoid fetching all at once)
-    const fetchForVisible = async () => {
+    // Fetch the task list from the backend instead of reading from localStorage.
+    const fetchTasks = async () => {
       const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
       setLoading(true)
       try {
-        const limit = Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
-        // only request histories for visible items that don't already have local histories
-        const ids = arr.slice(0, visibleCount).filter((it: any) => !it.histories || it.histories.length === 0).map((it: any) => it.id).filter(Boolean)
-        if (ids.length === 0) return
-        // build offsets map from local data if present
-        const offsets: Record<string, number> = {}
-        for (const id of ids) {
-          const found = arr.find((x: any) => x.id === id)
-          if (found?.histories?.length) offsets[id] = found.histories.length
+        const limit = 100
+        const res = await fetch(`${BASE}/bg/tasks?limit=${limit}`)
+        if (!res.ok) {
+          setItems([])
+          return
         }
-        const body: any = { ids, limit }
-        if (Object.keys(offsets).length) body.offsets = offsets
-        const res = await fetch(`${BASE}/bg/histories`, {
+        const j = await res.json()
+        const arr = (j.tasks || []).map((t: any) => ({
+          id: t.id,
+          name: t.name || t.result?.upload_filename || `task-${t.id.slice(0,8)}`,
+          created_at: t.created_at,
+          status: t.status,
+          progress: t.progress,
+          result: t.result,
+          histories: [],
+        }))
+        setItems(arr)
+
+        // After we have the list, fetch histories only for visible items
+        const toFetch = arr.slice(0, visibleCount).map((it: any) => it.id)
+        if (toFetch.length === 0) return
+        const body: any = { ids: toFetch, limit: Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5) }
+        const hres = await fetch(`${BASE}/bg/histories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
-        if (!res.ok) return
-        const j = await res.json()
-        const map = j.histories || {}
-        const merged = arr.map((it: any) => ({ ...it, histories: it.histories && it.histories.length ? it.histories : map[it.id] || [] }))
+        if (!hres.ok) return
+        const hj = await hres.json()
+        const map = hj.histories || {}
+        const merged = arr.map((it: any) => ({ ...it, histories: map[it.id] || [] }))
         setItems(merged)
-        // update hasMore flags based on returned counts
         const nextHasMore: Record<string, boolean> = {}
-        for (const id of ids) {
+        for (const id of toFetch) {
           const got = (map[id] || []) as any[]
-          nextHasMore[id] = got.length >= limit
+          nextHasMore[id] = got.length >= Number(import.meta.env.VITE_BG_HISTORY_INITIAL_LIMIT || 5)
         }
         setHasMorePerTask((s) => ({ ...s, ...nextHasMore }))
       } catch (e) {
-        // ignore
+        setItems([])
       } finally {
         setLoading(false)
       }
     }
 
-    fetchForVisible()
+    fetchTasks()
   }, [])
 
   // when visibleCount increases, fetch histories for newly visible items that don't have histories yet
@@ -261,8 +266,29 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
         <div onClick={(e) => { if (e.target === e.currentTarget) closeModal() }} className={`fixed inset-0 z-50 flex items-start justify-center p-6 transition-opacity duration-200 ${isModalVisible ? 'bg-black/40 opacity-100' : 'bg-black/0 opacity-0'}`}>
           <div role="dialog" aria-modal="true" aria-label={`Full history for ${modalTask}`} className={`relative max-h-[80vh] w-full max-w-2xl overflow-auto rounded bg-white p-6 transform transition-all duration-200 ${isModalVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'}`}>
             <button aria-label="Close" onClick={() => closeModal()} className="absolute right-3 top-3 rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-slate-100">✕</button>
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold">Full history for {modalTask}</h2>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Full history for {items.find((it) => it.id === modalTask)?.name || modalTask}</h2>
+              <div>
+                <button data-testid={`rename-${modalTask}`} onClick={async () => {
+                  const newName = window.prompt('Enter new name for this task', items.find((it) => it.id === modalTask)?.name || '')
+                  if (!newName) return
+                  try {
+                    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                    const res = await fetch(`${BASE}/bg/task/${modalTask}/rename`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ name: newName })
+                    })
+                    if (res.ok) {
+                      setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, name: newName }) : it))
+                    } else {
+                      // ignore
+                    }
+                  } catch (e) {
+                    // ignore
+                  }
+                }} className="mr-3 rounded bg-slate-100 px-2 py-1 text-sm">Rename</button>
+              </div>
             </div>
             <div>
               {(items.find((it) => it.id === modalTask)?.histories || []).map((h: any, idx: number) => (
