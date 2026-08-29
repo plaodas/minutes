@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+const BASE = import.meta.env.VITE_API_BASE || '/api'
 
 export async function uploadAudioBg(file: File) {
   const fd = new FormData()
@@ -48,7 +48,7 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
 }
 
 export async function getBgStatus(taskId: string) {
-  const res = await fetch(`${BASE}/bg/status/${taskId}a`)
+  const res = await fetch(`${BASE}/bg/status/${taskId}`)
   if (!res.ok) throw new Error('status fetch failed')
   return res.json()
 }
