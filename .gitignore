@@ -24,6 +24,7 @@ var/
 *.egg
 node_modules/
 .playwright-browsers/
+frontend/test-results/
 
 # Virtual environments
 .venv/

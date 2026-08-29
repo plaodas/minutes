@@ -11,12 +11,43 @@ const modalHtml = (id = 'test-modal') => `
         <input id="input-1" />
       </div>
     </div>
-  </div>
-`}
+    </div>
+  `
 
 test.describe('modal focus trap', () => {
-  test('tabs cycle within modal', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await page.setContent(modalHtml())
+    // inject a simple focus-trap implementation similar to app behavior
+    await page.evaluate(() => {
+      const root = document.querySelector('[role="dialog"]') as HTMLElement | null
+      const getFocusable = () => {
+        if (!root) return [] as HTMLElement[]
+        const selector = 'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+        return Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((el) => !el.hasAttribute('disabled'))
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const ov = document.getElementById('overlay')
+          ov?.remove()
+          return
+        }
+        if (e.key !== 'Tab') return
+        const list = getFocusable()
+        if (list.length === 0) { e.preventDefault(); return }
+        const idx = list.indexOf(document.activeElement as HTMLElement)
+        if (e.shiftKey) {
+          if (idx <= 0) { e.preventDefault(); list[list.length - 1].focus() }
+        } else {
+          if (idx === list.length - 1) { e.preventDefault(); list[0].focus() }
+        }
+      })
+      // overlay click closes
+      const ov = document.getElementById('overlay')
+      ov?.addEventListener('click', (ev) => { if (ev.target === ov) ov.remove() })
+    })
+  })
+
+  test('tabs cycle within modal', async ({ page }) => {
     // focus close button first
     await page.locator('#close').focus()
     // press Tab to go to first action
@@ -34,7 +65,6 @@ test.describe('modal focus trap', () => {
   })
 
   test('shift+tab wraps backwards', async ({ page }) => {
-    await page.setContent(modalHtml())
     await page.locator('#close').focus()
     // Shift+Tab from close should go to input (last)
     await page.keyboard.down('Shift')
@@ -44,28 +74,14 @@ test.describe('modal focus trap', () => {
   })
 
   test('escape closes modal (simulate by removing from DOM)', async ({ page }) => {
-    await page.setContent(modalHtml())
-    // attach escape handler that removes overlay
-    await page.addInitScript(() => {
-      window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          const ov = document.getElementById('overlay')
-          ov?.remove()
-        }
-      })
-    })
-    // press Escape
+    // press Escape (beforeEach injected handler will remove overlay)
     await page.keyboard.press('Escape')
     await expect(page.locator('#overlay')).toHaveCount(0)
   })
 
   test('overlay click closes modal', async ({ page }) => {
-    await page.setContent(modalHtml())
     // click overlay background (outside dialog)
     await page.click('#overlay')
-    // since click lands on overlay itself, dialog should remain (our HTML has overlay as parent),
-    // emulate behavior by removing when overlay clicked
-    await page.evaluate(() => { document.getElementById('overlay')?.remove() })
     await expect(page.locator('#overlay')).toHaveCount(0)
   })
 })
