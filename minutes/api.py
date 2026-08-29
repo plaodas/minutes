@@ -325,6 +325,49 @@ def bg_task_rename(task_id: str, payload: Dict[str, str]):
         session.close()
 
 
+@app.post("/bg/task/{task_id}/regenerate-name")
+def bg_task_regenerate_name(task_id: str):
+    """Regenerate the task display `name` from the output file using the local summarizer."""
+    session = SessionLocal()
+    try:
+        try:
+            key = uuid.UUID(task_id)
+        except Exception:
+            return JSONResponse({"error": "invalid task id"}, status_code=400)
+        t = session.get(Task, key)
+        if not t:
+            return JSONResponse({"error": "unknown task"}, status_code=404)
+        res = t.result or {}
+        output_file = None
+        if isinstance(res, dict):
+            output_file = res.get('output_file') or (res.get('result') or {}).get('output_file')
+        if not output_file:
+            return JSONResponse({"error": "no output file available"}, status_code=404)
+        outputs_dir = os.environ.get('OUTPUTS_DIR', 'outputs')
+        candidate = os.path.join(outputs_dir, os.path.basename(output_file))
+        try:
+            from minutes.summary import summarize_local
+            with open(candidate, 'r', encoding='utf-8') as rf:
+                text = rf.read()
+            short = summarize_local(text, max_sentences=1).strip()
+            if short and len(short) > 120:
+                short = short[:117].rstrip() + '...'
+            t.name = short
+            session.add(t)
+            session.commit()
+            # record history
+            h = TaskHistory(task_id=key, event_type='rename', payload={'name': short})
+            session.add(h)
+            session.commit()
+            return {"task_id": task_id, "name": short}
+        except FileNotFoundError:
+            return JSONResponse({"error": "output file not found"}, status_code=404)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+    finally:
+        session.close()
+
+
 @app.get("/bg/tasks")
 def bg_tasks(limit: int = 50, offset: int = 0):
     """Return a paginated list of background tasks (DB-backed only).

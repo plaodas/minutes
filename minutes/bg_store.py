@@ -12,6 +12,7 @@ from .db import SessionLocal
 from .models import Task, TaskHistory
 from sqlalchemy.exc import NoResultFound
 from datetime import datetime
+from .summary import summarize_local
 
 
 def get_session():
@@ -96,8 +97,8 @@ def get_session():
                         t.fail_count = 0
                         t.last_success_ts = datetime.utcnow()
 
-                        # If no explicit display name exists, try to generate a short name
-                        # from the output file's contents (first non-empty line, truncated).
+                        # If no explicit display name exists, try to generate a short
+                        # summary-based display name from the output file contents.
                         if (not getattr(t, 'name', None)) and isinstance(result, dict):
                             output_file = result.get('output_file') or (result.get('result') or {}).get('output_file')
                             if output_file:
@@ -106,20 +107,13 @@ def get_session():
                                 candidate = os.path.join(outputs_dir, fname)
                                 try:
                                     with open(candidate, 'r', encoding='utf-8') as rf:
-                                        text = rf.read(4096)
-                                        # pick first non-empty line
-                                        for line in text.splitlines():
-                                            s = line.strip()
-                                            if s:
-                                                title = s
-                                                break
-                                        else:
-                                            title = ''
-                                        if title:
-                                            # limit to 120 chars
-                                            if len(title) > 120:
-                                                title = title[:117].rstrip() + '...'
-                                            t.name = title
+                                        text = rf.read()
+                                        # use small extractive summarizer for a short title
+                                        short = summarize_local(text, max_sentences=1).strip()
+                                        if short:
+                                            if len(short) > 120:
+                                                short = short[:117].rstrip() + '...'
+                                            t.name = short
                                 except Exception:
                                     pass
 
