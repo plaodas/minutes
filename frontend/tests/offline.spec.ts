@@ -32,9 +32,16 @@ test('offline fallback uses cached tasks and shows retry toast', async ({ page }
   await page.waitForSelector('button[aria-label="History"]', { state: 'attached', timeout: 10000 })
   await page.evaluate(() => { const el = document.querySelector('button[aria-label="History"]') as HTMLElement | null; el?.click() })
 
-  // cached task should be visible
-  await page.waitForSelector('text=cached.mp3', { timeout: 5000 })
-  await expect(page.locator('text=cached.mp3')).toBeVisible()
+  // debug: dump cached_tasks and current view-minutes elements
+  const cachedRaw = await page.evaluate(() => localStorage.getItem('cached_tasks'))
+  console.log('CACHED_RAW:', cachedRaw)
+  const testIds = await page.evaluate(() => Array.from(document.querySelectorAll('[data-testid^="view-minutes-"]')).map((el) => (el as HTMLElement).getAttribute('data-testid')))
+  console.log('FOUND_TEST_IDS', testIds)
+
+  // cached task should be visible (use data-testid to avoid text-matching edge cases)
+  await page.waitForSelector('[data-testid="view-minutes-cached-1"]', { timeout: 5000 })
+  const item = page.locator('[data-testid="view-minutes-cached-1"]')
+  await expect(item.getByText('cached.mp3')).toBeVisible()
 
   // toast for failure should appear with retry action
   await page.waitForSelector('text=履歴の読み込みに失敗しました', { timeout: 5000 })

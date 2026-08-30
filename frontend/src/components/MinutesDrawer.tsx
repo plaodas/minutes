@@ -70,11 +70,11 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
               <div className="mb-3 text-sm text-[var(--muted)]">Full text</div>
               <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text}</div>
               <div className="flex gap-2">
-                <button onClick={() => startDownloadLocal(() => fetchTranscriptDownload(taskId, 'txt'), `${taskId}_transcript.txt`, 'Transcript download started')} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
+                <button onClick={() => startDownload(() => fetchTranscriptDownload(taskId, 'txt'), `${taskId}_transcript.txt`, toast.addToast)} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
 
-                <button onClick={() => startDownloadLocal(() => fetchSummaryDownload(taskId, 'txt'), `${taskId}_summary.txt`, 'Summary download started')} className="rounded border px-3 py-2 text-sm">Download summary</button>
+                <button onClick={() => startDownload(() => fetchSummaryDownload(taskId, 'txt'), `${taskId}_summary.txt`, toast.addToast)} className="rounded border px-3 py-2 text-sm">Download summary</button>
 
-                <button onClick={() => startDownloadLocal(() => fetchActionItemsDownload(taskId, 'json'), `${taskId}_action_items.json`, 'Action items download started')} className="rounded border px-3 py-2 text-sm">Download action items</button>
+                <button onClick={() => startDownload(() => fetchActionItemsDownload(taskId, 'json'), `${taskId}_action_items.json`, toast.addToast)} className="rounded border px-3 py-2 text-sm">Download action items</button>
 
                 <button onClick={async () => {
                   try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard', { level: 'success' }) } catch { toast.addToast('Copy failed', { level: 'error' }) }
