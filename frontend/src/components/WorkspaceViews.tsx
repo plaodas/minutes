@@ -233,14 +233,15 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   )}
                     <div className="mt-2 flex items-center gap-2">
                       <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full events</button>
-                      <button data-testid={`view-minutes-${item.id}`} type="button" onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} className="text-xs text-[var(--accent)]">View minutes</button>
                     <span className="text-xs text-[var(--muted)]">Showing {item.histories ? item.histories.length : 0}{item.event_count ? ` of ${item.event_count}` : ''}</span>
                   </div>
                 </div>
               </span>
 
               <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline">{item.latest ? item.latest.event_type : '—'}</span>
-              <ChevronRight className="shrink-0 text-slate-400" size={18} />
+              <button aria-label={`View minutes for ${item.name || item.id}`} onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} className="shrink-0 text-slate-400 rounded hover:bg-slate-100 p-1">
+                <ChevronRight size={18} />
+              </button>
             </div>
           ))}
           {/* sentinel for infinite scroll */}
