@@ -7,7 +7,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:unit": "vitest"
   },
   "dependencies": {
     "framer-motion": "^8.0.0",
@@ -28,5 +29,7 @@
     "vite": "^5.0.0",
     "playwright": "^1.44.0",
     "@playwright/test": "^1.44.0"
+    ,
+    "vitest": "^1.2.0"
   }
 }
