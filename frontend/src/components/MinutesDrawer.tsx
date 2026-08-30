@@ -6,7 +6,21 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
+  const [toastVisible, setToastVisible] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
+
+  const showToast = (msg: string, duration = 3500) => {
+    // mount message then animate in
+    setLiveMessage(msg)
+    // small delay to ensure class change triggers transition
+    setTimeout(() => setToastVisible(true), 20)
+    // hide after duration
+    setTimeout(() => {
+      setToastVisible(false)
+      // remove message after animation
+      setTimeout(() => setLiveMessage(null), 220)
+    }, duration)
+  }
 
   useEffect(() => {
     if (!taskId) return
@@ -72,14 +86,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
         {/* Screen-reader live region for action feedback (polite) */}
         <div aria-live="polite" role="status" aria-atomic="true" className="sr-only">{liveMessage}</div>
         {/* Visual toast for live messages (also accessible) */}
-        {liveMessage && (
-          <div className="absolute right-4 top-12 z-50 pointer-events-auto">
-            <div role="status" aria-live="polite" aria-atomic="true" className="rounded bg-black/85 text-white px-3 py-2 text-sm shadow-lg transition-opacity duration-200 flex items-center gap-3">
-              <div className="flex-1">{liveMessage}</div>
-              <button aria-label="Close notification" onClick={() => setLiveMessage(null)} className="ml-2 rounded px-2 py-1 text-xs font-medium hover:bg-white/10">✕</button>
-            </div>
+        <div className="absolute right-4 top-12 z-50 pointer-events-none">
+          <div role="status" aria-live="polite" aria-atomic="true" className={`pointer-events-auto rounded bg-black/85 text-white px-3 py-2 text-sm shadow-lg flex items-center gap-3 transform transition-all duration-200 ease-out ${toastVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
+            <div className="flex-1">{liveMessage}</div>
+            <button aria-label="Close notification" onClick={() => { setToastVisible(false); setTimeout(() => setLiveMessage(null), 220) }} className="ml-2 rounded px-2 py-1 text-xs font-medium hover:bg-white/10">✕</button>
           </div>
-        )}
+        </div>
         <div>
           {loading && <div className="p-4">Loading minutes…</div>}
           {error && <div className="p-4 text-sm text-red-600">{error}</div>}
