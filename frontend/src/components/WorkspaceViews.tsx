@@ -193,6 +193,25 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           </button>
         </div>
 
+        {/* Inline error/banner when tasks fetch fails */}
+        {tasksError && (
+          <div className={`mb-4 rounded-md p-3 border ${items && items.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-rose-50 border-rose-200'}`}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-sm">
+                {items && items.length > 0 ? (
+                  <span>最新の履歴を取得できませんでした。古いデータを表示しています。</span>
+                ) : (
+                  <span>履歴を読み込めませんでした。ネットワークを確認してください。</span>
+                )}
+              </div>
+              <div className="shrink-0">
+                <button onClick={() => reload()} className={`rounded px-3 py-1 text-sm font-medium text-white ${items && items.length > 0 ? 'bg-yellow-600 hover:brightness-90' : 'bg-rose-600 hover:brightness-90'}`}>再試行</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+
         <div ref={listRef} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           {items.length === 0 && (
             <div className="p-6 text-sm text-[var(--muted)]">No recent tasks. Upload audio to see history here.</div>
