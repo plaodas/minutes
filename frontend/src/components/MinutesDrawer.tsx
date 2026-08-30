@@ -11,36 +11,16 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
   const [isVisible, setIsVisible] = useState(false)
   const toast = useToast()
-
-  useEffect(() => {
-    if (!taskId) return
-    // show with animation on mount
-    const t = setTimeout(() => setIsVisible(true), 20)
-    return () => clearTimeout(t)
-  }, [taskId])
-
-  // use shared helper
-  const startDownloadLocal = (runner: () => Promise<{ blob: Blob; headers?: any }>, filename: string, successMsg?: string) => startDownload(runner, filename, toast.addToast.bind(toast), successMsg)
-
-  // focus management: move focus to close button when visible
-  useEffect(() => {
-    if (!isVisible) return
-    const timeout = setTimeout(() => {
-      const btn = document.querySelector('[aria-label="Close minutes"]') as HTMLElement | null
-      if (btn) try { btn.focus() } catch {}
-    }, 50)
-    return () => clearTimeout(timeout)
-  }, [isVisible])
-
   useEffect(() => {
     if (!taskId) return
     const fetchMinutes = async () => {
       setLoading(true)
       setError(null)
       setText(null)
+      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
       try {
-        const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-        const res = await fetch(`${BASE}/bg/minutes/${taskId}`)
+        const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
+        const res = await fetchWithRetry(`${BASE}/bg/minutes/${taskId}`, { credentials: 'same-origin' }, { retries: 2, timeoutMs: 10000 })
         if (res.status === 202) {
           setError('Minutes are still processing')
           return

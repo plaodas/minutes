@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
 import { useTasks } from '../hooks/useTasks'
@@ -154,25 +155,31 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           // load next page
           if (loadingMore || !hasMore) return
           setLoadingMore(true)
-          const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-          const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
-          const offset = items.length
-          fetch(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`).then(async (res) => {
-            if (!res.ok) return
-            const j = await res.json()
-            const arr = (j.tasks || []).map((t: any) => ({
-              id: t.id,
-              name: t.name || t.result?.upload_filename || `task-${t.id.slice(0,8)}`,
-              created_at: t.created_at,
-              status: t.status,
-              progress: t.progress,
-              result: t.result,
-              histories: (t.preview_events || []).slice(0, 3),
-              event_count: t.event_count || 0,
-            }))
-            setItems((prev) => [...prev, ...arr])
-            setHasMore(arr.length >= limit)
-          }).catch(() => {}).finally(() => setLoadingMore(false))
+                ;(async () => {
+                  try {
+                    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                    const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
+                    const offset = items.length
+                    const res = await fetchWithRetry(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`)
+              const j = await res.json()
+              const arr = (j.tasks || []).map((t: any) => ({
+                id: t.id,
+                name: t.name || t.result?.upload_filename || `task-${String(t.id).slice(0, 8)}`,
+                created_at: t.created_at,
+                status: t.status,
+                progress: t.progress,
+                result: t.result,
+                histories: (t.preview_events || []).slice(0, 3),
+                event_count: t.event_count || 0,
+              }))
+              setItems((prev) => [...prev, ...arr])
+              setHasMore(arr.length >= limit)
+            } catch (err) {
+              // ignore load-more errors; user can retry via page refresh or reload button
+            } finally {
+              setLoadingMore(false)
+            }
+          })()
         }
       }
     }, { root: null, rootMargin: '200px' })
@@ -267,21 +274,20 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                 <button data-testid={`rename-${modalTask}`} onClick={async () => {
                   const newName = window.prompt('Enter new name for this task', items.find((it) => it.id === modalTask)?.name || '')
                   if (!newName) return
-                  try {
-                    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-                    const res = await fetch(`${BASE}/bg/task/${modalTask}/rename`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ name: newName })
-                    })
-                    if (res.ok) {
-                      setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, name: newName }) : it))
-                    } else {
+                    try {
+                      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                      // use fetchWithRetry but with zero retries to get timeout/abort behavior without unsafe POST retries
+                      const res = await fetchWithRetry(`${BASE}/bg/task/${modalTask}/rename`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: newName })
+                      }, { retries: 0, timeoutMs: 10000 })
+                      if (res.ok) {
+                        setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, name: newName }) : it))
+                      }
+                    } catch (e) {
                       // ignore
                     }
-                  } catch (e) {
-                    // ignore
-                  }
                 }} className="mr-3 rounded bg-slate-100 px-2 py-1 text-sm">Rename</button>
               </div>
             </div>
