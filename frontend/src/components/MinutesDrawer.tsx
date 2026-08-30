@@ -97,7 +97,28 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.remove()
                     URL.revokeObjectURL(url)
                     toast.addToast('Transcript download started', { level: 'info', duration: 3000 })
-                  } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
+                  } catch (e: any) {
+                    toast.addToast('Download failed: ' + (e?.message || e), {
+                      level: 'error',
+                      actionLabel: 'Retry',
+                      action: async () => {
+                        try {
+                          const { blob } = await fetchTranscriptDownload(taskId, 'txt')
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = `${taskId}_transcript.txt`
+                          document.body.appendChild(a)
+                          a.click()
+                          a.remove()
+                          URL.revokeObjectURL(url)
+                          toast.addToast('Transcript download started', { level: 'info', duration: 3000 })
+                        } catch (e: any) {
+                          toast.addToast('Retry failed: ' + (e?.message || e), { level: 'error' })
+                        }
+                      }
+                    })
+                  }
                 }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
 
                 <button onClick={async () => {
@@ -112,7 +133,28 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.remove()
                     URL.revokeObjectURL(url)
                     toast.addToast('Summary download started', { level: 'info', duration: 3000 })
-                  } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
+                  } catch (e: any) {
+                    toast.addToast('Download failed: ' + (e?.message || e), {
+                      level: 'error',
+                      actionLabel: 'Retry',
+                      action: async () => {
+                        try {
+                          const { blob } = await fetchSummaryDownload(taskId, 'txt')
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = `${taskId}_summary.txt`
+                          document.body.appendChild(a)
+                          a.click()
+                          a.remove()
+                          URL.revokeObjectURL(url)
+                          toast.addToast('Summary download started', { level: 'info', duration: 3000 })
+                        } catch (e: any) {
+                          toast.addToast('Retry failed: ' + (e?.message || e), { level: 'error' })
+                        }
+                      }
+                    })
+                  }
                 }} className="rounded border px-3 py-2 text-sm">Download summary</button>
 
                 <button onClick={async () => {
@@ -127,7 +169,28 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.remove()
                     URL.revokeObjectURL(url)
                     toast.addToast('Action items download started', { level: 'info', duration: 3000 })
-                  } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
+                  } catch (e: any) {
+                    toast.addToast('Download failed: ' + (e?.message || e), {
+                      level: 'error',
+                      actionLabel: 'Retry',
+                      action: async () => {
+                        try {
+                          const { blob } = await fetchActionItemsDownload(taskId, 'json')
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = `${taskId}_action_items.json`
+                          document.body.appendChild(a)
+                          a.click()
+                          a.remove()
+                          URL.revokeObjectURL(url)
+                          toast.addToast('Action items download started', { level: 'info', duration: 3000 })
+                        } catch (e: any) {
+                          toast.addToast('Retry failed: ' + (e?.message || e), { level: 'error' })
+                        }
+                      }
+                    })
+                  }
                 }} className="rounded border px-3 py-2 text-sm">Download action items</button>
 
                 <button onClick={async () => {

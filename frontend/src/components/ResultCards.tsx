@@ -42,7 +42,7 @@ export default function ResultCards({ result }: { result: any | null }) {
 
   const downloadBlob = async (fetcher: any, filename: string) => {
     if (!taskId) {
-      alert('Task id unavailable for download')
+      addToast('Task id unavailable for download', { level: 'error' })
       return
     }
     try {
@@ -56,7 +56,11 @@ export default function ResultCards({ result }: { result: any | null }) {
       a.remove()
       URL.revokeObjectURL(url)
     } catch (e: any) {
-      alert('Download failed: ' + (e?.message || e))
+      addToast('Download failed: ' + (e?.message || e), {
+        level: 'error',
+        actionLabel: 'Retry',
+        action: () => downloadBlob(fetcher, filename)
+      })
     }
   }
 
