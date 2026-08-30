@@ -31,6 +31,15 @@ def process_audio(self, input_path: str):
     or Celery.
     """
     task_id = getattr(self.request, "id", None)
+    # Debug: log task id and input path early so we can correlate DB rows
+    # with worker processing. Keep robust to avoid raising during logging.
+    try:
+        logger = logging.getLogger("minutes.tasks")
+        logger.info("process_audio start: task_id=%r input=%s", task_id, input_path)
+        # also print to stdout for immediate worker logs visibility
+        print(f"DEBUG process_audio start task_id={repr(task_id)} input={input_path}")
+    except Exception:
+        pass
     db = None
     if get_session:
         try:

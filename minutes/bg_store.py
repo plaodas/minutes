@@ -11,6 +11,10 @@ import uuid
 from .db import SessionLocal
 from .models import Task, TaskHistory
 from sqlalchemy.exc import NoResultFound, IntegrityError
+try:
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+except Exception:
+    pg_insert = None
 from datetime import datetime
 from .summary import summarize_local
 
@@ -70,24 +74,57 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
             close = True
         try:
             key = _parse_key(task_id)
-            t = db.get(Task, key)
-            if not t:
-                t = Task(id=key if isinstance(key, uuid.UUID) else task_id,
-                         status="pending", progress=None, result=metadata or None, fail_count=0)
-                db.add(t)
+            id_val = key if isinstance(key, uuid.UUID) else task_id
+            # Try PG-specific upsert to avoid race on insert. Fallback to
+            # conservative get/add/commit with IntegrityError handling when
+            # PG dialect isn't available.
+            if pg_insert is not None:
                 try:
+                    stmt = pg_insert(Task.__table__).values(
+                        id=id_val,
+                        status="pending",
+                        progress=None,
+                        result=metadata or None,
+                        fail_count=0,
+                    ).on_conflict_do_nothing(index_elements=["id"])
+                    db.execute(stmt)
                     db.commit()
-                except IntegrityError:
-                    # another process inserted the same task concurrently; rollback
+                except Exception:
+                    # fallback to safe insert pattern below
                     db.rollback()
-                    t = db.get(Task, key)
+                    t = db.get(Task, id_val)
+                    if not t:
+                        t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0)
+                        db.add(t)
+                        try:
+                            db.commit()
+                        except IntegrityError:
+                            db.rollback()
+                            t = db.get(Task, id_val)
+                    else:
+                        if metadata:
+                            t.result = metadata
+                            try:
+                                db.commit()
+                            except IntegrityError:
+                                db.rollback()
             else:
-                if metadata:
-                    t.result = metadata
-                try:
-                    db.commit()
-                except IntegrityError:
-                    db.rollback()
+                t = db.get(Task, id_val)
+                if not t:
+                    t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0)
+                    db.add(t)
+                    try:
+                        db.commit()
+                    except IntegrityError:
+                        db.rollback()
+                        t = db.get(Task, id_val)
+                else:
+                    if metadata:
+                        t.result = metadata
+                        try:
+                            db.commit()
+                        except IntegrityError:
+                            db.rollback()
             try:
                 record_history(task_id, "created", {"status": "pending"}, db=db)
             except Exception:
@@ -107,8 +144,12 @@ def update_task_success(task_id: str, result: Any, db=None):
             key = _parse_key(task_id)
             t = db.get(Task, key)
             if not t:
-                t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
-                db.add(t)
+                # ensure task row exists atomically
+                try:
+                    create_task(task_id, metadata=None, db=db)
+                except Exception:
+                    pass
+                t = db.get(Task, key)
             t.status = "success"
             t.result = result
             t.progress = 100.0
@@ -155,8 +196,11 @@ def update_task_failure(task_id: str, error_msg: str, db=None):
             key = _parse_key(task_id)
             t = db.get(Task, key)
             if not t:
-                t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
-                db.add(t)
+                try:
+                    create_task(task_id, metadata=None, db=db)
+                except Exception:
+                    pass
+                t = db.get(Task, key)
             t.status = "failed"
             t.result = None
             t.fail_count = (t.fail_count or 0) + 1
@@ -184,8 +228,11 @@ def update_task_cancelled(task_id: str, db=None):
             key = _parse_key(task_id)
             t = db.get(Task, key)
             if not t:
-                t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
-                db.add(t)
+                try:
+                    create_task(task_id, metadata=None, db=db)
+                except Exception:
+                    pass
+                t = db.get(Task, key)
             t.status = "cancelled"
             t.result = None
             try:
@@ -211,8 +258,11 @@ def update_task_status(task_id: str, status: str, db=None):
             key = _parse_key(task_id)
             t = db.get(Task, key)
             if not t:
-                t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
-                db.add(t)
+                try:
+                    create_task(task_id, metadata=None, db=db)
+                except Exception:
+                    pass
+                t = db.get(Task, key)
             t.status = status
             try:
                 db.commit()
@@ -237,8 +287,11 @@ def update_task_progress(task_id: str, progress: float, db=None):
             key = _parse_key(task_id)
             t = db.get(Task, key)
             if not t:
-                t = Task(id=key if isinstance(key, uuid.UUID) else task_id)
-                db.add(t)
+                try:
+                    create_task(task_id, metadata=None, db=db)
+                except Exception:
+                    pass
+                t = db.get(Task, key)
             t.progress = float(progress)
             db.commit()
             try:
