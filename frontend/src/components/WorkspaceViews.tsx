@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
+import { useTasks } from '../hooks/useTasks'
 
 const sampleMinutes = [
   { name: 'Product planning.mp3', date: 'Today, 09:42', duration: '42 min', status: 'Ready', id: 'sample-1', created_at: new Date().toISOString() },
@@ -23,47 +24,32 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const prevFocusRef = React.useRef<HTMLElement | null>(null)
   const listRef = React.useRef<HTMLDivElement | null>(null)
 
+  // useTasks provides initial fetch + cache + retry UI
+  const { tasks, loading: tasksLoading, error: tasksError, reload } = useTasks()
+
   useEffect(() => {
-    // Fetch the initial page of tasks (server-side paging) and use server-provided preview_events when available.
-    const fetchTasks = async (offset = 0) => {
-      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
-      setLoading(true)
-      try {
-        const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
-        const res = await fetch(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`)
-        if (!res.ok) {
-          setItems([])
-          setHasMorePerTask({})
-          setLoading(false)
-          return
-        }
-        const j = await res.json()
-        const arr = (j.tasks || []).map((t: any) => ({
-          id: t.id,
-          name: t.name || t.result?.upload_filename || `task-${t.id.slice(0,8)}`,
-          created_at: t.created_at,
-          status: t.status,
-          progress: t.progress,
-          result: t.result,
-          // prefer server preview_events if provided, otherwise empty array
-          histories: (t.preview_events || []).slice(0, 3),
-          // expose event_count for UI
-          event_count: t.event_count || 0,
-        }))
+    setLoading(tasksLoading)
+  }, [tasksLoading])
 
-        // append to existing items when offset>0
-        setItems((prev) => (offset === 0 ? arr : [...prev, ...arr]))
-        // determine if more pages exist
-        setHasMore((prev) => (arr.length >= limit))
-      } catch (e) {
-        setItems([])
-      } finally {
-        setLoading(false)
-      }
+  useEffect(() => {
+    if (tasks && Array.isArray(tasks)) {
+      // map server shape to local UI shape if necessary
+      const arr = tasks.map((t: any) => ({
+        id: t.id,
+        name: t.name || t.result?.upload_filename || `task-${String(t.id).slice(0, 8)}`,
+        created_at: t.created_at,
+        status: t.status,
+        progress: t.progress,
+        result: t.result,
+        histories: (t.preview_events || t.histories || []).slice(0, 3),
+        event_count: t.event_count || 0,
+      }))
+      setItems(arr)
+      // heuristics: if tasks length < page limit, assume no more
+      const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
+      setHasMore(arr.length >= limit)
     }
-
-    fetchTasks(0)
-  }, [])
+  }, [tasks])
 
   // when visibleCount increases, fetch histories for newly visible items that don't have histories yet
   // No incremental per-task preview loading: server provides `preview_events` on /bg/tasks.
