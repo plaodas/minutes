@@ -1,26 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
+import { useToast } from './ToastProvider'
 
 export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onClose: () => void }) {
   const [loading, setLoading] = useState(false)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
-  const [toastVisible, setToastVisible] = useState(false)
   const [isVisible, setIsVisible] = useState(false)
-
-  const showToast = (msg: string, duration = 3500) => {
-    // mount message then animate in
-    setLiveMessage(msg)
-    // small delay to ensure class change triggers transition
-    setTimeout(() => setToastVisible(true), 20)
-    // hide after duration
-    setTimeout(() => {
-      setToastVisible(false)
-      // remove message after animation
-      setTimeout(() => setLiveMessage(null), 220)
-    }, duration)
-  }
+  const toast = useToast()
 
   useEffect(() => {
     if (!taskId) return
@@ -86,12 +74,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
         {/* Screen-reader live region for action feedback (polite) */}
         <div aria-live="polite" role="status" aria-atomic="true" className="sr-only">{liveMessage}</div>
         {/* Visual toast for live messages (also accessible) */}
-        <div className="absolute right-4 top-12 z-50 pointer-events-none">
-          <div role="status" aria-live="polite" aria-atomic="true" className={`pointer-events-auto rounded bg-black/85 text-white px-3 py-2 text-sm shadow-lg flex items-center gap-3 transform transition-all duration-200 ease-out ${toastVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-            <div className="flex-1">{liveMessage}</div>
-            <button aria-label="Close notification" onClick={() => { setToastVisible(false); setTimeout(() => setLiveMessage(null), 220) }} className="ml-2 rounded px-2 py-1 text-xs font-medium hover:bg-white/10">✕</button>
-          </div>
-        </div>
+        <Toast message={liveMessage} onClose={() => setLiveMessage(null)} />
         <div>
           {loading && <div className="p-4">Loading minutes…</div>}
           {error && <div className="p-4 text-sm text-red-600">{error}</div>}
@@ -113,8 +96,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
-                    setLiveMessage('Transcript download started')
-                    setTimeout(() => setLiveMessage(null), 3500)
+                    toast.addToast('Transcript download started')
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
 
@@ -129,8 +111,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
-                    setLiveMessage('Summary download started')
-                    setTimeout(() => setLiveMessage(null), 3500)
+                    toast.addToast('Summary download started')
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded border px-3 py-2 text-sm">Download summary</button>
 
@@ -145,13 +126,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
-                    setLiveMessage('Action items download started')
-                    setTimeout(() => setLiveMessage(null), 3500)
+                    toast.addToast('Action items download started')
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded border px-3 py-2 text-sm">Download action items</button>
 
                 <button onClick={async () => {
-                  try { await navigator.clipboard.writeText(text); setLiveMessage('Copied minutes to clipboard'); setTimeout(() => setLiveMessage(null), 3000) } catch { setLiveMessage('Copy failed'); setTimeout(() => setLiveMessage(null), 3000) }
+                  try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard') } catch { toast.addToast('Copy failed') }
                 }} className="rounded border px-3 py-2 text-sm">Copy</button>
 
                 <button onClick={() => { location.hash = `#minutes=${taskId}` }} className="rounded border px-3 py-2 text-sm">Copy link</button>

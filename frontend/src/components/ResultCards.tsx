@@ -1,5 +1,6 @@
 import React from 'react'
 import { Copy, Download } from 'lucide-react'
+import { useToast } from './ToastProvider'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
 
 const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void }> = ({ title, children, onDownload }) => (
@@ -7,9 +8,7 @@ const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: ()
     <div className="flex justify-between items-start">
       <h3 id={`resultcard-${title.replace(/\s+/g, '-')}`} className="font-semibold">{title}</h3>
       <div className="flex gap-2">
-        <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={() => navigator.clipboard.writeText(String(children))}>
-          <Copy size={16} />
-        </button>
+        <CopyButton text={String(children)} />
         <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={onDownload}>
           <Download size={16} />
         </button>
@@ -18,6 +17,18 @@ const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: ()
     <div className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">{children}</div>
   </div>
 )
+
+const CopyButton: React.FC<{ text: string }> = ({ text }) => {
+  const { addToast } = useToast()
+  const handle = async () => {
+    try { await navigator.clipboard.writeText(text); addToast('Copied to clipboard') } catch { addToast('Copy failed') }
+  }
+  return (
+    <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handle}>
+      <Copy size={16} />
+    </button>
+  )
+}
 
 export default function ResultCards({ result }: { result: any | null }) {
   if (!result) return null
