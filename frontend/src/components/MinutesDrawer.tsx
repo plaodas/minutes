@@ -74,8 +74,9 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
         {/* Visual toast for live messages (also accessible) */}
         {liveMessage && (
           <div className="absolute right-4 top-12 z-50 pointer-events-auto">
-            <div role="status" aria-live="polite" aria-atomic="true" className="rounded bg-black/85 text-white px-3 py-2 text-sm shadow-lg transition-opacity duration-200">
-              {liveMessage}
+            <div role="status" aria-live="polite" aria-atomic="true" className="rounded bg-black/85 text-white px-3 py-2 text-sm shadow-lg transition-opacity duration-200 flex items-center gap-3">
+              <div className="flex-1">{liveMessage}</div>
+              <button aria-label="Close notification" onClick={() => setLiveMessage(null)} className="ml-2 rounded px-2 py-1 text-xs font-medium hover:bg-white/10">✕</button>
             </div>
           </div>
         )}

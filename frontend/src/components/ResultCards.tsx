@@ -3,9 +3,9 @@ import { Copy, Download } from 'lucide-react'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
 
 const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void }> = ({ title, children, onDownload }) => (
-  <div className="glass-card p-4 rounded-md mb-4">
+  <div tabIndex={0} className="glass-card p-4 rounded-md mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--accent)] focus-visible:shadow-lg focus-visible:bg-slate-50 transform transition-transform transition-opacity duration-150 ease-out focus-visible:scale-105 focus-visible:-translate-y-1 focus-visible:opacity-100">
     <div className="flex justify-between items-start">
-      <h3 className="font-semibold">{title}</h3>
+      <h3 id={`resultcard-${title.replace(/\s+/g, '-')}`} className="font-semibold">{title}</h3>
       <div className="flex gap-2">
         <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={() => navigator.clipboard.writeText(String(children))}>
           <Copy size={16} />
