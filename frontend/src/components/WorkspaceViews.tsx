@@ -213,10 +213,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           )}
 
           {items.map((item) => (
-            <div key={item.id} data-testid={`view-minutes-${item.id}`} onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} className="cursor-pointer flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
+            <div key={item.id} data-testid={`view-minutes-${item.id}`} role="button" tabIndex={0} aria-labelledby={`history-title-${item.id}`} aria-describedby={`history-desc-${item.id}`} onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMinutesTask(item.id); setIsMinutesVisible(true) } }} className="cursor-pointer flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--accent)] transition-shadow">
               <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><FileAudio size={20} /></span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{item.name}</span>
+                <span id={`history-title-${item.id}`} className="block truncate text-sm font-medium">{item.name}</span>
+                <span id={`history-desc-${item.id}`} className="sr-only">{item.created_at ? new Date(item.created_at).toLocaleString() + ', ' : ''}{item.status || 'Status unknown'}</span>
                 <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]"><Clock3 size={13} /> {item.created_at ? new Date(item.created_at).toLocaleString() : ''}</span>
 
                 <div className="mt-1 text-xs text-[var(--muted)]">
@@ -231,8 +232,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   ) : (
                     <div>—</div>
                   )}
-                    <div className="mt-2 flex items-center gap-2">
-                      <button data-testid={`view-history-${item.id}`} type="button" onClick={(e) => { e.stopPropagation(); openModal(item.id) }} className="text-xs text-[var(--accent)]">View full events</button>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button data-testid={`view-history-${item.id}`} type="button" onClick={(e) => { e.stopPropagation(); openModal(item.id) }} className="text-xs text-[var(--accent)]">View full events</button>
                     <span className="text-xs text-[var(--muted)]">Showing {item.histories ? item.histories.length : 0}{item.event_count ? ` of ${item.event_count}` : ''}</span>
                   </div>
                 </div>

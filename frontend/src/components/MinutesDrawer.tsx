@@ -5,6 +5,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const [loading, setLoading] = useState(false)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [liveMessage, setLiveMessage] = useState<string | null>(null)
   const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
@@ -13,6 +14,16 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     const t = setTimeout(() => setIsVisible(true), 20)
     return () => clearTimeout(t)
   }, [taskId])
+
+  // focus management: move focus to close button when visible
+  useEffect(() => {
+    if (!isVisible) return
+    const timeout = setTimeout(() => {
+      const btn = document.querySelector('[aria-label="Close minutes"]') as HTMLElement | null
+      if (btn) try { btn.focus() } catch {}
+    }, 50)
+    return () => clearTimeout(timeout)
+  }, [isVisible])
 
   useEffect(() => {
     if (!taskId) return
@@ -58,6 +69,16 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
           <h2 className="text-lg font-semibold">Minutes</h2>
           <div className="text-xs text-[var(--muted)]">Task: {taskId}</div>
         </div>
+        {/* Screen-reader live region for action feedback (polite) */}
+        <div aria-live="polite" role="status" aria-atomic="true" className="sr-only">{liveMessage}</div>
+        {/* Visual toast for live messages (also accessible) */}
+        {liveMessage && (
+          <div className="absolute right-4 top-12 z-50 pointer-events-auto">
+            <div role="status" aria-live="polite" aria-atomic="true" className="rounded bg-black/85 text-white px-3 py-2 text-sm shadow-lg transition-opacity duration-200">
+              {liveMessage}
+            </div>
+          </div>
+        )}
         <div>
           {loading && <div className="p-4">Loading minutes…</div>}
           {error && <div className="p-4 text-sm text-red-600">{error}</div>}
@@ -79,6 +100,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
+                    setLiveMessage('Transcript download started')
+                    setTimeout(() => setLiveMessage(null), 3500)
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
 
@@ -93,6 +116,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
+                    setLiveMessage('Summary download started')
+                    setTimeout(() => setLiveMessage(null), 3500)
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded border px-3 py-2 text-sm">Download summary</button>
 
@@ -107,11 +132,13 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
+                    setLiveMessage('Action items download started')
+                    setTimeout(() => setLiveMessage(null), 3500)
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded border px-3 py-2 text-sm">Download action items</button>
 
                 <button onClick={async () => {
-                  try { await navigator.clipboard.writeText(text); alert('Copied to clipboard') } catch { alert('Copy failed') }
+                  try { await navigator.clipboard.writeText(text); setLiveMessage('Copied minutes to clipboard'); setTimeout(() => setLiveMessage(null), 3000) } catch { setLiveMessage('Copy failed'); setTimeout(() => setLiveMessage(null), 3000) }
                 }} className="rounded border px-3 py-2 text-sm">Copy</button>
 
                 <button onClick={() => { location.hash = `#minutes=${taskId}` }} className="rounded border px-3 py-2 text-sm">Copy link</button>
