@@ -68,10 +68,18 @@ test('download buttons call backend endpoints', async ({ page }) => {
   await page.click('button[aria-label^="View minutes for"]')
   await page.waitForSelector('role=dialog[name^="Minutes for"]')
 
-  // click the Download transcript button in the drawer
-  await page.click('button:has-text("Download transcript")')
-  await page.click('button:has-text("Download summary")')
-  await page.click('button:has-text("Download action items")')
+  // click the Download buttons in the drawer; ensure they are scrolled into view first
+  const transcriptBtn = page.locator('button:has-text("Download transcript")')
+  await transcriptBtn.scrollIntoViewIfNeeded()
+  await transcriptBtn.click()
+
+  const summaryBtn = page.locator('button:has-text("Download summary")')
+  await summaryBtn.scrollIntoViewIfNeeded()
+  await summaryBtn.click()
+
+  const actionsBtn = page.locator('button:has-text("Download action items")')
+  await actionsBtn.scrollIntoViewIfNeeded()
+  await actionsBtn.click()
 
   // allow in-page handlers to be hit
   await page.waitForTimeout(200)

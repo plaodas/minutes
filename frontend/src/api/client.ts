@@ -1,3 +1,5 @@
+import fetchWithRetry from '../lib/fetchWithRetry'
+
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 
 export async function uploadAudioBg(file: File) {
@@ -48,19 +50,19 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
 }
 
 export async function getBgStatus(taskId: string) {
-  const res = await fetch(`${BASE}/bg/status/${taskId}`)
+  const res = await fetchWithRetry(`${BASE}/bg/status/${taskId}`, { credentials: 'same-origin' }, { retries: 3, timeoutMs: 10000 })
   if (!res.ok) throw new Error('status fetch failed')
   return res.json()
 }
 
 export async function getBgResult(taskId: string) {
-  const res = await fetch(`${BASE}/bg/result/${taskId}`)
+  const res = await fetchWithRetry(`${BASE}/bg/result/${taskId}`, { credentials: 'same-origin' }, { retries: 3, timeoutMs: 10000 })
   if (!res.ok) throw new Error('result fetch failed')
   return res.json()
 }
 
 async function _downloadBlob(url: string) {
-  const res = await fetch(url)
+  const res = await fetchWithRetry(url, { credentials: 'same-origin' }, { retries: 2, timeoutMs: 30000 })
   if (!res.ok) throw new Error(`download failed: ${res.status}`)
   const blob = await res.blob()
   return { blob, headers: res.headers }

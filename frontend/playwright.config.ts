@@ -5,8 +5,8 @@ export default defineConfig({
   timeout: 30_000,
   retries: 0,
   webServer: {
-    command: 'node ./scripts/serve-dist.js',
-    port: 5173,
+    command: 'PORT=8080 node ./scripts/serve-dist.js',
+    port: 8080,
     reuseExistingServer: false,
     timeout: 30_000,
   },
