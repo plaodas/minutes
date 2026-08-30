@@ -5,6 +5,14 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const [loading, setLoading] = useState(false)
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    if (!taskId) return
+    // show with animation on mount
+    const t = setTimeout(() => setIsVisible(true), 20)
+    return () => clearTimeout(t)
+  }, [taskId])
 
   useEffect(() => {
     if (!taskId) return
@@ -35,11 +43,17 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     fetchMinutes()
   }, [taskId])
 
+  const handleClose = () => {
+    setIsVisible(false)
+    // wait for animation to finish then call onClose
+    setTimeout(() => onClose(), 260)
+  }
+
   if (!taskId) return null
   return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) onClose() }} className="fixed inset-0 z-60 flex items-start justify-end p-6 transition-opacity duration-200 bg-black/40">
-      <aside role="dialog" aria-modal="true" aria-label={`Minutes for ${taskId}`} className="relative max-h-[90vh] w-full max-w-2xl overflow-auto rounded bg-white p-6 transform transition-all duration-200">
-        <button aria-label="Close minutes" onClick={onClose} className="absolute right-3 top-3 rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-slate-100">✕</button>
+    <div onClick={(e) => { if (e.target === e.currentTarget) handleClose() }} className={`fixed inset-0 z-60 flex items-start justify-end p-6 transition-colors duration-200 ${isVisible ? 'bg-black/40' : 'bg-black/0 pointer-events-auto'}`}>
+      <aside role="dialog" aria-modal="true" aria-label={`Minutes for ${taskId}`} className={`relative max-h-[90vh] w-full max-w-2xl overflow-auto rounded bg-white p-6 transform transition-transform duration-240 ${isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
+        <button aria-label="Close minutes" onClick={handleClose} className="absolute right-3 top-3 rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-slate-100">✕</button>
         <div className="mb-3">
           <h2 className="text-lg font-semibold">Minutes</h2>
           <div className="text-xs text-[var(--muted)]">Task: {taskId}</div>

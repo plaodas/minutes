@@ -213,7 +213,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           )}
 
           {items.map((item) => (
-            <div key={item.id} className="flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
+            <div key={item.id} data-testid={`view-minutes-${item.id}`} onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} className="cursor-pointer flex w-full items-center gap-3 border-b border-slate-100 p-4 text-left last:border-0 hover:bg-slate-50">
               <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><FileAudio size={20} /></span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{item.name}</span>
@@ -232,14 +232,14 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                     <div>—</div>
                   )}
                     <div className="mt-2 flex items-center gap-2">
-                      <button data-testid={`view-history-${item.id}`} type="button" onClick={() => openModal(item.id)} className="text-xs text-[var(--accent)]">View full events</button>
+                      <button data-testid={`view-history-${item.id}`} type="button" onClick={(e) => { e.stopPropagation(); openModal(item.id) }} className="text-xs text-[var(--accent)]">View full events</button>
                     <span className="text-xs text-[var(--muted)]">Showing {item.histories ? item.histories.length : 0}{item.event_count ? ` of ${item.event_count}` : ''}</span>
                   </div>
                 </div>
               </span>
 
               <span className="hidden rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline">{item.latest ? item.latest.event_type : '—'}</span>
-              <button aria-label={`View minutes for ${item.name || item.id}`} onClick={() => { setMinutesTask(item.id); setIsMinutesVisible(true) }} className="shrink-0 text-slate-400 rounded hover:bg-slate-100 p-1">
+              <button aria-label={`View minutes for ${item.name || item.id}`} onClick={(e) => { e.stopPropagation(); setMinutesTask(item.id); setIsMinutesVisible(true) }} className="shrink-0 text-slate-400 rounded hover:bg-slate-100 p-1">
                 <ChevronRight size={18} />
               </button>
             </div>
