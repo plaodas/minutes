@@ -17,6 +17,54 @@ except Exception:
     pg_insert = None
 from datetime import datetime
 from .summary import summarize_local
+import re
+
+
+def _strip_markdown(text: str) -> str:
+    """Remove common markdown markers and collapse whitespace."""
+    if not text:
+        return ""
+    s = str(text)
+    # remove fenced code blocks
+    s = re.sub(r'```.*?```', '', s, flags=re.S)
+    # inline code
+    s = re.sub(r'`([^`]+)`', r'\1', s)
+    # bold/italic
+    s = re.sub(r'\*\*(.*?)\*\*', r'\1', s)
+    s = re.sub(r'\*(.*?)\*', r'\1', s)
+    s = re.sub(r'__(.*?)__', r'\1', s)
+    s = re.sub(r'_(.*?)_', r'\1', s)
+    # links and images: keep alt/text
+    s = re.sub(r'!\[(.*?)\]\([^\)]*\)', r'\1', s)
+    s = re.sub(r'\[(.*?)\]\([^\)]*\)', r'\1', s)
+    # remove heading markers, blockquotes, list markers at line starts
+    s = re.sub(r'^[>#\-\+\*]+\s*', '', s, flags=re.M)
+    # remove stray > characters
+    s = re.sub(r'>\s*', '', s)
+    # collapse whitespace and newlines
+    s = re.sub(r'[\r\n]+', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
+def _make_task_title(text: str, max_chars: int = 20) -> str:
+    """Produce a short title by stripping markdown and truncating to ~max_chars."""
+    s = _strip_markdown(text)
+    if not s:
+        return ""
+    # prefer first sentence-like segment
+    m = re.split(r'[\.。!?！]\s+', s, maxsplit=1)
+    first = m[0].strip()
+    if len(first) <= max_chars:
+        return first
+    # otherwise trim to nearest word under max_chars
+    trimmed = first[: max_chars + 1].rstrip()
+    # try to cut at last space
+    if ' ' in trimmed:
+        trimmed = trimmed[: trimmed.rfind(' ')].strip()
+    if not trimmed:
+        trimmed = first[:max_chars]
+    return (trimmed[:max_chars].rstrip() + '...') if len(trimmed) >= max_chars else trimmed
 
 # Compatibility: some modules import `DB_PATH` when file-backed fallbacks
 # were used. Keep a benign default value for backward compatibility.
@@ -167,9 +215,10 @@ def update_task_success(task_id: str, result: Any, db=None):
                             text = rf.read()
                             short = summarize_local(text, max_sentences=1).strip()
                             if short:
-                                if len(short) > 120:
-                                    short = short[:117].rstrip() + '...'
-                                t.name = short
+                                # produce a markdown-stripped short title (~20 chars)
+                                title = _make_task_title(short, max_chars=20)
+                                if title:
+                                    t.name = title
                     except Exception:
                         pass
 

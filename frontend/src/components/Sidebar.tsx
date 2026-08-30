@@ -62,9 +62,9 @@ export default function Sidebar({ activeView, onNavigate }: Props) {
       {mobileOpen && <button type="button" aria-label="Close menu" className="fixed inset-0 z-30 bg-slate-950/20 md:hidden" onClick={() => setMobileOpen(false)} />}
 
       <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-white p-3 shadow-xl transition-transform duration-200 md:hidden ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="mb-5 flex items-center justify-between">
+          <div className="mb-5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-md bg-[var(--accent)]" />
+            <img src="/images/minutes-logo.svg" alt="Minutes" className="h-8 w-8 shrink-0 object-contain" />
             <div className="font-semibold">Minutes</div>
           </div>
           <button type="button" aria-label="Close menu" onClick={() => setMobileOpen(false)} className="rounded p-1 hover:bg-[var(--bg-default)]"><X size={20} /></button>
@@ -76,7 +76,7 @@ export default function Sidebar({ activeView, onNavigate }: Props) {
       <aside className={`hidden min-h-screen shrink-0 flex-col bg-white p-3 transition-all duration-200 md:flex ${expanded ? 'w-60' : 'w-16'}`}>
         <div className={`mb-5 flex items-center ${expanded ? 'justify-between' : 'justify-center'}`}>
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 shrink-0 rounded-md bg-[var(--accent)]" />
+            <img src="/images/minutes-logo.svg" alt="Minutes" className="h-8 w-8 shrink-0 object-contain" />
             {expanded && <div className="font-semibold">Minutes</div>}
           </div>
           <button
