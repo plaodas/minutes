@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
 
 export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onClose: () => void }) {
   const [loading, setLoading] = useState(false)
@@ -53,17 +54,47 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
               <div className="mb-3 text-sm text-[var(--muted)]">Full text</div>
               <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text}</div>
               <div className="flex gap-2">
-                <button onClick={() => {
-                  const blob = new Blob([text], { type: 'text/plain' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `${taskId}.txt`
-                  document.body.appendChild(a)
-                  a.click()
-                  a.remove()
-                  URL.revokeObjectURL(url)
-                }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download</button>
+                <button onClick={async () => {
+                  try {
+                    const { blob } = await fetchTranscriptDownload(taskId, 'txt')
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `${taskId}_transcript.txt`
+                    document.body.appendChild(a)
+                    a.click()
+                    a.remove()
+                    URL.revokeObjectURL(url)
+                  } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
+                }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
+
+                <button onClick={async () => {
+                  try {
+                    const { blob } = await fetchSummaryDownload(taskId, 'txt')
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `${taskId}_summary.txt`
+                    document.body.appendChild(a)
+                    a.click()
+                    a.remove()
+                    URL.revokeObjectURL(url)
+                  } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
+                }} className="rounded border px-3 py-2 text-sm">Download summary</button>
+
+                <button onClick={async () => {
+                  try {
+                    const { blob } = await fetchActionItemsDownload(taskId, 'json')
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `${taskId}_action_items.json`
+                    document.body.appendChild(a)
+                    a.click()
+                    a.remove()
+                    URL.revokeObjectURL(url)
+                  } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
+                }} className="rounded border px-3 py-2 text-sm">Download action items</button>
 
                 <button onClick={async () => {
                   try { await navigator.clipboard.writeText(text); alert('Copied to clipboard') } catch { alert('Copy failed') }

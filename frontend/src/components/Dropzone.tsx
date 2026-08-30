@@ -102,7 +102,10 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
           setActiveIndex(idx)
           if (status && idx >= 4) {
             const res = await getBgResult(id)
-            setResult(res)
+            // normalize: prefer direct structured result, but include task id
+            const structured = (res && res.result) ? res.result : res
+            try { structured.task_id = structured.task_id || id } catch {}
+            setResult(structured)
             setActiveIndex(4)
             setRunning(false)
             return

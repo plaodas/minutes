@@ -58,3 +58,25 @@ export async function getBgResult(taskId: string) {
   if (!res.ok) throw new Error('result fetch failed')
   return res.json()
 }
+
+async function _downloadBlob(url: string) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`download failed: ${res.status}`)
+  const blob = await res.blob()
+  return { blob, headers: res.headers }
+}
+
+export async function fetchTranscriptDownload(taskId: string, format: string = 'txt') {
+  const url = `${BASE}/bg/transcript/${taskId}?format=${encodeURIComponent(format)}`
+  return _downloadBlob(url)
+}
+
+export async function fetchSummaryDownload(taskId: string, format: string = 'txt') {
+  const url = `${BASE}/bg/summary/${taskId}?format=${encodeURIComponent(format)}`
+  return _downloadBlob(url)
+}
+
+export async function fetchActionItemsDownload(taskId: string, format: string = 'json') {
+  const url = `${BASE}/bg/action-items/${taskId}?format=${encodeURIComponent(format)}`
+  return _downloadBlob(url)
+}

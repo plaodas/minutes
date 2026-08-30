@@ -234,11 +234,56 @@ def process_audio(self, input_path: str):
         with open(out_file, "w", encoding="utf-8") as f:
             f.write(final_minutes)
 
-        # Update shared task store for API visibility
-        if task_id:
-            update_task_success(task_id, {"output_file": out_file}, db=db)
+        # Build structured result: transcript, segments, formatted minutes, summary, action items
+        try:
+            from minutes.summary import summarize_local
+        except Exception:
+            def summarize_local(x, max_sentences=3):
+                return ""
 
-        return {"status": "success", "output_file": out_file}
+        # summary: prefer summarizing formatted minutes for readability
+        try:
+            summary_text = summarize_local(final_minutes, max_sentences=3)
+        except Exception:
+            summary_text = ""
+
+        # action items: simple heuristic parse from formatted minutes
+        try:
+            import re
+
+            items = []
+            m = re.search(r"(?ims)^\s*action items\s*$\n(.*?)(?:\n\s*$|$)", final_minutes)
+            section = None
+            if m:
+                section = m.group(1)
+            if section:
+                for line in section.splitlines():
+                    s = line.strip().lstrip("-•* ")
+                    if not s:
+                        continue
+                    items.append({"text": s})
+            else:
+                # fallback: search for TODO/Action: patterns
+                for line in final_minutes.splitlines():
+                    if re.search(r"\b(Action|TODO|Action Item)[:\-]", line, re.I):
+                        items.append({"text": line.strip()})
+        except Exception:
+            items = []
+
+        structured = {
+            "transcript": raw_text,
+            "segments": segments,
+            "minutes": final_minutes,
+            "summary": summary_text,
+            "action_items": items,
+            "output_file": out_file,
+        }
+
+        # Update shared task store for API visibility with structured result
+        if task_id:
+            update_task_success(task_id, structured, db=db)
+
+        return {"status": "success", "result": structured}
     except Exception as e:
         # Record failure in shared store if possible
         if task_id:

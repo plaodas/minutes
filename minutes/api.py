@@ -4,6 +4,7 @@ import asyncio
 import logging
 import logging
 from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import StreamingResponse, Response, FileResponse
 from typing import Dict, Any, List
 from pydantic import BaseModel
 import json
@@ -639,10 +640,191 @@ def bg_minutes_file(task_id: str):
 
     candidate = os.path.join(outputs_dir, os.path.basename(fname))
     try:
-        with open(candidate, "r", encoding="utf-8") as f:
-            text = f.read()
-            return PlainTextResponse(text, status_code=200)
+        # Serve as a downloadable/plain text file with proper headers
+        # Use FileResponse to let FastAPI set Content-Type and support streaming
+        return FileResponse(
+            path=candidate,
+            media_type="text/plain; charset=utf-8",
+            filename=os.path.basename(fname),
+        )
     except FileNotFoundError:
         return JSONResponse({"error": "output file not found"}, status_code=404)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+def _resolve_output_file_from_task(task_id: str):
+    try:
+        t = get_task(task_id)
+    except Exception:
+        t = None
+    if not t:
+        return None, JSONResponse({"error": "unknown task"}, status_code=404)
+    if t.get("status") != "success":
+        return None, JSONResponse({"status": t.get("status")}, status_code=202)
+
+    res = t.get("result") or {}
+    output_file = None
+    if isinstance(res, dict) and res.get("output_file"):
+        output_file = res.get("output_file")
+    if not output_file and isinstance(res, dict) and res.get("result") and isinstance(res.get("result"), dict):
+        output_file = res.get("result").get("output_file")
+    if not output_file:
+        return None, JSONResponse({"error": "no output file available"}, status_code=404)
+
+    outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
+    if os.path.isabs(output_file):
+        fname = os.path.basename(output_file)
+    else:
+        fname = output_file
+    candidate = os.path.join(outputs_dir, os.path.basename(fname))
+    return candidate, None
+
+
+@app.get("/bg/transcript/{task_id}")
+def bg_transcript(task_id: str, format: str = "txt"):
+    """Return the transcript portion. Supported formats: txt, md."""
+    t = get_task(task_id)
+    if not t:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    if t.get("status") != "success":
+        return JSONResponse({"status": t.get("status")}, status_code=202)
+
+    res = t.get("result") or {}
+    # Prefer structured transcript if available
+    if isinstance(res, dict) and res.get("transcript"):
+        text = res.get("transcript")
+    else:
+        candidate, err = _resolve_output_file_from_task(task_id)
+        if err:
+            return err
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError:
+            return JSONResponse({"error": "output file not found"}, status_code=404)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    # For now, transcript is the full output; future: extract section
+    if format not in ("txt", "md"):
+        return JSONResponse({"error": "unsupported format"}, status_code=400)
+    media = "text/markdown" if format == "md" else "text/plain"
+    return Response(content=text, media_type=f"{media}; charset=utf-8")
+
+
+@app.get("/bg/summary/{task_id}")
+def bg_summary(task_id: str, format: str = "txt"):
+    """Return a short summary. If the output contains a clearly delimited Summary section, use it; else run local summarizer."""
+    t = get_task(task_id)
+    if not t:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    if t.get("status") != "success":
+        return JSONResponse({"status": t.get("status")}, status_code=202)
+
+    res = t.get("result") or {}
+    if isinstance(res, dict) and res.get("summary"):
+        summary_text = res.get("summary")
+    else:
+        # fallback to reading file and extracting or summarizing
+        candidate, err = _resolve_output_file_from_task(task_id)
+        if err:
+            return err
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError:
+            return JSONResponse({"error": "output file not found"}, status_code=404)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+        # try to find a 'Summary' section
+        import re
+
+        m = re.search(r"(?ims)^\s*summary\s*$\n(.*?)\n\s*(?:action items|transcript|$)", text)
+        if m:
+            summary_text = m.group(1).strip()
+        else:
+            try:
+                from minutes.summary import summarize_local
+
+                summary_text = summarize_local(text, max_sentences=3)
+            except Exception:
+                summary_text = ""
+
+    if format not in ("txt", "md"):
+        return JSONResponse({"error": "unsupported format"}, status_code=400)
+    media = "text/markdown" if format == "md" else "text/plain"
+    return Response(content=summary_text, media_type=f"{media}; charset=utf-8")
+
+
+@app.get("/bg/action-items/{task_id}")
+def bg_action_items(task_id: str, format: str = "json"):
+    """Return action items. Supported formats: json, csv, txt"""
+    t = get_task(task_id)
+    if not t:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    if t.get("status") != "success":
+        return JSONResponse({"status": t.get("status")}, status_code=202)
+
+    res = t.get("result") or {}
+    # Prefer structured action_items
+    if isinstance(res, dict) and isinstance(res.get("action_items"), list):
+        items = res.get("action_items")
+    else:
+        candidate, err = _resolve_output_file_from_task(task_id)
+        if err:
+            return err
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                text = f.read()
+        except FileNotFoundError:
+            return JSONResponse({"error": "output file not found"}, status_code=404)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+        # Simple heuristic: find 'Action Items' section and parse lines
+        import re
+
+        items = []
+        m = re.search(r"(?ims)^\s*action items\s*$\n(.*)$", text)
+        section = None
+        if m:
+            section = m.group(1)
+        else:
+            # fallback: look for lines starting with 'Action:' or 'TODO' anywhere
+            lines = [l.strip() for l in text.splitlines() if l.strip()]
+            for l in lines:
+                if re.search(r"\b(Action|TODO|Action Item)[:\-]", l, re.I):
+                    items.append({"text": l})
+
+        if section:
+            for line in section.splitlines():
+                s = line.strip().lstrip("-•* ")
+                if not s:
+                    continue
+                # skip obvious headers
+                if re.match(r"^[A-Z][a-z]+:$", s):
+                    continue
+                items.append({"text": s})
+
+    # normalize items into list
+    if not items:
+        items = []
+
+    if format == "json":
+        return JSONResponse({"task_id": task_id, "items": items})
+    if format == "csv":
+        # build CSV
+        import io, csv
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["id", "text"])
+        for i, it in enumerate(items, start=1):
+            writer.writerow([i, it.get("text")])
+        return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8")
+    if format == "txt":
+        txt = "\n".join([f"- {it.get('text')}" for it in items])
+        return Response(content=txt, media_type="text/plain; charset=utf-8")
+    return JSONResponse({"error": "unsupported format"}, status_code=400)
