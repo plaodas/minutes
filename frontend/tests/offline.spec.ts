@@ -9,7 +9,7 @@ test('offline fallback uses cached tasks and shows retry toast', async ({ page }
     try { localStorage.setItem('cached_tasks', JSON.stringify(cached)) } catch (e) {}
   })
 
-  // simulate network failure for /bg/tasks by making fetch throw
+  // stub fetch: make /bg/tasks fail and return minutes text for /bg/minutes/
   await page.addInitScript(() => {
     const orig = window.fetch.bind(window)
     // @ts-ignore
@@ -18,16 +18,6 @@ test('offline fallback uses cached tasks and shows retry toast', async ({ page }
       if (url.includes('/bg/tasks')) {
         return Promise.reject(new TypeError('Failed to fetch'))
       }
-      return orig(input, init)
-    }
-  })
-
-  // also stub minutes endpoint so other interactions don't hang
-  await page.addInitScript(() => {
-    const orig = window.fetch.bind(window)
-    // @ts-ignore
-    window.fetch = (input: any, init?: any) => {
-      const url = typeof input === 'string' ? input : input?.url || ''
       if (url.includes('/bg/minutes/')) {
         return Promise.resolve(new Response('cached minutes text', { status: 200, headers: { 'Content-Type': 'text/plain' } }))
       }

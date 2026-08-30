@@ -33,7 +33,7 @@ test('modal load more appends histories', async ({ page }) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(resp) })
   })
 
-  await page.goto('http://localhost:5173')
+  await page.goto('http://localhost:8080')
   // navigate to History view via the sidebar
   await page.waitForSelector('button[aria-label="History"]', { state: 'attached', timeout: 10000 })
   await page.evaluate(() => { document.querySelector('button[aria-label="History"]')?.click() })

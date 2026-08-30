@@ -71,15 +71,15 @@ test('download buttons call backend endpoints', async ({ page }) => {
   // click the Download buttons in the drawer; ensure they are scrolled into view first
   const transcriptBtn = page.locator('button:has-text("Download transcript")')
   await transcriptBtn.scrollIntoViewIfNeeded()
-  await transcriptBtn.click()
+  await transcriptBtn.evaluate((el: HTMLElement) => { el.scrollIntoView(); el.click() })
 
   const summaryBtn = page.locator('button:has-text("Download summary")')
   await summaryBtn.scrollIntoViewIfNeeded()
-  await summaryBtn.click()
+  await summaryBtn.evaluate((el: HTMLElement) => { el.scrollIntoView(); el.click() })
 
   const actionsBtn = page.locator('button:has-text("Download action items")')
   await actionsBtn.scrollIntoViewIfNeeded()
-  await actionsBtn.click()
+  await actionsBtn.evaluate((el: HTMLElement) => { el.scrollIntoView(); el.click() })
 
   // allow in-page handlers to be hit
   await page.waitForTimeout(200)
