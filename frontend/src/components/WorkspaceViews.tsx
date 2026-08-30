@@ -205,14 +205,14 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           <div className={`mb-4 rounded-md p-3 border ${items && items.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-rose-50 border-rose-200'}`}>
             <div className="flex items-center justify-between gap-4">
               <div className="text-sm">
-                {items && items.length > 0 ? (
-                  <span>最新の履歴を取得できませんでした。古いデータを表示しています。</span>
-                ) : (
-                  <span>履歴を読み込めませんでした。ネットワークを確認してください。</span>
-                )}
+              {items && items.length > 0 ? (
+                <span>Could not retrieve the latest history. Displaying older data.</span>
+              ) : (
+                <span>Failed to load history. Please check your network connection.</span>
+              )}
               </div>
               <div className="shrink-0">
-                <button onClick={() => reload()} className={`rounded px-3 py-1 text-sm font-medium text-white ${items && items.length > 0 ? 'bg-yellow-600 hover:brightness-90' : 'bg-rose-600 hover:brightness-90'}`}>再試行</button>
+                <button onClick={() => reload()} className={`rounded px-3 py-1 text-sm font-medium text-white ${items && items.length > 0 ? 'bg-yellow-600 hover:brightness-90' : 'bg-rose-600 hover:brightness-90'}`}>Retry</button>
               </div>
             </div>
           </div>

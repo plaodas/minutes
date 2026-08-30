@@ -33,9 +33,9 @@ export function useTasks() {
         // ignore
       }
 
-      addToast('履歴の読み込みに失敗しました', {
+      addToast('Failed to load history', {
         level: 'error',
-        actionLabel: '再試行',
+        actionLabel: 'Retry',
         action: () => {
           load()
         }

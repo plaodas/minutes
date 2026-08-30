@@ -13,6 +13,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const toast = useToast()
   useEffect(() => {
     if (!taskId) return
+    // allow mount to complete before showing for CSS transition
+    const id = setTimeout(() => setIsVisible(true), 10)
+    return () => clearTimeout(id)
+  }, [taskId])
+  useEffect(() => {
+    if (!taskId) return
     const fetchMinutes = async () => {
       setLoading(true)
       setError(null)
