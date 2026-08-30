@@ -2,6 +2,7 @@ import React from 'react'
 import { Copy, Download } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
+import startDownload from '../lib/download'
 
 const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void }> = ({ title, children, onDownload }) => (
   <div tabIndex={0} className="glass-card p-4 rounded-md mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--accent)] focus-visible:shadow-lg focus-visible:bg-slate-50 transform transition-transform transition-opacity duration-150 ease-out focus-visible:scale-105 focus-visible:-translate-y-1 focus-visible:opacity-100">
@@ -45,23 +46,7 @@ export default function ResultCards({ result }: { result: any | null }) {
       addToast('Task id unavailable for download', { level: 'error' })
       return
     }
-    try {
-      const { blob, headers } = await fetcher(taskId)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e: any) {
-      addToast('Download failed: ' + (e?.message || e), {
-        level: 'error',
-        actionLabel: 'Retry',
-        action: () => downloadBlob(fetcher, filename)
-      })
-    }
+    await startDownload(() => fetcher(taskId), filename, addToast)
   }
 
   return (

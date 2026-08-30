@@ -61,7 +61,7 @@ export function ToastProvider({ children, maxVisible = 3 }: { children: React.Re
       {/* Toast stack container */}
       <div className="fixed right-4 top-12 z-50 flex flex-col gap-3 pointer-events-none">
         {toasts.map((t) => (
-          <Toast key={t.id} message={t.message} duration={t.duration} onClose={() => removeToast(t.id)} placementClassName="" />
+          <Toast key={t.id} message={t.message} duration={t.duration} onClose={() => removeToast(t.id)} placementClassName="" level={t.level} actionLabel={t.actionLabel} action={t.action} />
         ))}
       </div>
     </ctx.Provider>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
 import { useToast } from './ToastProvider'
+import startDownload from '../lib/download'
 
 export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onClose: () => void }) {
   const [loading, setLoading] = useState(false)
@@ -17,26 +18,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     return () => clearTimeout(t)
   }, [taskId])
 
-  const startDownload = async (runner: () => Promise<{ blob: Blob; headers?: any }>, filename: string, successMsg = 'Download started') => {
-    try {
-      const { blob } = await runner()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      toast.addToast(successMsg, { level: 'info', duration: 3000 })
-    } catch (e: any) {
-      toast.addToast('Download failed: ' + (e?.message || e), {
-        level: 'error',
-        actionLabel: 'Retry',
-        action: () => startDownload(runner, filename, successMsg)
-      })
-    }
-  }
+  // use shared helper
+  const startDownloadLocal = (runner: () => Promise<{ blob: Blob; headers?: any }>, filename: string, successMsg?: string) => startDownload(runner, filename, toast.addToast.bind(toast), successMsg)
 
   // focus management: move focus to close button when visible
   useEffect(() => {
@@ -106,11 +89,11 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
               <div className="mb-3 text-sm text-[var(--muted)]">Full text</div>
               <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text}</div>
               <div className="flex gap-2">
-                <button onClick={() => startDownload(() => fetchTranscriptDownload(taskId, 'txt'), `${taskId}_transcript.txt`, 'Transcript download started')} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
+                <button onClick={() => startDownloadLocal(() => fetchTranscriptDownload(taskId, 'txt'), `${taskId}_transcript.txt`, 'Transcript download started')} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
 
-                <button onClick={() => startDownload(() => fetchSummaryDownload(taskId, 'txt'), `${taskId}_summary.txt`, 'Summary download started')} className="rounded border px-3 py-2 text-sm">Download summary</button>
+                <button onClick={() => startDownloadLocal(() => fetchSummaryDownload(taskId, 'txt'), `${taskId}_summary.txt`, 'Summary download started')} className="rounded border px-3 py-2 text-sm">Download summary</button>
 
-                <button onClick={() => startDownload(() => fetchActionItemsDownload(taskId, 'json'), `${taskId}_action_items.json`, 'Action items download started')} className="rounded border px-3 py-2 text-sm">Download action items</button>
+                <button onClick={() => startDownloadLocal(() => fetchActionItemsDownload(taskId, 'json'), `${taskId}_action_items.json`, 'Action items download started')} className="rounded border px-3 py-2 text-sm">Download action items</button>
 
                 <button onClick={async () => {
                   try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard', { level: 'success' }) } catch { toast.addToast('Copy failed', { level: 'error' }) }
