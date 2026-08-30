@@ -21,7 +21,7 @@ const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: ()
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   const { addToast } = useToast()
   const handle = async () => {
-    try { await navigator.clipboard.writeText(text); addToast('Copied to clipboard') } catch { addToast('Copy failed') }
+    try { await navigator.clipboard.writeText(text); addToast('Copied to clipboard', { level: 'success' }) } catch { addToast('Copy failed', { level: 'error' }) }
   }
   return (
     <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handle}>

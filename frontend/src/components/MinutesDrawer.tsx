@@ -96,7 +96,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
-                    toast.addToast('Transcript download started')
+                    toast.addToast('Transcript download started', { level: 'info', duration: 3000 })
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
 
@@ -111,7 +111,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
-                    toast.addToast('Summary download started')
+                    toast.addToast('Summary download started', { level: 'info', duration: 3000 })
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded border px-3 py-2 text-sm">Download summary</button>
 
@@ -126,12 +126,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     a.click()
                     a.remove()
                     URL.revokeObjectURL(url)
-                    toast.addToast('Action items download started')
+                    toast.addToast('Action items download started', { level: 'info', duration: 3000 })
                   } catch (e: any) { alert('Download failed: ' + (e?.message || e)) }
                 }} className="rounded border px-3 py-2 text-sm">Download action items</button>
 
                 <button onClick={async () => {
-                  try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard') } catch { toast.addToast('Copy failed') }
+                  try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard', { level: 'success' }) } catch { toast.addToast('Copy failed', { level: 'error' }) }
                 }} className="rounded border px-3 py-2 text-sm">Copy</button>
 
                 <button onClick={() => { location.hash = `#minutes=${taskId}` }} className="rounded border px-3 py-2 text-sm">Copy link</button>

@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import Toast from './Toast'
 
-type ToastItem = { id: string; message: string; duration?: number }
+type ToastItem = { id: string; message: string; duration?: number; level?: 'info' | 'success' | 'error'; actionLabel?: string; action?: (() => void) }
 
 type ToastContext = {
-  addToast: (message: string, duration?: number) => string
+  addToast: (message: string, opts?: number | { duration?: number; level?: 'info' | 'success' | 'error'; actionLabel?: string; action?: (() => void) }) => string
   removeToast: (id: string) => void
 }
 
@@ -20,9 +20,20 @@ export function ToastProvider({ children, maxVisible = 3 }: { children: React.Re
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [queue, setQueue] = useState<ToastItem[]>([])
 
-  const addToast = (message: string, duration = 3500) => {
+  const addToast = (message: string, opts?: number | { duration?: number; level?: 'info' | 'success' | 'error'; actionLabel?: string; action?: (() => void) }) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const item = { id, message, duration }
+    let duration = 3500
+    let level: 'info' | 'success' | 'error' = 'info'
+    let actionLabel: string | undefined
+    let action: (() => void) | undefined
+    if (typeof opts === 'number') duration = opts
+    else if (opts) {
+      duration = opts.duration ?? duration
+      level = opts.level ?? level
+      actionLabel = opts.actionLabel
+      action = opts.action
+    }
+    const item: ToastItem = { id, message, duration, level, actionLabel, action }
     setToasts((cur) => {
       if (cur.length < maxVisible) return [...cur, item]
       // enqueue
