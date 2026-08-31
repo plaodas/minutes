@@ -54,10 +54,21 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   }
 
   if (!taskId) return null
+  const overlayClass = `fixed inset-0 z-60 flex p-6 transition-colors duration-200 ${isVisible ? 'bg-black/40 pointer-events-auto' : 'bg-black/0 pointer-events-none'}`
+
+  // The drawer behaves as a right-side panel on md+ and a bottom sheet on small screens.
+  const drawerBase = 'relative max-h-[90vh] w-full max-w-2xl overflow-auto bg-white p-6 transform transition-transform duration-240 rounded'
+  const drawerVisible = 'opacity-100 md:translate-x-0 translate-y-0'
+  const drawerHidden = 'opacity-0 md:translate-x-full translate-y-full pointer-events-none'
+
   return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) handleClose() }} className={`fixed inset-0 z-60 flex items-start justify-end p-6 transition-colors duration-200 ${isVisible ? 'bg-black/40' : 'bg-black/0 pointer-events-auto'}`}>
-      <aside role="dialog" aria-modal="true" aria-label={`Minutes for ${taskId}`} className={`relative max-h-[90vh] w-full max-w-2xl overflow-auto rounded bg-white p-6 transform transition-transform duration-240 ${isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
+    <div onClick={(e) => { if (e.target === e.currentTarget) handleClose() }} className={`${overlayClass} md:items-start md:justify-end items-end justify-center`}>
+      <aside role="dialog" aria-modal="true" aria-label={`Minutes for ${taskId}`} className={`${drawerBase} ${isVisible ? drawerVisible : drawerHidden}`}>
         <button aria-label="Close minutes" onClick={handleClose} className="absolute right-3 top-3 rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-slate-100">✕</button>
+        {/* drag handle for mobile bottom sheet */}
+        <div className="md:hidden mb-3 flex items-center justify-center">
+          <div className="w-12 h-1.5 bg-slate-300 rounded-full" />
+        </div>
         <div className="mb-3">
           <h2 className="text-lg font-semibold">Minutes</h2>
           <div className="text-xs text-[var(--muted)]">Task: {taskId}</div>
@@ -75,18 +86,20 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
               <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text.slice(0, 1000)}</div>
               <div className="mb-3 text-sm text-[var(--muted)]">Full text</div>
               <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text}</div>
-              <div className="flex gap-2">
-                <button onClick={() => startDownload(() => fetchTranscriptDownload(taskId, 'txt'), `${taskId}_transcript.txt`, toast.addToast)} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
+              <div className="mt-4">
+                <div className="drawer-footer flex flex-wrap gap-2 justify-center border-t pt-3 mt-4 md:mt-6 md:border-t-0 md:pt-0" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}>
+                  <button onClick={() => startDownload(() => fetchTranscriptDownload(taskId, 'txt'), `${taskId}_transcript.txt`, toast.addToast)} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Download transcript</button>
 
-                <button onClick={() => startDownload(() => fetchSummaryDownload(taskId, 'txt'), `${taskId}_summary.txt`, toast.addToast)} className="rounded border px-3 py-2 text-sm">Download summary</button>
+                  <button onClick={() => startDownload(() => fetchSummaryDownload(taskId, 'txt'), `${taskId}_summary.txt`, toast.addToast)} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Download summary</button>
 
-                <button onClick={() => startDownload(() => fetchActionItemsDownload(taskId, 'json'), `${taskId}_action_items.json`, toast.addToast)} className="rounded border px-3 py-2 text-sm">Download action items</button>
+                  <button onClick={() => startDownload(() => fetchActionItemsDownload(taskId, 'json'), `${taskId}_action_items.json`, toast.addToast)} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Download action items</button>
 
-                <button onClick={async () => {
-                  try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard', { level: 'success' }) } catch { toast.addToast('Copy failed', { level: 'error' }) }
-                }} className="rounded border px-3 py-2 text-sm">Copy</button>
+                  <button onClick={async () => {
+                    try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard', { level: 'success' }) } catch { toast.addToast('Copy failed', { level: 'error' }) }
+                  }} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy</button>
 
-                <button onClick={() => { location.hash = `#minutes=${taskId}` }} className="rounded border px-3 py-2 text-sm">Copy link</button>
+                  <button onClick={() => { location.hash = `#minutes=${taskId}` }} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy link</button>
+                </div>
               </div>
             </div>
           )}
