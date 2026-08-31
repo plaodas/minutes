@@ -53,6 +53,34 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     setTimeout(() => onClose(), 260)
   }
 
+  const handleCopyLink = async () => {
+    if (!taskId) {
+      toast.addToast('Task id unavailable', { level: 'error' })
+      return
+    }
+    const url = `${location.origin}${location.pathname}#minutes=${taskId}`
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = url
+        ta.setAttribute('readonly', '')
+        ta.style.position = 'absolute'
+        ta.style.left = '-9999px'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      toast.addToast('Copied link to clipboard', { level: 'success' })
+      setLiveMessage('Link copied')
+      setTimeout(() => setLiveMessage(null), 2000)
+    } catch (e) {
+      toast.addToast('Copy failed', { level: 'error' })
+    }
+  }
+
   if (!taskId) return null
   const overlayClass = `fixed inset-0 z-60 flex p-6 transition-colors duration-200 ${isVisible ? 'bg-black/40 pointer-events-auto' : 'bg-black/0 pointer-events-none'}`
 
@@ -98,7 +126,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                     try { await navigator.clipboard.writeText(text); toast.addToast('Copied minutes to clipboard', { level: 'success' }) } catch { toast.addToast('Copy failed', { level: 'error' }) }
                   }} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy</button>
 
-                  <button onClick={() => { location.hash = `#minutes=${taskId}` }} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy link</button>
+                  <button onClick={handleCopyLink} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy link</button>
                 </div>
               </div>
             </div>
