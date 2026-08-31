@@ -116,13 +116,9 @@ export default function ResultCards({ result }: { result: any | null }) {
 
   const handleDelete = async () => {
     if (!taskId) { addToast('Task id unavailable', { level: 'error' }); return }
-    if (!confirm('Delete this minutes entry?')) return
-    try {
-      await deleteTask(taskId)
-      addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); addToast('Restored', { level: 'success' }) } catch { addToast('Restore failed', { level: 'error' }) } } })
-    } catch (e) {
-      addToast('Delete failed', { level: 'error' })
-    }
+    // open confirm dialog via DOM event dispatch to avoid adding state here
+    const ev = new CustomEvent('app:confirm-delete', { detail: { taskId } })
+    window.dispatchEvent(ev)
   }
 
   const handleMobileCopy = async () => {

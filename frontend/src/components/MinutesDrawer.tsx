@@ -146,13 +146,14 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                   }} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy</button>
 
                   <button onClick={handleCopyLink} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy link</button>
-                  <button onClick={handleDelete} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+                    <button onClick={handleDelete} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
                 </div>
               </div>
             </div>
           )}
         </div>
       </aside>
+        <ConfirmDialog open={confirmOpen} title="Delete minutes" message="Delete this minutes entry? This action can be undone." onConfirm={() => { setConfirmOpen(false); handleDeleteConfirmed() }} onCancel={() => setConfirmOpen(false)} confirmLabel="Delete" cancelLabel="Cancel" />
     </div>
   )
 }

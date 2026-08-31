@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useMemo, useState } from 'react'
+import React, { createContext, useContext, useMemo, useState, useEffect } from 'react'
 import Toast from './Toast'
+import ConfirmDialog from './ConfirmDialog'
+import { deleteTask, undeleteTask } from '../api/client'
 
 type ToastItem = { id: string; message: string; duration?: number; level?: 'info' | 'success' | 'error'; actionLabel?: string; action?: (() => void) }
 
@@ -54,6 +56,38 @@ export function ToastProvider({ children, maxVisible = 3 }: { children: React.Re
   }
 
   const value = useMemo(() => ({ addToast, removeToast }), [])
+  // Global confirm dialog bridge: listen for 'app:confirm-delete' events
+  const ConfirmBridge = () => {
+    const { addToast } = useToast()
+    const [open, setOpen] = useState(false)
+    const [pendingTaskId, setPendingTaskId] = useState<string | null>(null)
+
+    useEffect(() => {
+      const handler = (e: any) => {
+        setPendingTaskId(e.detail?.taskId || null)
+        setOpen(true)
+      }
+      window.addEventListener('app:confirm-delete', handler)
+      return () => window.removeEventListener('app:confirm-delete', handler)
+    }, [])
+
+    const doConfirm = async () => {
+      if (!pendingTaskId) return
+      try {
+        await deleteTask(pendingTaskId)
+        addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(pendingTaskId); addToast('Restored', { level: 'success' }) } catch { addToast('Restore failed', { level: 'error' }) } } })
+      } catch (e) {
+        addToast('Delete failed', { level: 'error' })
+      } finally {
+        setOpen(false)
+        setPendingTaskId(null)
+      }
+    }
+
+    return (
+      <ConfirmDialog open={open} title="Delete minutes" message="Delete this minutes entry? This action can be undone." onConfirm={doConfirm} onCancel={() => setOpen(false)} confirmLabel="Delete" cancelLabel="Cancel" />
+    )
+  }
 
   return (
     <ctx.Provider value={value}>
@@ -64,6 +98,7 @@ export function ToastProvider({ children, maxVisible = 3 }: { children: React.Re
           <Toast key={t.id} message={t.message} duration={t.duration} onClose={() => removeToast(t.id)} placementClassName="" level={t.level} actionLabel={t.actionLabel} action={t.action} />
         ))}
       </div>
+      <ConfirmBridge />
     </ctx.Provider>
   )
 }
