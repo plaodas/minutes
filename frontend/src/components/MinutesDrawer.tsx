@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import Toast from './Toast'
-import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
+import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask } from '../api/client'
 import { useToast } from './ToastProvider'
 import startDownload from '../lib/download'
 
@@ -81,6 +81,21 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     }
   }
 
+  const handleDelete = async () => {
+    if (!taskId) return
+    const ok = window.confirm('Delete this minutes entry? This action can be undone.')
+    if (!ok) return
+    try {
+      await deleteTask(taskId)
+      toast.addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); toast.addToast('Restored', { level: 'success' }) } catch { toast.addToast('Restore failed', { level: 'error' }) } } })
+      // optionally close drawer
+      setIsVisible(false)
+      setTimeout(() => onClose(), 260)
+    } catch (e) {
+      toast.addToast('Delete failed', { level: 'error' })
+    }
+  }
+
   if (!taskId) return null
   const overlayClass = `fixed inset-0 z-60 flex p-6 transition-colors duration-200 ${isVisible ? 'bg-black/40 pointer-events-auto' : 'bg-black/0 pointer-events-none'}`
 
@@ -127,6 +142,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                   }} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy</button>
 
                   <button onClick={handleCopyLink} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy link</button>
+                  <button onClick={handleDelete} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
                 </div>
               </div>
             </div>

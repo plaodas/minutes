@@ -603,6 +603,87 @@ def bg_cancel(task_id: str):
     return {"task_id": task_id, "cancelled": True}
 
 
+@app.post("/bg/delete/{task_id}")
+def bg_delete(task_id: str):
+    """Soft-delete a background task by marking its status as 'deleted'."""
+    try:
+        t = get_task(task_id)
+    except Exception:
+        t = None
+    if not t:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    # mark deleted and record history
+    try:
+        try:
+            # prefer DB-backed update
+            from .db import SessionLocal
+            db = SessionLocal()
+            key = _parse_key(task_id)
+            obj = db.get(Task, key)
+            if not obj:
+                db.close()
+                return JSONResponse({"error": "unknown task"}, status_code=404)
+            prev = obj.status
+            obj.status = "deleted"
+            db.add(obj)
+            db.commit()
+            try:
+                record_history(task_id, "deleted", {"previous": prev}, db=db)
+            except Exception:
+                pass
+            db.close()
+        except Exception:
+            # fallback: best-effort using existing update helpers
+            try:
+                t = get_task(task_id)
+                # mutate in-place if possible
+                t["status"] = "deleted"
+                # save back if store supports it
+                try:
+                    update_task_success(task_id, t.get("result") or {})
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        return {"task_id": task_id, "deleted": True}
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/bg/undelete/{task_id}")
+def bg_undelete(task_id: str):
+    """Attempt to restore a soft-deleted task to its prior lifecycle state.
+
+    If the task has a `result` present, restore to `success`, otherwise to `pending`.
+    """
+    try:
+        t = get_task(task_id)
+    except Exception:
+        t = None
+    if not t:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    try:
+        from .db import SessionLocal
+        db = SessionLocal()
+        key = _parse_key(task_id)
+        obj = db.get(Task, key)
+        if not obj:
+            db.close()
+            return JSONResponse({"error": "unknown task"}, status_code=404)
+        prev = obj.status
+        obj.status = "success" if obj.result else "pending"
+        db.add(obj)
+        db.commit()
+        try:
+            record_history(task_id, "undeleted", {"previous": prev}, db=db)
+        except Exception:
+            pass
+        db.close()
+        return {"task_id": task_id, "undeleted": True}
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @app.get("/bg/minutes/{task_id}")
 def bg_minutes_file(task_id: str):
     """Return the rendered minutes text for a background task.

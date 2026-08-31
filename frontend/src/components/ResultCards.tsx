@@ -3,6 +3,7 @@ import { Copy, Download } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
 import startDownload from '../lib/download'
+import { deleteTask, undeleteTask } from '../api/client'
 
 const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void; onFocus?: () => void; onBlur?: () => void }> = ({ title, children, onDownload, onFocus, onBlur }) => (
   <div tabIndex={0} onFocus={onFocus} onBlur={onBlur} className="glass-card p-4 rounded-md mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--accent)] focus-visible:shadow-lg focus-visible:bg-slate-50 transform transition-transform transition-opacity duration-150 ease-out focus-visible:scale-105 focus-visible:-translate-y-1 focus-visible:opacity-100">
@@ -89,6 +90,20 @@ export default function ResultCards({ result }: { result: any | null }) {
         onDownload={() => downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)}
         onFocus={() => { setFocusedTitle('Action Items'); setFocusedContent(actions) }}
       >{actions}</Card>
+
+      {/* Desktop: single-card delete icon in corner */}
+      <div className="hidden md:flex justify-end gap-2 mt-2">
+        <button onClick={async () => {
+          if (!taskId) { addToast('Task id unavailable', { level: 'error' }); return }
+          if (!confirm('Delete this minutes entry?')) return
+          try {
+            await deleteTask(taskId)
+            addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); addToast('Restored', { level: 'success' }) } catch { addToast('Restore failed', { level: 'error' }) } } })
+          } catch (e) {
+            addToast('Delete failed', { level: 'error' })
+          }
+        }} className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+      </div>
 
       {/* Mobile bottom action bar for focused card */}
       <div className={`fixed left-0 right-0 bottom-0 z-50 md:hidden transition-transform duration-200 ${focusedTitle ? 'translate-y-0' : 'translate-y-full'}`} aria-hidden={focusedTitle ? 'false' : 'true'}>
