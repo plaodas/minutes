@@ -38,6 +38,68 @@ from minutes.db import SessionLocal
 from minutes.models import Task, TaskHistory
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
+import time
+
+# Allowed upload file types
+ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
+
+def _is_allowed_upload(file: UploadFile) -> (bool, str):
+    """Return (allowed, reason)."""
+    # check extension and content-type heuristics first
+    fn = (file.filename or '')
+    ext = os.path.splitext(fn)[1].lower()
+    ct = (getattr(file, 'content_type', None) or '')
+
+    if ext not in ALLOWED_EXTENSIONS and not ct.startswith('audio/'):
+        return False, f'invalid file type: ext={ext!r} mime={ct!r}'
+
+    # read a small prefix from the uploaded stream for analysis
+    stream = getattr(file, 'file', None)
+    if not stream:
+        return False, 'missing upload stream'
+    pos = None
+    try:
+        pos = stream.tell()
+    except Exception:
+        pos = None
+    header = stream.read(4096) or b''
+    try:
+        if pos is not None:
+            stream.seek(pos)
+        else:
+            stream.seek(0)
+    except Exception:
+        pass
+
+    # prefer python-magic if available for robust MIME detection
+    try:
+        import magic
+
+        try:
+            m = magic.Magic(mime=True)
+            mime = m.from_buffer(header)
+        except Exception:
+            # some python-magic builds expose from_buffer at module level
+            mime = magic.from_buffer(header)
+
+        if isinstance(mime, str) and mime.startswith('audio/'):
+            return True, ''
+        return False, f'invalid mime detected: {mime!r} ext={ext!r} orig_mime={ct!r}'
+    except Exception:
+        # fallback to lightweight signature checks if python-magic is unavailable
+        h = header if isinstance(header, (bytes, bytearray)) else str(header).encode('latin1', errors='ignore')
+        if h.startswith(b'RIFF') and h[8:12] == b'WAVE':
+            return True, ''
+        if h.startswith(b'OggS'):
+            return True, ''
+        if h.startswith(b'fLaC'):
+            return True, ''
+        if h.startswith(b'ID3') or (len(h) >= 2 and h[0] == 0xFF and (h[1] & 0xE0) == 0xE0):
+            return True, ''
+        if len(h) >= 12 and h[4:8] == b'ftyp':
+            return True, ''
+
+        return False, f'file signature did not match audio formats: ext={ext!r} mime={ct!r}'
 
 # Configuration: request limits for /bg/histories
 MAX_IDS_PER_REQUEST = int(os.environ.get("MAX_BG_HISTORIES_IDS", "500"))
@@ -164,16 +226,24 @@ def transcribe_upload(file: UploadFile = File(...)):
     # Save uploaded file into uploads/ so workers can access it (shared volume)
     uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
+    # sanitize filename and avoid collisions by generating a unique name
     suffix = os.path.splitext(file.filename)[1] or ".wav"
+    safe_name = os.path.basename(file.filename) or f"upload{suffix}"
+    unique_name = f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
     tmp_path = None
+    # validate file type
+    ok, reason = _is_allowed_upload(file)
+    if not ok:
+        return JSONResponse({"error": reason}, status_code=400)
     try:
-        dest_path = os.path.join(uploads_dir, file.filename)
+        dest_path = os.path.join(uploads_dir, unique_name)
         with open(dest_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
 
         # Enqueue Celery task
         task = process_audio.delay(dest_path)
-        return {"task_id": task.id}
+        # return upload filename for UI convenience
+        return {"task_id": task.id, "upload_filename": safe_name}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -217,7 +287,14 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
     """
     uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
-    dest_path = os.path.join(uploads_dir, file.filename)
+    # sanitize and uniquify filename to avoid collisions and path traversal
+    safe_name = os.path.basename(file.filename) or "upload.wav"
+    unique_name = f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
+    dest_path = os.path.join(uploads_dir, unique_name)
+    # validate file type
+    ok, reason = _is_allowed_upload(file)
+    if not ok:
+        return JSONResponse({"error": reason}, status_code=400)
     try:
         with open(dest_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
@@ -231,7 +308,7 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
         # Store upload metadata (original filename) in the task record so
         # the frontend can show a meaningful name when listing tasks.
         try:
-            create_task(task_id, metadata={"upload_filename": file.filename})
+            create_task(task_id, metadata={"upload_filename": safe_name})
         except TypeError:
             # backward-compat: if create_task signature hasn't been updated,
             # call without metadata

@@ -1,24 +1,77 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Copy, Download } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
 import startDownload from '../lib/download'
 import { deleteTask, undeleteTask } from '../api/client'
 
-const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void; onFocus?: () => void; onBlur?: () => void }> = ({ title, children, onDownload, onFocus, onBlur }) => (
-  <div tabIndex={0} onFocus={onFocus} onBlur={onBlur} className="glass-card p-4 rounded-md mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--accent)] focus-visible:shadow-lg focus-visible:bg-slate-50 transform transition-transform transition-opacity duration-150 ease-out focus-visible:scale-105 focus-visible:-translate-y-1 focus-visible:opacity-100">
-    <div className="flex justify-between items-start">
-      <h3 id={`resultcard-${title.replace(/\s+/g, '-')}`} className="font-semibold">{title}</h3>
-      <div className="flex gap-2">
-        <CopyButton text={String(children)} />
-        <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={onDownload}>
-          <Download size={16} />
-        </button>
+const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void; onFocus?: () => void; onBlur?: () => void; onDelete?: () => void }> = ({ title, children, onDownload, onFocus, onBlur, onDelete }) => {
+  const [translateX, setTranslateX] = useState(0)
+  const [swiped, setSwiped] = useState(false)
+  const startX = useRef<number | null>(null)
+  const threshold = 80
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startX.current = e.touches[0].clientX
+    setSwiped(false)
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (startX.current == null) return
+    const delta = e.touches[0].clientX - startX.current
+    if (delta < 0) {
+      // swiping left
+      setTranslateX(Math.max(delta, -160))
+    } else if (swiped) {
+      // allow closing by swiping right
+      setTranslateX(Math.min(delta - 96, 0))
+    }
+  }
+
+  const handleTouchEnd = () => {
+    if (translateX <= -threshold) {
+      // reveal delete
+      setTranslateX(-96)
+      setSwiped(true)
+    } else {
+      setTranslateX(0)
+      setSwiped(false)
+    }
+    startX.current = null
+  }
+
+  return (
+    <div className="relative overflow-hidden mb-4">
+      <div
+        tabIndex={0}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="glass-card p-4 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--accent)] focus-visible:shadow-lg focus-visible:bg-slate-50 transform transition-transform duration-150 ease-out"
+        style={{ transform: `translateX(${translateX}px)` }}
+      >
+        <div className="flex justify-between items-start">
+          <h3 id={`resultcard-${title.replace(/\s+/g, '-')}`} className="font-semibold">{title}</h3>
+          <div className="flex gap-2">
+            <CopyButton text={String(children)} />
+            <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={onDownload}>
+              <Download size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">{children}</div>
       </div>
+      {/* Mobile-only delete revealed when swiped */}
+      <button
+        onClick={() => { if (onDelete) onDelete() }}
+        className={`absolute top-1/2 -translate-y-1/2 right-3 md:hidden bg-red-600 text-white px-3 py-2 rounded ${swiped ? 'block' : 'hidden'}`}
+        aria-hidden={swiped ? 'false' : 'true'}
+      >Delete</button>
     </div>
-    <div className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">{children}</div>
-  </div>
-)
+  )
+}
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   const { addToast } = useToast()
@@ -61,6 +114,17 @@ export default function ResultCards({ result }: { result: any | null }) {
     await startDownload(() => fetcher(taskId), filename, addToast)
   }
 
+  const handleDelete = async () => {
+    if (!taskId) { addToast('Task id unavailable', { level: 'error' }); return }
+    if (!confirm('Delete this minutes entry?')) return
+    try {
+      await deleteTask(taskId)
+      addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); addToast('Restored', { level: 'success' }) } catch { addToast('Restore failed', { level: 'error' }) } } })
+    } catch (e) {
+      addToast('Delete failed', { level: 'error' })
+    }
+  }
+
   const handleMobileCopy = async () => {
     try {
       await navigator.clipboard.writeText(focusedContent)
@@ -77,32 +141,26 @@ export default function ResultCards({ result }: { result: any | null }) {
         onDownload={() => downloadBlob(fetchTranscriptDownload, `minutes_${taskId || 'unknown'}_transcript.txt`)}
         onFocus={() => { setFocusedTitle('Transcript'); setFocusedContent(transcript) }}
         onBlur={() => { /* allow footer interaction */ }}
+        onDelete={handleDelete}
       >{transcript}</Card>
 
       <Card
         title="Summary"
         onDownload={() => downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)}
         onFocus={() => { setFocusedTitle('Summary'); setFocusedContent(summary) }}
+        onDelete={handleDelete}
       >{summary}</Card>
 
       <Card
         title="Action Items"
         onDownload={() => downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)}
         onFocus={() => { setFocusedTitle('Action Items'); setFocusedContent(actions) }}
+        onDelete={handleDelete}
       >{actions}</Card>
 
       {/* Desktop: single-card delete icon in corner */}
       <div className="hidden md:flex justify-end gap-2 mt-2">
-        <button onClick={async () => {
-          if (!taskId) { addToast('Task id unavailable', { level: 'error' }); return }
-          if (!confirm('Delete this minutes entry?')) return
-          try {
-            await deleteTask(taskId)
-            addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); addToast('Restored', { level: 'success' }) } catch { addToast('Restore failed', { level: 'error' }) } } })
-          } catch (e) {
-            addToast('Delete failed', { level: 'error' })
-          }
-        }} className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+        <button onClick={handleDelete} className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
       </div>
 
       {/* Mobile bottom action bar for focused card */}

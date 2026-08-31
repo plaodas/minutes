@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import Toast from './Toast'
+import ConfirmDialog from './ConfirmDialog'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask } from '../api/client'
 import { useToast } from './ToastProvider'
 import startDownload from '../lib/download'
@@ -81,10 +82,9 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     }
   }
 
-  const handleDelete = async () => {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const handleDeleteConfirmed = async () => {
     if (!taskId) return
-    const ok = window.confirm('Delete this minutes entry? This action can be undone.')
-    if (!ok) return
     try {
       await deleteTask(taskId)
       toast.addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); toast.addToast('Restored', { level: 'success' }) } catch { toast.addToast('Restore failed', { level: 'error' }) } } })
@@ -94,6 +94,10 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     } catch (e) {
       toast.addToast('Delete failed', { level: 'error' })
     }
+  }
+
+  const handleDelete = () => {
+    setConfirmOpen(true)
   }
 
   if (!taskId) return null
