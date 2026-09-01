@@ -48,7 +48,7 @@ class Bucket(Base):
     name = Column(String, unique=True, nullable=False, index=True)
     owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)
     public = Column(Boolean, nullable=False, server_default='false')
-    metadata = Column(JSON, nullable=True)
+    bucket_metadata = Column('metadata', JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     deleted_at = Column(DateTime, nullable=True)

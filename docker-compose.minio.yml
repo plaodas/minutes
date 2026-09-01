@@ -2,6 +2,7 @@ services:
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
+    restart: unless-stopped
     ports:
       - "9000:9000"
       - "9001:9001"

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Copy, Download } from 'lucide-react'
+import { Copy, Download, ExternalLink } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
 import startDownload from '../lib/download'
 import { deleteTask, undeleteTask } from '../api/client'
 
-const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void; onFocus?: () => void; onBlur?: () => void; onDelete?: () => void }> = ({ title, children, onDownload, onFocus, onBlur, onDelete }) => {
+const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void; onFocus?: () => void; onBlur?: () => void; onDelete?: () => void; presignedInfo?: any | null }> = ({ title, children, onDownload, onFocus, onBlur, onDelete, presignedInfo }) => {
   const [translateX, setTranslateX] = useState(0)
   const [swiped, setSwiped] = useState(false)
   const startX = useRef<number | null>(null)
@@ -59,6 +59,9 @@ const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: ()
             <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={onDownload}>
               <Download size={16} />
             </button>
+            {presignedInfo?.url ? (
+              <PresignedButton info={presignedInfo} />
+            ) : null}
           </div>
         </div>
         <div className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">{children}</div>
@@ -82,6 +85,46 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => {
     <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handle}>
       <Copy size={16} />
     </button>
+  )
+}
+
+const PresignedButton: React.FC<{ info: any }> = ({ info }) => {
+  const { addToast } = useToast()
+  const handleOpen = () => {
+    try {
+      window.open(info.url, '_blank', 'noopener')
+    } catch {
+      addToast('Unable to open link, trying direct download', { level: 'warn' })
+      // fallback: open backend download endpoint
+      try {
+        const parts = info.object ? info.object.split('/') : []
+        // assume task id is in object path minutes/{taskId}/...
+        const taskId = parts[1] || ''
+        window.open(`/api/bg/minutes/${encodeURIComponent(taskId)}`, '_blank', 'noopener')
+      } catch {
+        addToast('Fallback failed', { level: 'error' })
+      }
+    }
+  }
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(info.url)
+      addToast('Link copied', { level: 'success' })
+    } catch {
+      addToast('Copy failed', { level: 'error' })
+    }
+  }
+  const expiresText = info?.expires_at ? `Expires: ${new Date(info.expires_at).toLocaleString()}` : (info?.expires ? `Expires in ${info.expires} sec` : '')
+  return (
+    <div className="flex items-center gap-1">
+      <button title="Open cached file" className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handleOpen}>
+        <ExternalLink size={16} />
+      </button>
+      <button title="Copy link" className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handleCopy}>
+        <Copy size={16} />
+      </button>
+      {expiresText ? <div className="text-xs text-[var(--muted)] ml-1">{expiresText}</div> : null}
+    </div>
   )
 }
 
@@ -138,6 +181,7 @@ export default function ResultCards({ result }: { result: any | null }) {
         onFocus={() => { setFocusedTitle('Transcript'); setFocusedContent(transcript) }}
         onBlur={() => { /* allow footer interaction */ }}
         onDelete={handleDelete}
+        presignedUrl={data?.minio?.url || null}
       >{transcript}</Card>
 
       <Card
@@ -145,6 +189,7 @@ export default function ResultCards({ result }: { result: any | null }) {
         onDownload={() => downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)}
         onFocus={() => { setFocusedTitle('Summary'); setFocusedContent(summary) }}
         onDelete={handleDelete}
+        presignedUrl={data?.minio?.url || null}
       >{summary}</Card>
 
       <Card
@@ -152,6 +197,7 @@ export default function ResultCards({ result }: { result: any | null }) {
         onDownload={() => downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)}
         onFocus={() => { setFocusedTitle('Action Items'); setFocusedContent(actions) }}
         onDelete={handleDelete}
+        presignedUrl={data?.minio?.url || null}
       >{actions}</Card>
 
       {/* Desktop: single-card delete icon in corner */}

@@ -1,0 +1,18 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-raw-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "uploads/" },
+      "Expiration": { "Days": 7 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 }
+    },
+    {
+      "ID": "retain-minutes-long",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "minutes/" },
+      "Expiration": { "Days": 365 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 365 }
+    }
+  ]
+}

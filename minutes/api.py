@@ -154,7 +154,42 @@ def _run_pipeline_background(input_path: str, task_id: str):
         if not os.path.exists(out_file) or os.path.getsize(out_file) == 0:
             raise RuntimeError(f"Output file write failed or empty: {out_file}")
 
-        update_task_success(task_id, {"output_file": out_file})
+        # If configured, upload the final minutes to MinIO as a cached copy.
+        minio_info = None
+        try:
+            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get("MINIO_BUCKET")
+            if bucket:
+                svc = MinioService()
+                try:
+                    svc.ensure_bucket(bucket)
+                except Exception:
+                    # ensure_bucket best-effort
+                    pass
+                object_name = f"minutes/{task_id}/minutes_{now}.txt"
+                try:
+                    svc.client.fput_object(bucket, object_name, out_file)
+                    try:
+                        expires_sec = int(os.environ.get('MINIO_PRESIGNED_EXPIRES', '3600'))
+                        url = svc.presigned_get(bucket, object_name, expires=expires_sec)
+                        from datetime import datetime, timedelta
+                        expires_at = (datetime.utcnow() + timedelta(seconds=expires_sec)).isoformat() + 'Z'
+                    except Exception:
+                        url = None
+                        expires_sec = None
+                        expires_at = None
+                    minio_info = {"bucket": bucket, "object": object_name, "url": url, "expires": expires_sec, "expires_at": expires_at}
+                except Exception as exc:
+                    # log but do not fail the whole pipeline
+                    logging.getLogger("minutes.api").exception("MinIO upload failed for task %s: %s", task_id, exc)
+        except Exception:
+            # any MinIO client init error should not block task success
+            minio_info = None
+
+        result_payload = {"output_file": out_file}
+        if minio_info:
+            result_payload["minio"] = minio_info
+
+        update_task_success(task_id, result_payload)
     except Exception as exc:
         update_task_failure(task_id, str(exc))
 
