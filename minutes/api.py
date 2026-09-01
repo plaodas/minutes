@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
@@ -39,6 +39,8 @@ from minutes.models import Task, TaskHistory
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 import time
+from minutes.minio_client import MinioService
+import typing
 
 # Allowed upload file types
 ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
@@ -159,6 +161,28 @@ def _run_pipeline_background(input_path: str, task_id: str):
 
 app = FastAPI(title="Minutes Service (prototype)")
 
+# Admin token for simple admin API protection (optional)
+ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
+
+
+def _get_admin_token_from_request(req: Request | None):
+    if req is None:
+        return None
+    # support X-Admin-Token header or Bearer Authorization
+    token = req.headers.get("X-Admin-Token") or req.headers.get("Authorization")
+    if token and token.lower().startswith("bearer "):
+        token = token.split(" ", 1)[1]
+    return token
+
+
+def require_admin(req: Request = None):
+    token = _get_admin_token_from_request(req)
+    if not ADMIN_API_TOKEN:
+        raise HTTPException(status_code=403, detail="admin API not enabled")
+    if token != ADMIN_API_TOKEN:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return True
+
 # CORS: allow local dev origins used by the frontend and Playwright
 app.add_middleware(
     CORSMiddleware,
@@ -215,6 +239,46 @@ async def shutdown_reconciler():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/admin/buckets")
+def admin_list_buckets(_=Depends(require_admin)):
+    try:
+        svc = MinioService()
+        buckets = svc.list_buckets()
+        out = []
+        for b in buckets:
+            created = getattr(b, 'creation_date', None)
+            out.append({"name": b.name, "created_at": created.isoformat() if created else None})
+        return {"buckets": out}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/admin/buckets")
+def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
+    name = (payload or {}).get("name")
+    if not name:
+        return JSONResponse({"error": "missing name"}, status_code=400)
+    public = bool((payload or {}).get("public", False))
+    try:
+        svc = MinioService()
+        svc.create_bucket(name, public=public)
+        return {"name": name}
+    except ValueError:
+        return JSONResponse({"error": "already exists"}, status_code=409)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/admin/buckets/{name}")
+def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
+    try:
+        svc = MinioService()
+        svc.delete_bucket(name, force=force)
+        return {"deleted": True}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/transcribe-upload", response_model=CreateTaskResponse)
