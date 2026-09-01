@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Integer, DateTime, Numeric, JSON, ForeignKey, func
+from sqlalchemy import Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 import uuid
@@ -39,3 +40,15 @@ class TaskHistory(Base):
     event_ts = Column(DateTime, server_default=func.now())
     event_type = Column(String, nullable=True)
     payload = Column(JSON, nullable=True)
+
+
+class Bucket(Base):
+    __tablename__ = 'buckets'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, unique=True, nullable=False, index=True)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)
+    public = Column(Boolean, nullable=False, server_default='false')
+    metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted_at = Column(DateTime, nullable=True)
