@@ -1,5 +1,6 @@
--- Migration: add minutes_text column and full-text indexes to tasks
--- Run this against your Postgres database (via psql or the helper script).
+-- Migration (legacy): add minutes_text column and full-text indexes to tasks
+-- This SQL was moved from /scripts/migrations for archival; Alembic contains
+-- the authoritative migration in /alembic/versions.
 
 BEGIN;
 

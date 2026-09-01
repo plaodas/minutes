@@ -91,6 +91,10 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
       // optionally close drawer
       setIsVisible(false)
       setTimeout(() => onClose(), 260)
+        try {
+          // notify app that task changed so history can refresh
+          window.dispatchEvent(new CustomEvent('app:task-changed', { detail: { taskId, action: 'deleted' } }))
+        } catch (e) {}
     } catch (e) {
       toast.addToast('Delete failed', { level: 'error' })
     }

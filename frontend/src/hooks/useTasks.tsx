@@ -47,9 +47,14 @@ export function useTasks() {
 
   useEffect(() => {
     load()
+    const onTaskChanged = () => load()
+    window.addEventListener('app:task-changed', onTaskChanged)
     const onOnline = () => load()
     window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('app:task-changed', onTaskChanged)
+    }
   }, [load])
 
   return { tasks, loading, error, reload: load }

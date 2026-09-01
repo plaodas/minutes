@@ -283,6 +283,32 @@ def process_audio(self, input_path: str):
         if task_id:
             update_task_success(task_id, structured, db=db)
 
+        # Optionally remove intermediate files produced by preprocessing
+        try:
+            DELETE_INTERMEDIATE = os.environ.get("DELETE_INTERMEDIATE", "true").lower() in ("1", "true", "yes")
+            if DELETE_INTERMEDIATE:
+                # Only remove files that are in the same directory as the input_path
+                base_dir = os.path.dirname(os.path.abspath(input_path)) or os.getcwd()
+                for p in (mono, norm, clean):
+                    try:
+                        if not p:
+                            continue
+                        p_abs = os.path.abspath(p)
+                        # safety check: ensure the intermediate lives under the same directory
+                        if not p_abs.startswith(base_dir):
+                            logger = logging.getLogger('minutes.tasks')
+                            logger.warning('Skipping removal of intermediate outside base dir: %s', p_abs)
+                            continue
+                        if os.path.exists(p_abs):
+                            os.remove(p_abs)
+                            logger = logging.getLogger('minutes.tasks')
+                            logger.info('Removed intermediate file %s for task %s', p_abs, task_id)
+                    except Exception:
+                        logger = logging.getLogger('minutes.tasks')
+                        logger.exception('Failed to remove intermediate %s for task %s', p, task_id)
+        except Exception:
+            logging.getLogger('minutes.tasks').exception('Error while cleaning intermediates')
+
         return {"status": "success", "result": structured}
     except Exception as e:
         # Record failure in shared store if possible

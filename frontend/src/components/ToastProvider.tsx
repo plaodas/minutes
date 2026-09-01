@@ -76,6 +76,9 @@ export function ToastProvider({ children, maxVisible = 3 }: { children: React.Re
       try {
         await deleteTask(pendingTaskId)
         addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(pendingTaskId); addToast('Restored', { level: 'success' }) } catch { addToast('Restore failed', { level: 'error' }) } } })
+        try {
+          window.dispatchEvent(new CustomEvent('app:task-changed', { detail: { taskId: pendingTaskId, action: 'deleted' } }))
+        } catch (e) {}
       } catch (e) {
         addToast('Delete failed', { level: 'error' })
       } finally {
