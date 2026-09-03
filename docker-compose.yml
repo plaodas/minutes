@@ -20,6 +20,8 @@ services:
       - .env
     depends_on:
       - db
+    # wait for DB and Redis to be reachable before starting the API
+    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh db 5432 redis 6379 -- uvicorn backend.app:app --host 0.0.0.0 --port 8000"]
     restart: unless-stopped
   redis:
     image: redis:7-alpine
@@ -31,7 +33,8 @@ services:
       context: .
       args:
         INSTALL_FULL: "false"
-    command: celery -A minutes.tasks worker -Q minutes --loglevel=info
+    # Wait for Redis and Postgres to be reachable before starting the worker
+    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh redis 6379 db 5432 -- celery -A minutes.tasks worker -Q minutes --loglevel=info"]
     volumes:
       - ./:/app
       - ./data/uploads:/app/uploads
@@ -46,6 +49,7 @@ services:
     depends_on:
       - redis
       - db
+      - inference
     restart: unless-stopped
 
   frontend:
@@ -71,7 +75,8 @@ services:
       - ./data/uploads:/app/uploads
     environment:
       - PYTHONUNBUFFERED=1
-    command: uvicorn minutes.inference_app:app --host 0.0.0.0 --port 5001
+    # wait for DB and Redis to be reachable before starting inference service
+    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh db 5432 redis 6379 -- uvicorn minutes.inference_app:app --host 0.0.0.0 --port 5001"]
     restart: unless-stopped
   db:
     image: postgres:15
