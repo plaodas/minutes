@@ -8,7 +8,10 @@ _lock = threading.Lock()
 # local sqlite file when `DATABASE_URL` is not set, so drop the file
 # JSON fallback to avoid split-brain between file and DB stores.
 import uuid
-from .db import SessionLocal
+from .db import SessionLocal, engine
+import logging
+
+logger = logging.getLogger('minutes.bg_store')
 from .models import Task, TaskHistory
 from sqlalchemy.exc import NoResultFound, IntegrityError
 try:
@@ -106,9 +109,16 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
         db = SessionLocal()
         close = True
     try:
+        logger.debug('record_history start: task_id=%s event=%s engine=%s', task_id, event_type, getattr(engine, 'url', None))
         h = TaskHistory(task_id=task_id, event_type=event_type, payload=payload or {})
         db.add(h)
-        db.commit()
+        try:
+            db.commit()
+        except Exception:
+            logger.exception('record_history commit failed for %s', task_id)
+            db.rollback()
+    except Exception:
+        logger.exception('record_history failed for %s', task_id)
     finally:
         if close:
             db.close()
@@ -128,6 +138,7 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
             # PG dialect isn't available.
             if pg_insert is not None:
                 try:
+                    logger.debug('create_task using pg_insert for %s engine=%s', task_id, getattr(engine, 'url', None))
                     stmt = pg_insert(Task.__table__).values(
                         id=id_val,
                         status="pending",
@@ -137,9 +148,13 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                     ).on_conflict_do_nothing(index_elements=["id"])
                     db.execute(stmt)
                     db.commit()
-                except Exception:
+                except Exception as e:
+                    logger.exception('pg_insert upsert failed for %s', task_id)
                     # fallback to safe insert pattern below
-                    db.rollback()
+                    try:
+                        db.rollback()
+                    except Exception:
+                        logger.exception('rollback after pg_insert failed for %s', task_id)
                     t = db.get(Task, id_val)
                     if not t:
                         t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0)
@@ -147,6 +162,7 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                         try:
                             db.commit()
                         except IntegrityError:
+                            logger.exception('commit failed on fallback insert for %s', task_id)
                             db.rollback()
                             t = db.get(Task, id_val)
                     else:
@@ -155,6 +171,7 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                             try:
                                 db.commit()
                             except IntegrityError:
+                                logger.exception('commit failed updating metadata for %s', task_id)
                                 db.rollback()
             else:
                 t = db.get(Task, id_val)
@@ -176,7 +193,7 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
             try:
                 record_history(task_id, "created", {"status": "pending"}, db=db)
             except Exception:
-                pass
+                logger.exception('record_history("created") failed for %s', task_id)
         finally:
             if close:
                 db.close()
@@ -229,7 +246,7 @@ def update_task_success(task_id: str, result: Any, db=None):
             try:
                 record_history(task_id, "success", {"result": result}, db=db)
             except Exception:
-                pass
+                logger.exception('record_history("success") failed for %s', task_id)
         finally:
             if close:
                 db.close()
@@ -261,7 +278,7 @@ def update_task_failure(task_id: str, error_msg: str, db=None):
             try:
                 record_history(task_id, "failure", {"error": error_msg}, db=db)
             except Exception:
-                pass
+                logger.exception('record_history("failure") failed for %s', task_id)
         finally:
             if close:
                 db.close()
@@ -291,7 +308,7 @@ def update_task_cancelled(task_id: str, db=None):
             try:
                 record_history(task_id, "cancelled", {}, db=db)
             except Exception:
-                pass
+                logger.exception('record_history("cancelled") failed for %s', task_id)
         finally:
             if close:
                 db.close()
@@ -320,7 +337,7 @@ def update_task_status(task_id: str, status: str, db=None):
             try:
                 record_history(task_id, "status", {"status": status}, db=db)
             except Exception:
-                pass
+                logger.exception('record_history("status") failed for %s', task_id)
         finally:
             if close:
                 db.close()
@@ -346,7 +363,7 @@ def update_task_progress(task_id: str, progress: float, db=None):
             try:
                 record_history(task_id, "progress", {"progress": float(progress)}, db=db)
             except Exception:
-                pass
+                logger.exception('record_history("progress") failed for %s', task_id)
         finally:
             if close:
                 db.close()

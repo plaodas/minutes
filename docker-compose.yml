@@ -16,6 +16,11 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_DEFAULT_BUCKET=outputs
     env_file:
       - .env
     depends_on:
@@ -44,6 +49,11 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
       - INFERENCE_URL=http://inference:5001/transcribe
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_DEFAULT_BUCKET=outputs
     env_file:
       - .env
     depends_on:
@@ -75,6 +85,11 @@ services:
       - ./data/uploads:/app/uploads
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_DEFAULT_BUCKET=outputs
     # wait for DB and Redis to be reachable before starting inference service
     command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh db 5432 redis 6379 -- uvicorn minutes.inference_app:app --host 0.0.0.0 --port 5001"]
     restart: unless-stopped
