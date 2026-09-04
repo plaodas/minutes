@@ -52,6 +52,26 @@ def process_audio(self, input_path: str):
             update_task_status(task_id, "preprocess", db=db)
         mono, norm, clean = preprocess(input_path)
 
+        # Validate cleaned WAV exists and appears valid before continuing.
+        try:
+            if not clean or not os.path.exists(clean) or os.path.getsize(clean) == 0:
+                raise RuntimeError(f"Invalid data found when processing input: '{clean}'")
+            # ensure it's a readable WAV and inspect sample rate
+            import wave as _wave
+            with contextlib.closing(_wave.open(clean, "rb")) as wf:
+                rate = wf.getframerate()
+                channels = wf.getnchannels()
+        except Exception as e:
+            # raise with the familiar message shape so existing handlers record it
+            raise RuntimeError(f"Invalid data found when processing input: '{clean}'") from e
+        # Warn if sample rate differs from expected (we force 16k in preprocess)
+        try:
+            logger = logging.getLogger("minutes.tasks")
+            if rate and rate != 16000:
+                logger.warning("Unexpected sample rate %s Hz for %s", rate, clean)
+        except Exception:
+            pass
+
         # try to determine audio duration (seconds) from the cleaned wav file
         def _get_wav_duration(path: str):
             try:

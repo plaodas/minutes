@@ -52,6 +52,8 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
             final = {"type": "final", "raw_text": raw_text, "segments": segs}
             q.put(json.dumps(final, ensure_ascii=False) + "\n")
         except Exception as exc:
+            # Log full exception with traceback for debugging on the inference side
+            logger.exception("transcribe worker failed for %s: %s", dest_path, exc)
             q.put(json.dumps({"type": "error", "error": str(exc)}, ensure_ascii=False) + "\n")
         finally:
             q.put(None)
