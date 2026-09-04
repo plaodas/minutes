@@ -902,13 +902,13 @@ def bg_minutes_file(task_id: str):
         res = t.get("result") or {}
         if isinstance(res, dict) and res.get("minio") and res["minio"].get("bucket") and res["minio"].get("object"):
             minio_info = res["minio"]
-            return _stream_minio_object(minio_info["bucket"], minio_info["object"], filename=fname, media_type="text/plain; charset=utf-8")
+            return _stream_minio_object(minio_info["bucket"], minio_info["object"], filename=fname, media_type="text/plain")
 
         # Serve as a downloadable/plain text file with proper headers
         # Use FileResponse to let FastAPI set Content-Type and support streaming
         return FileResponse(
             path=candidate,
-            media_type="text/plain; charset=utf-8",
+            media_type="text/plain",
             filename=os.path.basename(fname),
         )
     except FileNotFoundError:
@@ -1036,7 +1036,7 @@ def bg_transcript(task_id: str, format: str = "txt"):
     if format not in ("txt", "md"):
         return JSONResponse({"error": "unsupported format"}, status_code=400)
     media = "text/markdown" if format == "md" else "text/plain"
-    return Response(content=text, media_type=f"{media}; charset=utf-8")
+    return Response(content=text, media_type=media)
 
 
 @app.get("/bg/summary/{task_id}")
@@ -1087,7 +1087,7 @@ def bg_summary(task_id: str, format: str = "txt"):
     if format not in ("txt", "md"):
         return JSONResponse({"error": "unsupported format"}, status_code=400)
     media = "text/markdown" if format == "md" else "text/plain"
-    return Response(content=summary_text, media_type=f"{media}; charset=utf-8")
+    return Response(content=summary_text, media_type=media)
 
 
 @app.get("/bg/action-items/{task_id}")
@@ -1155,8 +1155,8 @@ def bg_action_items(task_id: str, format: str = "json"):
         writer.writerow(["id", "text"])
         for i, it in enumerate(items, start=1):
             writer.writerow([i, it.get("text")])
-        return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8")
+        return Response(content=buf.getvalue(), media_type="text/csv")
     if format == "txt":
         txt = "\n".join([f"- {it.get('text')}" for it in items])
-        return Response(content=txt, media_type="text/plain; charset=utf-8")
+        return Response(content=txt, media_type="text/plain")
     return JSONResponse({"error": "unsupported format"}, status_code=400)
