@@ -41,6 +41,7 @@ from minutes.reconcile_bg_tasks import reconcile_once
 import time
 from minutes.minio_client import MinioService
 import typing
+from fastapi.responses import StreamingResponse
 
 # Allowed upload file types
 ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
@@ -897,6 +898,12 @@ def bg_minutes_file(task_id: str):
 
     candidate = os.path.join(outputs_dir, os.path.basename(fname))
     try:
+        # If MinIO cached object exists in result, stream from MinIO proxy instead
+        res = t.get("result") or {}
+        if isinstance(res, dict) and res.get("minio") and res["minio"].get("bucket") and res["minio"].get("object"):
+            minio_info = res["minio"]
+            return _stream_minio_object(minio_info["bucket"], minio_info["object"], filename=fname, media_type="text/plain; charset=utf-8")
+
         # Serve as a downloadable/plain text file with proper headers
         # Use FileResponse to let FastAPI set Content-Type and support streaming
         return FileResponse(
@@ -938,6 +945,57 @@ def _resolve_output_file_from_task(task_id: str):
     return candidate, None
 
 
+def _stream_minio_object(bucket: str, object_name: str, filename: str | None = None, media_type: str = "application/octet-stream"):
+    svc = MinioService()
+    try:
+        obj = svc.client.get_object(bucket, object_name)
+    except Exception as exc:
+        return JSONResponse({"error": f"failed to fetch object from MinIO: {str(exc)}"}, status_code=502)
+
+    def iterfile(chunk_size: int = 32 * 1024):
+        try:
+            for data in obj.stream(chunk_size):
+                if not data:
+                    break
+                yield data
+        finally:
+            try:
+                obj.close()
+            except Exception:
+                pass
+            try:
+                obj.release_conn()
+            except Exception:
+                pass
+
+    headers = {}
+    if filename:
+        headers["Content-Disposition"] = f'attachment; filename="{os.path.basename(filename)}"'
+
+    return StreamingResponse(iterfile(), media_type=media_type, headers=headers)
+
+
+def _read_minio_object_text(bucket: str, object_name: str) -> str:
+    svc = MinioService()
+    obj = None
+    try:
+        obj = svc.client.get_object(bucket, object_name)
+        data = obj.read()
+        if isinstance(data, bytes):
+            return data.decode('utf-8')
+        return str(data)
+    finally:
+        if obj is not None:
+            try:
+                obj.close()
+            except Exception:
+                pass
+            try:
+                obj.release_conn()
+            except Exception:
+                pass
+
+
 @app.get("/bg/transcript/{task_id}")
 def bg_transcript(task_id: str, format: str = "txt"):
     """Return the transcript portion. Supported formats: txt, md."""
@@ -963,6 +1021,17 @@ def bg_transcript(task_id: str, format: str = "txt"):
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
+    # If MinIO cached object exists in result, stream from MinIO proxy instead
+    res = t.get("result") or {}
+    if isinstance(res, dict) and res.get("minio") and res["minio"].get("bucket") and res["minio"].get("object"):
+        minio_info = res["minio"]
+        # prefer reading MinIO text for transcript/summary endpoints
+        try:
+            text = _read_minio_object_text(minio_info["bucket"], minio_info["object"])
+        except Exception:
+            # fallback to previously read text
+            pass
+
     # For now, transcript is the full output; future: extract section
     if format not in ("txt", "md"):
         return JSONResponse({"error": "unsupported format"}, status_code=400)
@@ -980,6 +1049,12 @@ def bg_summary(task_id: str, format: str = "txt"):
         return JSONResponse({"status": t.get("status")}, status_code=202)
 
     res = t.get("result") or {}
+    # If MinIO cached object exists, try to read summary from MinIO text
+    if isinstance(res, dict) and res.get("minio") and res["minio"].get("bucket") and res["minio"].get("object"):
+        try:
+            text = _read_minio_object_text(res["minio"]["bucket"], res["minio"]["object"])
+        except Exception:
+            text = None
     if isinstance(res, dict) and res.get("summary"):
         summary_text = res.get("summary")
     else:
