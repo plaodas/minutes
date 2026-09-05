@@ -277,22 +277,29 @@ def update_task_success(task_id: str, result: Any, db=None):
                 db.rollback()
             # If the result references a MinIO cached object, ensure the bucket is recorded
             try:
+                logger.debug('update_task_success checking for minio info for task %s', task_id)
                 minio_info = None
                 if isinstance(result, dict):
                     minio_info = result.get('minio') or (result.get('result') or {}).get('minio')
                 if isinstance(minio_info, dict) and minio_info.get('bucket'):
                     bucket_name = str(minio_info.get('bucket'))
+                    logger.info('update_task_success detected minio info for task %s: bucket=%s', task_id, bucket_name)
                     try:
                         existing = db.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
-                        if not existing:
+                        if existing:
+                            logger.info('Bucket row already exists for %s (task %s)', bucket_name, task_id)
+                        else:
+                            logger.info('Inserting Bucket row for %s (task %s)', bucket_name, task_id)
                             b = Bucket(name=bucket_name, owner_id=DUMMY_OWNER_ID, bucket_metadata=minio_info.get('metadata') or {})
                             db.add(b)
                             try:
                                 db.commit()
+                                logger.info('Bucket row committed for %s (task %s)', bucket_name, task_id)
                             except IntegrityError:
+                                logger.exception('IntegrityError committing bucket row for %s (task %s)', bucket_name, task_id)
                                 db.rollback()
                     except Exception:
-                        logger.exception('failed to ensure bucket row for %s', bucket_name)
+                        logger.exception('failed to ensure bucket row for %s (task %s)', bucket_name, task_id)
             except Exception:
                 logger.exception('bucket persistence check failed for %s', task_id)
             try:
