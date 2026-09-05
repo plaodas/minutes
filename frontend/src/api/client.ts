@@ -89,6 +89,12 @@ export async function deleteTask(taskId: string) {
   return res.json()
 }
 
+export async function forceDeleteTask(taskId: string) {
+  const res = await fetch(`${BASE}/bg/force-delete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin' })
+  if (!res.ok) throw new Error('force delete failed')
+  return res.json()
+}
+
 export async function undeleteTask(taskId: string) {
   const res = await fetch(`${BASE}/bg/undelete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin' })
   if (!res.ok) throw new Error('undelete failed')

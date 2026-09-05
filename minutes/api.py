@@ -888,6 +888,88 @@ def bg_delete(task_id: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@app.post("/bg/force-delete/{task_id}")
+def bg_force_delete(task_id: str):
+    """Force-delete a background task: revoke running worker, remove outputs (MinIO/files),
+    and delete DB Task and TaskHistory rows.
+
+    This is a destructive operation intended for admin/debug/UI use to remove in-progress
+    or test-created tasks.
+    """
+    # best-effort: try to revoke/terminate any running Celery task
+    try:
+        celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
+    except Exception:
+        pass
+
+    try:
+        from .db import SessionLocal
+        db = SessionLocal()
+        # parse key using bg_store helper if available
+        try:
+            from minutes.bg_store import _parse_key
+        except Exception:
+            _parse_key = None
+
+        key = None
+        if _parse_key:
+            key = _parse_key(task_id)
+        else:
+            try:
+                import uuid
+
+                key = uuid.UUID(task_id)
+            except Exception:
+                key = task_id
+
+        obj = db.get(Task, key)
+        if not obj:
+            db.close()
+            return JSONResponse({"error": "unknown task"}, status_code=404)
+
+        # attempt to remove any MinIO cached object referenced in result
+        try:
+            res = obj.result or {}
+            if isinstance(res, dict):
+                minio_info = res.get("minio") if isinstance(res.get("minio"), dict) else None
+                if minio_info and minio_info.get("bucket") and minio_info.get("object"):
+                    try:
+                        svc = MinioService()
+                        svc.client.remove_object(minio_info["bucket"], minio_info["object"])
+                    except Exception:
+                        pass
+
+                # remove output file if present
+                output_file = res.get("output_file") or (res.get("result") or {}).get("output_file")
+                if output_file:
+                    try:
+                        outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
+                        candidate = os.path.join(outputs_dir, os.path.basename(output_file))
+                        if os.path.exists(candidate):
+                            os.remove(candidate)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # delete history and task rows
+        try:
+            db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
+        except Exception:
+            pass
+        try:
+            db.delete(obj)
+            db.commit()
+        except Exception:
+            db.rollback()
+            db.close()
+            return JSONResponse({"error": "failed to delete task"}, status_code=500)
+        db.close()
+        return {"task_id": task_id, "deleted": True}
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 @app.post("/bg/undelete/{task_id}")
 def bg_undelete(task_id: str):
     """Attempt to restore a soft-deleted task to its prior lifecycle state.

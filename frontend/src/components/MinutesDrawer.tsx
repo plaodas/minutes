@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import Toast from './Toast'
 import ConfirmDialog from './ConfirmDialog'
-import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask } from '../api/client'
+import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask, forceDeleteTask } from '../api/client'
 import { useToast } from './ToastProvider'
 import startDownload from '../lib/download'
 
@@ -86,15 +86,22 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const handleDeleteConfirmed = async () => {
     if (!taskId) return
     try {
-      await deleteTask(taskId)
-      toast.addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); toast.addToast('Restored', { level: 'success' }) } catch { toast.addToast('Restore failed', { level: 'error' }) } } })
+      // If minutes are still processing (no text and error indicating processing), call force-delete
+      const isProcessing = (error === 'Minutes are still processing' && !text)
+      if (isProcessing) {
+        await forceDeleteTask(taskId)
+        toast.addToast('Force deleted', { level: 'success' })
+      } else {
+        await deleteTask(taskId)
+        toast.addToast('Deleted', { level: 'success', actionLabel: 'Undo', action: async () => { try { await undeleteTask(taskId); toast.addToast('Restored', { level: 'success' }) } catch { toast.addToast('Restore failed', { level: 'error' }) } } })
+      }
       // optionally close drawer
       setIsVisible(false)
       setTimeout(() => onClose(), 260)
-        try {
-          // notify app that task changed so history can refresh
-          window.dispatchEvent(new CustomEvent('app:task-changed', { detail: { taskId, action: 'deleted' } }))
-        } catch (e) {}
+      try {
+        // notify app that task changed so history can refresh
+        window.dispatchEvent(new CustomEvent('app:task-changed', { detail: { taskId, action: 'deleted' } }))
+      } catch (e) {}
     } catch (e) {
       toast.addToast('Delete failed', { level: 'error' })
     }
@@ -157,7 +164,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
           )}
         </div>
       </aside>
-        <ConfirmDialog open={confirmOpen} title="Delete minutes" message="Delete this minutes entry? This action can be undone." onConfirm={() => { setConfirmOpen(false); handleDeleteConfirmed() }} onCancel={() => setConfirmOpen(false)} confirmLabel="Delete" cancelLabel="Cancel" />
+        <ConfirmDialog open={confirmOpen} title={error === 'Minutes are still processing' ? 'Force delete minutes' : 'Delete minutes'} message={error === 'Minutes are still processing' ? 'Minutes are still processing — force delete will remove outputs and DB records and cannot be undone.' : 'Delete this minutes entry? This action can be undone.'} onConfirm={() => { setConfirmOpen(false); handleDeleteConfirmed() }} onCancel={() => setConfirmOpen(false)} confirmLabel={error === 'Minutes are still processing' ? 'Force delete' : 'Delete'} cancelLabel="Cancel" />
     </div>
   )
 }
