@@ -88,3 +88,20 @@ make dev-nginx
 ```
 
 `make dev-nginx` は `frontend` をビルドし、`db redis minutes nginx` を立ち上げます。
+
+- フロントエンドの依存関係をクリーンインストールしてビルドする手順:
+
+```bash
+cd frontend
+sudo chown -R "$(id -u):$(id -g)" .
+rm -rf node_modules package-lock.json
+npm install
+npm run build
+```
+
+or
+```bash
+# ホストの権限に影響を与えずビルド
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD/frontend":/app -w /app node:18-alpine \
+  sh -c "npm ci || npm install && npm run build"
+```
