@@ -17,21 +17,25 @@ export function useTasks() {
       const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
       const res = await fetchWithRetry(`${BASE}/bg/tasks`, { credentials: 'same-origin' }, { retries: 3, timeoutMs: 10000 })
       const data = await res.json()
-      setTasks(data)
+      const payload = (data && data.tasks) ? data.tasks : data
+      setTasks(payload)
       try {
-        localStorage.setItem('cached_tasks', JSON.stringify(data))
+        localStorage.setItem('cached_tasks', JSON.stringify(payload))
       } catch (e) {
         // ignore
       }
     } catch (e: any) {
       setError(e)
       // Try cached fallback
-      try {
-        const cached = localStorage.getItem('cached_tasks')
-        if (cached) setTasks(JSON.parse(cached))
-      } catch (err) {
-        // ignore
-      }
+        try {
+          const cached = localStorage.getItem('cached_tasks')
+          if (cached) {
+            const parsed = JSON.parse(cached)
+            setTasks(parsed && parsed.tasks ? parsed.tasks : parsed)
+          }
+        } catch (err) {
+          // ignore
+        }
 
       addToast('Failed to load history', {
         level: 'error',
