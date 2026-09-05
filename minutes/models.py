@@ -6,6 +6,9 @@ import uuid
 
 Base = declarative_base()
 
+# Dummy owner id to use until user management is implemented
+DUMMY_OWNER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
 
 class User(Base):
     __tablename__ = 'users'
@@ -46,7 +49,7 @@ class Bucket(Base):
     __tablename__ = 'buckets'
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, unique=True, nullable=False, index=True)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False, default=DUMMY_OWNER_ID)
     public = Column(Boolean, nullable=False, server_default='false')
     bucket_metadata = Column('metadata', JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
