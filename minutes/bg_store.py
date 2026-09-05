@@ -110,7 +110,14 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
         close = True
     try:
         logger.debug('record_history start: task_id=%s event=%s engine=%s', task_id, event_type, getattr(engine, 'url', None))
-        h = TaskHistory(task_id=task_id, event_type=event_type, payload=payload or {})
+        key = _parse_key(task_id)
+        # if external id isn't a UUID, _parse_key returns original string; ensure we store a UUID
+        if not isinstance(key, uuid.UUID):
+            # best-effort: try to find a Task row by external id in payload or skip
+            # fallback: do not create history row tied to a non-UUID id
+            logger.debug('record_history skipping non-UUID task_id=%s', task_id)
+            return
+        h = TaskHistory(task_id=key, event_type=event_type, payload=payload or {})
         db.add(h)
         try:
             db.commit()
@@ -132,7 +139,16 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
             close = True
         try:
             key = _parse_key(task_id)
-            id_val = key if isinstance(key, uuid.UUID) else task_id
+            # If caller provided a UUID-like id, use it. Otherwise generate an internal UUID
+            if isinstance(key, uuid.UUID):
+                id_val = key
+            else:
+                id_val = uuid.uuid4()
+                # preserve external id for traceability
+                if metadata is None:
+                    metadata = {}
+                metadata = dict(metadata)
+                metadata.setdefault('external_task_id', task_id)
             # Try PG-specific upsert to avoid race on insert. Fallback to
             # conservative get/add/commit with IntegrityError handling when
             # PG dialect isn't available.

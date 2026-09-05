@@ -22,6 +22,7 @@ from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw
 from minutes.tasks import process_audio
+import minutes.tasks as tasks
 from minutes.celery_app import celery
 from celery.result import AsyncResult
 from minutes.bg_store import (
@@ -35,7 +36,7 @@ from minutes.bg_store import update_task_cancelled
 from minutes.bg_store import DB_PATH
 import uuid
 from minutes.db import SessionLocal
-from minutes.models import Task, TaskHistory
+from minutes.models import Task, TaskHistory, Bucket
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 import time
@@ -281,11 +282,45 @@ def health():
 def admin_list_buckets(_=Depends(require_admin)):
     try:
         svc = MinioService()
-        buckets = svc.list_buckets()
+        # List DB-backed buckets first, then include any MinIO-only buckets
+        session = SessionLocal()
+        try:
+            db_buckets = {b.name: b for b in session.query(Bucket).all()}
+        finally:
+            session.close()
+
         out = []
-        for b in buckets:
+        try:
+            minio_buckets = svc.list_buckets()
+        except Exception:
+            minio_buckets = []
+
+        seen = set()
+        for b in minio_buckets:
+            name = b.name
             created = getattr(b, 'creation_date', None)
-            out.append({"name": b.name, "created_at": created.isoformat() if created else None})
+            rec = db_buckets.get(name)
+            out.append({
+                "name": name,
+                "created_at": rec.created_at.isoformat() + 'Z' if rec and rec.created_at else (created.isoformat() if created else None),
+                "public": bool(rec.public) if rec is not None else None,
+                "owner_id": str(rec.owner_id) if rec is not None else None,
+                "in_db": rec is not None,
+            })
+            seen.add(name)
+
+        # include DB-only buckets (if any)
+        for name, rec in db_buckets.items():
+            if name in seen:
+                continue
+            out.append({
+                "name": name,
+                "created_at": rec.created_at.isoformat() + 'Z' if rec and rec.created_at else None,
+                "public": bool(rec.public) if rec is not None else None,
+                "owner_id": str(rec.owner_id) if rec is not None else None,
+                "in_db": True,
+            })
+
         return {"buckets": out}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -300,6 +335,16 @@ def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)
     try:
         svc = MinioService()
         svc.create_bucket(name, public=public)
+        # create DB record if not exists
+        session = SessionLocal()
+        try:
+            existing = session.query(Bucket).filter(Bucket.name == name).one_or_none()
+            if not existing:
+                b = Bucket(name=name, public=public)
+                session.add(b)
+                session.commit()
+        finally:
+            session.close()
         return {"name": name}
     except ValueError:
         return JSONResponse({"error": "already exists"}, status_code=409)
@@ -312,6 +357,13 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
     try:
         svc = MinioService()
         svc.delete_bucket(name, force=force)
+        # remove DB record if present
+        session = SessionLocal()
+        try:
+            session.query(Bucket).filter(Bucket.name == name).delete()
+            session.commit()
+        finally:
+            session.close()
         return {"deleted": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -340,8 +392,13 @@ def transcribe_upload(file: UploadFile = File(...)):
         with open(dest_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
 
-        # Enqueue Celery task
-        task = process_audio.delay(dest_path)
+        # Enqueue Celery task (use minutes.tasks so tests can monkeypatch it)
+        proc = tasks.process_audio
+        if hasattr(proc, "delay"):
+            task = proc.delay(dest_path)
+        else:
+            # synchronous callable (test monkeypatch) — call directly
+            task = proc(dest_path)
         # return upload filename for UI convenience
         return {"task_id": task.id, "upload_filename": safe_name}
     except Exception as exc:
@@ -401,9 +458,13 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-    # Enqueue as a Celery task so we can support revoke/terminate later.
+        # Enqueue as a Celery task so we can support revoke/terminate later.
     try:
-        task = process_audio.delay(dest_path)
+        proc = tasks.process_audio
+        if hasattr(proc, "delay"):
+            task = proc.delay(dest_path)
+        else:
+            task = proc(dest_path)
         task_id = task.id
         # Store upload metadata (original filename) in the task record so
         # the frontend can show a meaningful name when listing tasks.

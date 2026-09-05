@@ -10,7 +10,7 @@ from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
-revision = '20260905_make_buckets_owner_not_null'
+revision = '20260905_owner_not_null'
 down_revision = '20260901_add_buckets_table'
 branch_labels = None
 depends_on = None

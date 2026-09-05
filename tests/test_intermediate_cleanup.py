@@ -12,15 +12,24 @@ class DummySelf:
 
 
 def _make_files(tmp_path):
+    import wave
     inp = tmp_path / "input.wav"
-    inp.write_bytes(b"RIFF....")
+    # create a small valid WAV file for input and derived files
+    def write_wav(path):
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            frames = int(16000 * 0.01)
+            w.writeframes(b"\x00\x00" * frames)
+
+    write_wav(inp)
     base = str(inp.with_suffix(""))
     mono = base + "_mono.wav"
     norm = base + "_norm.wav"
     clean = base + "_clean.wav"
     for p in (mono, norm, clean):
-        with open(p, "wb") as fh:
-            fh.write(b"WAVE")
+        write_wav(p)
     return str(inp), mono, norm, clean
 
 
