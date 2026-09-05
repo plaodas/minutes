@@ -160,6 +160,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                     const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
                     const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
                     const offset = items.length
+                    // If offset is 0 the initial page is already loaded via `useTasks`.
+                    // Avoid fetching page 0 again which causes duplicate items.
+                    if (offset === 0) {
+                      return
+                    }
                     const res = await fetchWithRetry(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`)
               const j = await res.json()
               const arr = (j.tasks || []).map((t: any) => ({

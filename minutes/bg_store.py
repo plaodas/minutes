@@ -12,7 +12,7 @@ from .db import SessionLocal, engine
 import logging
 
 logger = logging.getLogger('minutes.bg_store')
-from .models import Task, TaskHistory
+from .models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
 from sqlalchemy.exc import NoResultFound, IntegrityError
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -259,6 +259,26 @@ def update_task_success(task_id: str, result: Any, db=None):
                 db.commit()
             except IntegrityError:
                 db.rollback()
+            # If the result references a MinIO cached object, ensure the bucket is recorded
+            try:
+                minio_info = None
+                if isinstance(result, dict):
+                    minio_info = result.get('minio') or (result.get('result') or {}).get('minio')
+                if isinstance(minio_info, dict) and minio_info.get('bucket'):
+                    bucket_name = str(minio_info.get('bucket'))
+                    try:
+                        existing = db.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
+                        if not existing:
+                            b = Bucket(name=bucket_name, owner_id=DUMMY_OWNER_ID, bucket_metadata=minio_info.get('metadata') or {})
+                            db.add(b)
+                            try:
+                                db.commit()
+                            except IntegrityError:
+                                db.rollback()
+                    except Exception:
+                        logger.exception('failed to ensure bucket row for %s', bucket_name)
+            except Exception:
+                logger.exception('bucket persistence check failed for %s', task_id)
             try:
                 record_history(task_id, "success", {"result": result}, db=db)
             except Exception:
