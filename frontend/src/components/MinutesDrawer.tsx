@@ -112,6 +112,34 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     }
   }
 
+  const handleCopyTaskId = async () => {
+    if (!taskId) {
+      toast.addToast('Task id unavailable', { level: 'error' })
+      return
+    }
+    try {
+      const idOnly = taskId
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(idOnly)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = idOnly
+        ta.setAttribute('readonly', '')
+        ta.style.position = 'absolute'
+        ta.style.left = '-9999px'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      toast.addToast('Copied task id to clipboard', { level: 'success' })
+      setLiveMessage('Task id copied')
+      setTimeout(() => setLiveMessage(null), 2000)
+    } catch (e) {
+      toast.addToast('Copy failed', { level: 'error' })
+    }
+  }
+
   const [confirmOpen, setConfirmOpen] = useState(false)
   const handleDeleteConfirmed = async () => {
     if (!taskId) return
@@ -159,7 +187,9 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
         </div>
         <div className="mb-3">
           <h2 className="text-lg font-semibold">Minutes</h2>
-          <div className="text-xs text-[var(--muted)]">Task: {taskId}</div>
+          <div className="text-xs text-[var(--muted)]">
+            Task: <button onClick={handleCopyTaskId} title="Copy task id" className="inline-block text-[var(--muted)] hover:underline focus:outline-none">{taskId}</button>
+          </div>
         </div>
         {/* Screen-reader live region for action feedback (polite) */}
         <div aria-live="polite" role="status" aria-atomic="true" className="sr-only">{liveMessage}</div>
