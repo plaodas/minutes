@@ -941,6 +941,26 @@ def bg_delete(task_id: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+@app.post("/api/bg/delete/{task_id}")
+def api_bg_delete(task_id: str):
+    """Compatibility wrapper: support frontend calling /api/bg/delete/{task_id}
+
+    Reuses existing bg_delete logic so the same behavior is exposed under
+    the `/api` prefix (some clients/proxies expect that path).
+    """
+    return bg_delete(task_id)
+
+
+@app.post("/api/bg/force-delete/{task_id}")
+def api_bg_force_delete(task_id: str):
+    """Compatibility wrapper: support frontend calling /api/bg/force-delete/{task_id}
+
+    Reuses existing bg_force_delete logic so the same destructive behavior is
+    exposed under the `/api` prefix (frontend expects /api/* paths).
+    """
+    return bg_force_delete(task_id)
+
+
 @app.post("/bg/force-delete/{task_id}")
 def bg_force_delete(task_id: str):
     """Force-delete a background task: revoke running worker, remove outputs (MinIO/files),
@@ -1171,6 +1191,12 @@ def _stream_minio_object(bucket: str, object_name: str, filename: str | None = N
     return StreamingResponse(iterfile(), media_type=media_type, headers=headers)
 
 
+@app.get("/api/bg/minutes/{task_id}")
+def api_bg_minutes(task_id: str):
+    """Compatibility wrapper for frontend `/api/bg/minutes/{task_id}`."""
+    return bg_minutes_file(task_id)
+
+
 @app.get("/auth/features")
 def auth_features(x_admin: str | None = Header(None)):
     """Return feature flags for the current user.
@@ -1348,6 +1374,12 @@ def bg_transcript(task_id: str, format: str = "txt"):
     return Response(content=text, media_type=media)
 
 
+@app.get("/api/bg/transcript/{task_id}")
+def api_bg_transcript(task_id: str, format: str = "txt"):
+    """Compatibility wrapper for frontend `/api/bg/transcript/{task_id}`."""
+    return bg_transcript(task_id, format=format)
+
+
 @app.get("/bg/summary/{task_id}")
 def bg_summary(task_id: str, format: str = "txt"):
     """Return a short summary. If the output contains a clearly delimited Summary section, use it; else run local summarizer."""
@@ -1397,6 +1429,12 @@ def bg_summary(task_id: str, format: str = "txt"):
         return JSONResponse({"error": "unsupported format"}, status_code=400)
     media = "text/markdown" if format == "md" else "text/plain"
     return Response(content=summary_text, media_type=media)
+
+
+@app.get("/api/bg/summary/{task_id}")
+def api_bg_summary(task_id: str, format: str = "txt"):
+    """Compatibility wrapper for frontend `/api/bg/summary/{task_id}`."""
+    return bg_summary(task_id, format=format)
 
 
 @app.get("/bg/action-items/{task_id}")
@@ -1469,3 +1507,9 @@ def bg_action_items(task_id: str, format: str = "json"):
         txt = "\n".join([f"- {it.get('text')}" for it in items])
         return Response(content=txt, media_type="text/plain")
     return JSONResponse({"error": "unsupported format"}, status_code=400)
+
+
+    @app.get("/api/bg/action-items/{task_id}")
+    def api_bg_action_items(task_id: str, format: str = "json"):
+        """Compatibility wrapper for frontend `/api/bg/action-items/{task_id}`."""
+        return bg_action_items(task_id, format=format)
