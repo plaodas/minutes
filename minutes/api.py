@@ -447,6 +447,11 @@ def task_status(task_id: str):
     return {"task_id": task_id, "status": res.status, "info": str(res.info)}
 
 
+@app.get("/api/bg/status/{task_id}")
+def api_bg_status(task_id: str):
+    return task_status(task_id)
+
+
 @app.get("/result/{task_id}")
 def task_result(task_id: str):
     res = AsyncResult(task_id, app=celery)
@@ -526,6 +531,11 @@ def bg_result(task_id: str):
     return {"status": "success", "result": t.get("result")}
 
 
+@app.get("/api/bg/result/{task_id}")
+def api_bg_result(task_id: str):
+    return bg_result(task_id)
+
+
 @app.get("/bg/history/{task_id}")
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return task history events. Works with DB-backed store or file-backed fallback."""
@@ -554,6 +564,30 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
         return {"task_id": task_id, "history": out}
     finally:
         session.close()
+
+
+@app.get("/api/bg/tasks")
+def api_bg_tasks(limit: int = 50, offset: int = 0):
+    """Compatibility wrapper for `/api/bg/tasks`."""
+    return bg_tasks(limit=limit, offset=offset)
+
+
+@app.post("/api/bg/task/{task_id}/rename")
+def api_bg_task_rename(task_id: str, payload: Dict[str, str]):
+    """Compatibility wrapper for `/api/bg/task/{task_id}/rename`."""
+    return bg_task_rename(task_id, payload)
+
+
+@app.post("/api/bg/task/{task_id}/regenerate-name")
+def api_bg_task_regenerate_name(task_id: str):
+    """Compatibility wrapper for `/api/bg/task/{task_id}/regenerate-name`."""
+    return bg_task_regenerate_name(task_id)
+
+
+@app.get("/api/bg/tasks/{task_id}/events")
+def api_bg_task_events(task_id: str):
+    """Compatibility wrapper for `/api/bg/tasks/{task_id}/events`."""
+    return bg_task_events(task_id)
 
 
 @app.post("/bg/task/{task_id}/rename")
@@ -724,6 +758,12 @@ async def bg_events(request: Request):
     return StreamingResponse(event_generator(), media_type='text/event-stream')
 
 
+@app.get('/api/bg/events')
+def api_bg_events(request: Request):
+    """Compatibility wrapper for `/api/bg/events` (SSE)."""
+    return bg_events(request)
+
+
 
 @app.get("/bg/tasks/{task_id}/events")
 def bg_task_events(task_id: str):
@@ -874,6 +914,12 @@ def bg_histories(payload: IdList):
         session.close()
 
 
+@app.post("/api/bg/histories")
+def api_bg_histories(payload: IdList):
+    """Compatibility wrapper for `/api/bg/histories`."""
+    return bg_histories(payload)
+
+
 @app.post("/bg/cancel/{task_id}")
 def bg_cancel(task_id: str):
     """Request cancellation for a background task started via Celery.
@@ -892,6 +938,12 @@ def bg_cancel(task_id: str):
     except Exception:
         pass
     return {"task_id": task_id, "cancelled": True}
+
+
+@app.post("/api/bg/cancel/{task_id}")
+def api_bg_cancel(task_id: str):
+    """Compatibility wrapper for `/api/bg/cancel/{task_id}`."""
+    return bg_cancel(task_id)
 
 
 @app.post("/bg/delete/{task_id}")
@@ -1075,6 +1127,12 @@ def bg_undelete(task_id: str):
         return {"task_id": task_id, "undeleted": True}
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/bg/undelete/{task_id}")
+def api_bg_undelete(task_id: str):
+    """Compatibility wrapper for `/api/bg/undelete/{task_id}`."""
+    return bg_undelete(task_id)
 
 
 @app.get("/bg/minutes/{task_id}")
