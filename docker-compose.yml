@@ -20,6 +20,7 @@ services:
       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - FORCE_ADMIN=true
       - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-outputs}
     env_file:
       - .env
