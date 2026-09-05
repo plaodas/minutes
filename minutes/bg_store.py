@@ -20,6 +20,12 @@ except Exception:
     pg_insert = None
 from datetime import datetime
 from .summary import summarize_local
+# SSE publisher (minimal): publish events when history rows are recorded
+try:
+    from .sse import publish_event
+except Exception:
+    def publish_event(_):
+        return
 import re
 
 
@@ -124,6 +130,16 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
         except Exception:
             logger.exception('record_history commit failed for %s', task_id)
             db.rollback()
+        # publish SSE event for live updates (non-blocking)
+        try:
+            publish_event({
+                "type": "task.event",
+                "task_id": str(key) if isinstance(key, uuid.UUID) else str(task_id),
+                "event_type": event_type,
+                "payload": payload or {},
+            })
+        except Exception:
+            logger.exception('publish_event failed for %s', task_id)
     except Exception:
         logger.exception('record_history failed for %s', task_id)
     finally:

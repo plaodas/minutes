@@ -34,6 +34,7 @@ from minutes.bg_store import (
 )
 from minutes.bg_store import update_task_cancelled
 from minutes.bg_store import DB_PATH
+from minutes.sse import register_queue, unregister_queue
 import uuid
 from minutes.db import SessionLocal
 from minutes.models import Task, TaskHistory, Bucket
@@ -670,6 +671,37 @@ def bg_tasks(limit: int = 50, offset: int = 0):
         return {"tasks": out}
     finally:
         session.close()
+
+
+
+@app.get('/bg/events')
+async def bg_events(request: Request):
+    """Server-Sent Events endpoint streaming task events to clients.
+
+    Clients should connect with EventSource to receive JSON `data` payloads.
+    """
+    q = register_queue()
+
+    async def event_generator():
+        try:
+            while True:
+                # if client disconnected, stop
+                if await request.is_disconnected():
+                    break
+                try:
+                    ev = await q.get()
+                except asyncio.CancelledError:
+                    break
+                try:
+                    payload = json.dumps(ev, default=str)
+                except Exception:
+                    payload = json.dumps({"type": "error", "error": "serialization_failed"})
+                # SSE message (data lines, blank line terminator)
+                yield f"data: {payload}\n\n"
+        finally:
+            unregister_queue(q)
+
+    return StreamingResponse(event_generator(), media_type='text/event-stream')
 
 
 

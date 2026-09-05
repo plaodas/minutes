@@ -237,6 +237,16 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                 <span id={`history-desc-${item.id}`} className="sr-only">{item.created_at ? new Date(item.created_at).toLocaleString() + ', ' : ''}{item.status || 'Status unknown'}</span>
                 <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]"><Clock3 size={13} /> {item.created_at ? new Date(item.created_at).toLocaleString() : ''}</span>
 
+                {/* progress bar for running tasks */}
+                {typeof item.progress === 'number' && item.progress >= 0 && item.progress < 100 && (
+                  <div className="mt-2 w-full">
+                    <div className="relative h-2 w-full overflow-hidden rounded bg-slate-100">
+                      <div style={{ width: `${Math.max(0, Math.min(100, item.progress))}%` }} className="absolute left-0 top-0 h-2 bg-[var(--accent)]" />
+                    </div>
+                    <div className="mt-1 text-xs text-[var(--muted)]">{Math.round(item.progress)}% — {item.status || 'processing'}</div>
+                  </div>
+                )}
+
                 <div className="mt-1 text-xs text-[var(--muted)]">
                   {item.histories && item.histories.length > 0 ? (
                     item.histories.slice(0, 3).map((h: any, idx: number) => (
