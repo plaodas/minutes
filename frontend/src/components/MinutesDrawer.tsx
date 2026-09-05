@@ -182,6 +182,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
             </div>
           )}
         </div>
+
+        {isAdmin && !text && (
+          <div className="mt-4 flex justify-center">
+            <button onClick={handleDelete} className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+          </div>
+        )}
       </aside>
         <ConfirmDialog open={confirmOpen} title={error === 'Minutes are still processing' ? 'Force delete minutes' : 'Delete minutes'} message={error === 'Minutes are still processing' ? 'Minutes are still processing — force delete will remove outputs and DB records and cannot be undone.' : 'Delete this minutes entry? This action can be undone.'} onConfirm={() => { setConfirmOpen(false); handleDeleteConfirmed() }} onCancel={() => setConfirmOpen(false)} confirmLabel={error === 'Minutes are still processing' ? 'Force delete' : 'Delete'} cancelLabel="Cancel" />
     </div>
