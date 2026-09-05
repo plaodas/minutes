@@ -95,6 +95,12 @@ export async function forceDeleteTask(taskId: string) {
   return res.json()
 }
 
+export async function getUserFeatures() {
+  const res = await fetch(`${BASE}/auth/features`, { credentials: 'same-origin' })
+  if (!res.ok) return { is_admin: false }
+  return res.json()
+}
+
 export async function undeleteTask(taskId: string) {
   const res = await fetch(`${BASE}/bg/undelete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin' })
   if (!res.ok) throw new Error('undelete failed')

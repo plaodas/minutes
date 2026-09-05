@@ -43,6 +43,7 @@ import time
 from minutes.minio_client import MinioService
 import typing
 from fastapi.responses import StreamingResponse
+from fastapi import Header
 
 # Allowed upload file types
 ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
@@ -1116,6 +1117,119 @@ def _stream_minio_object(bucket: str, object_name: str, filename: str | None = N
         headers["Content-Disposition"] = f'attachment; filename="{os.path.basename(filename)}"'
 
     return StreamingResponse(iterfile(), media_type=media_type, headers=headers)
+
+
+@app.get("/auth/features")
+def auth_features(x_admin: str | None = Header(None)):
+    """Return feature flags for the current user.
+
+    This is a lightweight endpoint used by the frontend to decide which
+    UI controls to show (e.g., admin-only buttons). Authentication is not
+    implemented yet; for development this will return admin when the
+    request contains header `X-Admin: 1` or when environment variable
+    `FORCE_ADMIN` is set to 'true'.
+    """
+    try:
+        force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
+        header_admin = (x_admin == "1" or (isinstance(x_admin, str) and x_admin.lower() == "true"))
+        is_admin = force or header_admin
+        return {"is_admin": bool(is_admin)}
+    except Exception:
+        return {"is_admin": False}
+
+
+def _is_request_admin(x_admin: str | None) -> bool:
+    try:
+        force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
+        header_admin = (x_admin == "1" or (isinstance(x_admin, str) and x_admin.lower() == "true"))
+        return bool(force or header_admin)
+    except Exception:
+        return False
+
+
+@app.get("/admin/uploads/cleanup")
+def admin_uploads_cleanup_get(
+    dir: str | None = None,
+    pattern: str = "",
+    older_than: int = 0,
+    limit: int = 100,
+    dry_run: bool = True,
+    x_admin: str | None = Header(None),
+    request: Request = None,
+):
+    """Return files that would be deleted. Admin-only."""
+    if not _is_request_admin(x_admin):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+
+    uploads_dir = dir or (request.query_params.get('dir') if request else None) or os.environ.get("UPLOADS_DIR") or "uploads"
+    if not os.path.isdir(uploads_dir):
+        return JSONResponse({"error": "dir not found"}, status_code=404)
+
+    now = int(time.time())
+    candidates = []
+    try:
+        files = [f for f in os.listdir(uploads_dir) if os.path.isfile(os.path.join(uploads_dir, f))]
+        for f in files:
+            if pattern and not f.startswith(pattern):
+                continue
+            full = os.path.join(uploads_dir, f)
+            try:
+                mtime = int(os.path.getmtime(full))
+            except Exception:
+                continue
+            age = now - mtime
+            if older_than and age < older_than:
+                continue
+            candidates.append({"path": full, "name": f, "age_seconds": age})
+            if len(candidates) >= limit:
+                break
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    return {"candidates": candidates, "count": len(candidates)}
+
+
+@app.post("/admin/uploads/cleanup")
+def admin_uploads_cleanup_post(payload: dict, x_admin: str | None = Header(None), request: Request = None):
+    """Perform deletion of files. payload keys: dir, pattern, older_than, limit"""
+    if not _is_request_admin(x_admin):
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+
+    uploads_dir = payload.get("dir") or (request.query_params.get('dir') if request and request.query_params.get('dir') else None) or os.environ.get("UPLOADS_DIR") or "uploads"
+    pattern = payload.get("pattern") or ""
+    older_than = int(payload.get("older_than") or 0)
+    limit = int(payload.get("limit") or 100)
+
+    if not os.path.isdir(uploads_dir):
+        return JSONResponse({"error": "dir not found"}, status_code=404)
+
+    now = int(time.time())
+    deleted = []
+    errors = []
+    try:
+        files = [f for f in os.listdir(uploads_dir) if os.path.isfile(os.path.join(uploads_dir, f))]
+        for f in files:
+            if pattern and not f.startswith(pattern):
+                continue
+            full = os.path.join(uploads_dir, f)
+            try:
+                mtime = int(os.path.getmtime(full))
+            except Exception:
+                continue
+            age = now - mtime
+            if older_than and age < older_than:
+                continue
+            try:
+                os.remove(full)
+                deleted.append(full)
+            except Exception as e:
+                errors.append({"path": full, "error": str(e)})
+            if len(deleted) >= limit:
+                break
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    return {"deleted": deleted, "errors": errors, "count": len(deleted)}
 
 
 def _read_minio_object_text(bucket: str, object_name: str) -> str:

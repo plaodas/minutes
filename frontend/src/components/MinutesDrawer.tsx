@@ -12,6 +12,23 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
   const [isVisible, setIsVisible] = useState(false)
   const toast = useToast()
+  // Show admin controls when env flag set OR when server reports admin features.
+  const [isAdmin, setIsAdmin] = useState(
+    (import.meta.env.VITE_SHOW_ADMIN_CONTROLS === 'true' || import.meta.env.VITE_SHOW_ADMIN_CONTROLS === '1')
+  )
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      try {
+        const resp = await import('../api/client').then(m => m.getUserFeatures())
+        if (mounted && resp && resp.is_admin) setIsAdmin(true)
+      } catch (e) {
+        // ignore
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
   useEffect(() => {
     if (!taskId) return
     // allow mount to complete before showing for CSS transition
@@ -157,7 +174,9 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
                   }} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy</button>
 
                   <button onClick={handleCopyLink} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm">Copy link</button>
-                    <button onClick={handleDelete} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+                    {isAdmin && (
+                      <button onClick={handleDelete} className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+                    )}
                 </div>
               </div>
             </div>

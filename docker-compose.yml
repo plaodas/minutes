@@ -67,6 +67,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE: "/api"
+        VITE_SHOW_ADMIN_CONTROLS: "true"
     ports:
       - "8080:80"
     depends_on:
