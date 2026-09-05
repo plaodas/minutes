@@ -8,6 +8,7 @@ import startDownload from '../lib/download'
 export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onClose: () => void }) {
   const [loading, setLoading] = useState(false)
   const [text, setText] = useState<string | null>(null)
+  const [summary, setSummary] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
   const [isVisible, setIsVisible] = useState(false)
@@ -56,6 +57,18 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
         }
         const txt = await res.text()
         setText(txt)
+        // try to fetch a short summary separately (prefer backend /bg/summary)
+        ;(async () => {
+          try {
+            const sres = await fetchWithRetry(`${BASE}/bg/summary/${taskId}?format=txt`, { credentials: 'same-origin' }, { retries: 1, timeoutMs: 8000 })
+            if (sres.ok) {
+              const stext = await sres.text()
+              if (stext) setSummary(stext)
+            }
+          } catch (e) {
+            // ignore; summary is optional
+          }
+        })()
       } catch (e: any) {
         setError(e.message || 'fetch error')
       } finally {
@@ -158,7 +171,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
           {text && (
             <div>
               <div className="mb-3 text-sm text-[var(--muted)]">Summary</div>
-              <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text.slice(0, 1000)}</div>
+              <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{(summary && summary.length > 0) ? summary : text.slice(0, 1000)}</div>
               <div className="mb-3 text-sm text-[var(--muted)]">Full text</div>
               <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text}</div>
               <div className="mt-4">
