@@ -299,6 +299,41 @@ def process_audio(self, input_path: str):
             "output_file": out_file,
         }
 
+        # If configured, upload the final minutes to MinIO as a cached copy
+        try:
+            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get("MINIO_BUCKET")
+            if bucket:
+                try:
+                    from minutes.minio_client import MinioService
+                    svc = MinioService()
+                    logging.getLogger('minutes.tasks').info('Attempting MinIO upload for task %s to bucket %s', task_id, bucket)
+                    try:
+                        svc.ensure_bucket(bucket)
+                    except Exception:
+                        # best-effort
+                        pass
+                    object_name = f"minutes/{task_id}/minutes_{now}.txt"
+                    try:
+                        svc.client.fput_object(bucket, object_name, out_file)
+                        logging.getLogger('minutes.tasks').info('MinIO fput_object succeeded for task %s object %s', task_id, object_name)
+                        try:
+                            expires_sec = int(os.environ.get('MINIO_PRESIGNED_EXPIRES', '3600'))
+                            url = svc.presigned_get(bucket, object_name, expires=expires_sec)
+                            from datetime import datetime, timedelta
+                            expires_at = (datetime.utcnow() + timedelta(seconds=expires_sec)).isoformat() + 'Z'
+                        except Exception:
+                            url = None
+                            expires_sec = None
+                            expires_at = None
+                        structured['minio'] = {"bucket": bucket, "object": object_name, "url": url, "expires": expires_sec, "expires_at": expires_at}
+                    except Exception:
+                        logging.getLogger('minutes.tasks').exception('MinIO upload failed for task %s', task_id)
+                except Exception:
+                    logging.getLogger('minutes.tasks').exception('Failed initializing MinIO client for task %s', task_id)
+        except Exception:
+            # swallow any MinIO-related errors; shouldn't fail the task
+            pass
+
         # Update shared task store for API visibility with structured result
         if task_id:
             update_task_success(task_id, structured, db=db)
