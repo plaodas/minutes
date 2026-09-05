@@ -262,6 +262,18 @@ async def startup_reconciler():
 
     # store the task so it can be cancelled on shutdown
     app.state.reconcile_task = asyncio.create_task(reconcile_loop())
+    # start Redis-backed SSE relay if configured
+    try:
+        redis_url = os.environ.get('REDIS_URL')
+        if redis_url:
+            try:
+                from minutes.sse import start_redis_listener
+
+                start_redis_listener(redis_url)
+            except Exception:
+                logger.exception('failed to start redis listener')
+    except Exception:
+        logger.exception('redis listener startup check failed')
 
 
 @app.on_event("shutdown")
@@ -273,6 +285,14 @@ async def shutdown_reconciler():
             await task
         except asyncio.CancelledError:
             pass
+    # stop redis listener if running
+    try:
+        from minutes.sse import stop_redis_listener
+
+        stop_redis_listener()
+    except Exception:
+        logger = logging.getLogger('minutes.api')
+        logger.exception('failed to stop redis listener')
 
 
 @app.get("/health")
