@@ -8,7 +8,9 @@ from requests.exceptions import ChunkedEncodingError, RequestException
 from minutes.celery_app import celery
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
-from minutes.ollama import format_minutes_from_raw
+from minutes.ollama import format_minutes_from_raw, DEFAULT_SYSTEM_PROMPT
+from minutes.bg_store import _parse_key
+from minutes.models import Task
 import datetime
 import os
 from minutes.bg_store import update_task_success, update_task_failure
@@ -19,6 +21,23 @@ except Exception:
     get_session = None
 import requests
 from typing import Tuple, Any
+
+
+def build_system_prompt(meta_obj):
+    """Construct a system prompt from metadata dict (language/include_actions)."""
+    if not isinstance(meta_obj, dict):
+        return None
+    sp = DEFAULT_SYSTEM_PROMPT
+    lang = meta_obj.get('language')
+    if lang and isinstance(lang, str) and lang.lower() not in ('auto', 'auto-detect', 'auto detect'):
+        if 'jap' in lang.lower():
+            sp = '出力は日本語で行ってください。\n' + sp
+        else:
+            sp = 'Please produce the output in English.\n' + sp
+    inc = meta_obj.get('include_actions')
+    if inc is False:
+        sp = sp + '\n' + 'Do not extract action items. Skip STEP3.'
+    return sp
 
 
 @celery.task(bind=True)
@@ -360,7 +379,27 @@ def process_audio(self, input_path: str):
             except Exception:
                 pass
 
-        final_minutes = format_minutes_from_raw(raw_text)
+        # Attempt to read task metadata to customize the formatting prompt
+        meta = None
+        try:
+            if db and task_id:
+                try:
+                    key = _parse_key(task_id)
+                    trec = db.get(Task, key)
+                    if trec:
+                        meta = trec.result or {}
+                except Exception:
+                    meta = meta
+        except Exception:
+            meta = None
+
+
+        system_prompt = build_system_prompt(meta)
+
+        if system_prompt:
+            final_minutes = format_minutes_from_raw(raw_text, system_prompt=system_prompt)
+        else:
+            final_minutes = format_minutes_from_raw(raw_text)
 
         now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")

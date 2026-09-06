@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import useLocalStorage from '../hooks/useLocalStorage'
 import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
@@ -337,8 +338,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
 }
 
 export function SettingsView() {
-  const [includeActions, setIncludeActions] = useState(true)
-  const [language, setLanguage] = useState('Japanese')
+  const [settings, setSettings] = useLocalStorage('minutes.settings', { language: 'Japanese', includeActions: true })
 
   return (
     <section>
@@ -351,7 +351,7 @@ export function SettingsView() {
           <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><SlidersHorizontal size={20} /></span>
           <div className="min-w-0 flex-1">
             <label htmlFor="language" className="block text-sm font-medium">Transcript language</label>
-            <select id="language" value={language} onChange={(event) => setLanguage(event.target.value)} className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm sm:max-w-xs">
+            <select id="language" value={settings.language} onChange={(event) => setSettings({ ...settings, language: event.target.value })} className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm sm:max-w-xs">
               <option>Japanese</option>
               <option>English</option>
               <option>Auto-detect</option>
@@ -360,10 +360,10 @@ export function SettingsView() {
         </div>
         <label className="flex cursor-pointer items-center justify-between gap-5 p-4">
           <span><span className="block text-sm font-medium">Include action items</span><span className="mt-1 block text-sm text-[var(--muted)]">Extract tasks and owners from the meeting.</span></span>
-          <input type="checkbox" checked={includeActions} onChange={(event) => setIncludeActions(event.target.checked)} className="h-5 w-5 shrink-0 accent-[var(--accent)]" />
+          <input type="checkbox" checked={!!settings.includeActions} onChange={(event) => setSettings({ ...settings, includeActions: event.target.checked })} className="h-5 w-5 shrink-0 accent-[var(--accent)]" />
         </label>
       </div>
-      <p className="mt-3 text-xs text-[var(--muted)]">Settings are local UI controls; persistence will be added with the settings API.</p>
+      <p className="mt-3 text-xs text-[var(--muted)]">Settings are saved locally to your browser.</p>
     </section>
   )
 }

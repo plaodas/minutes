@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
@@ -393,7 +393,12 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
 
 
 @app.post("/transcribe-upload", response_model=CreateTaskResponse)
-def transcribe_upload(file: UploadFile = File(...), x_user_id: str | None = Header(None)):
+def transcribe_upload(
+    file: UploadFile = File(...),
+    x_user_id: str | None = Header(None),
+    language: str | None = Form(None),
+    include_actions: str | None = Form(None),
+):
     """Accept an audio file upload, run preprocess->transcribe->format, return minutes as plain text.
 
     This is a synchronous prototype endpoint intended for small/short audio files.
@@ -425,7 +430,15 @@ def transcribe_upload(file: UploadFile = File(...), x_user_id: str | None = Head
         # return upload filename for UI convenience
         # ensure a Task DB row exists and attach user if provided
         try:
-            create_task(task.id, metadata={"upload_filename": safe_name}, user_id=x_user_id)
+            meta = {"upload_filename": safe_name}
+            if language:
+                meta["language"] = language
+            if include_actions is not None:
+                try:
+                    meta["include_actions"] = bool(int(include_actions))
+                except Exception:
+                    meta["include_actions"] = include_actions in ("1", "true", "True")
+            create_task(task.id, metadata=meta, user_id=x_user_id)
         except TypeError:
             # older create_task signature
             try:
@@ -473,7 +486,13 @@ def task_result(task_id: str):
 
 
 @app.post("/transcribe-upload-bg", response_model=CreateTaskResponse)
-def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: BackgroundTasks = None, x_user_id: str | None = Header(None)):
+def transcribe_upload_bg(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+    x_user_id: str | None = Header(None),
+    language: str | None = Form(None),
+    include_actions: str | None = Form(None),
+):
     """Minimal async endpoint using FastAPI BackgroundTasks (no Redis/Celery).
 
     Note: tasks are stored in a file `bg_tasks.json` under the app directory.
@@ -503,10 +522,19 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
         else:
             task = proc(dest_path)
         task_id = task.id
-        # Store upload metadata (original filename) in the task record so
-        # the frontend can show a meaningful name when listing tasks.
+        # Store upload metadata (original filename + settings) in the task record so
+        # the frontend can show a meaningful name when listing tasks and workers can
+        # adjust prompts based on user settings.
         try:
-            create_task(task_id, metadata={"upload_filename": safe_name}, user_id=x_user_id)
+            meta = {"upload_filename": safe_name}
+            if language:
+                meta["language"] = language
+            if include_actions is not None:
+                try:
+                    meta["include_actions"] = bool(int(include_actions))
+                except Exception:
+                    meta["include_actions"] = include_actions in ("1", "true", "True")
+            create_task(task_id, metadata=meta, user_id=x_user_id)
         except TypeError:
             # backward-compat: if create_task signature hasn't been updated,
             # call without metadata

@@ -7,6 +7,15 @@ export async function uploadAudioBg(file: File) {
   fd.append('file', file)
   const headers: Record<string, string> = {}
   try { const uid = localStorage.getItem('user_id'); if (uid) headers['X-User-Id'] = uid } catch {}
+  // include user settings (language, include_actions) if present
+  try {
+    const raw = localStorage.getItem('minutes.settings')
+    if (raw) {
+      const s = JSON.parse(raw)
+      if (s?.language) fd.append('language', s.language)
+      if (typeof s?.includeActions !== 'undefined') fd.append('include_actions', s.includeActions ? '1' : '0')
+    }
+  } catch {}
   const res = await fetch(`${BASE}/transcribe-upload-bg`, { method: 'POST', body: fd, headers })
   if (!res.ok) throw new Error('upload failed')
   return res.json() // { task_id }
@@ -19,6 +28,16 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
   xhr.open('POST', `${BASE}/transcribe-upload-bg`)
 
   try { const uid = localStorage.getItem('user_id'); if (uid) xhr.setRequestHeader('X-User-Id', uid) } catch {}
+
+  // include user settings (language, include_actions) if present
+  try {
+    const raw = localStorage.getItem('minutes.settings')
+    if (raw) {
+      const s = JSON.parse(raw)
+      if (s?.language) fd.append('language', s.language)
+      if (typeof s?.includeActions !== 'undefined') fd.append('include_actions', s.includeActions ? '1' : '0')
+    }
+  } catch {}
 
   const promise = new Promise<any>((resolve, reject) => {
     xhr.onload = () => {
