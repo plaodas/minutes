@@ -3,6 +3,7 @@ import useLocalStorage from '../hooks/useLocalStorage'
 import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
+import UserIdWidget from './UserIdWidget'
 import { useTasks } from '../hooks/useTasks'
 
 const sampleMinutes = [
@@ -347,6 +348,7 @@ export function SettingsView() {
         <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Settings</h1>
       </div>
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <UserIdWidget />
         <div className="flex items-start gap-3 border-b border-slate-100 p-4">
           <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><SlidersHorizontal size={20} /></span>
           <div className="min-w-0 flex-1">

@@ -54,6 +54,24 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     }
 
     try {
+      // ensure a user id exists in localStorage so uploads include X-User-Id
+      try {
+        const existing = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id')
+        if (!existing) {
+          try {
+            const id = (window as any).crypto?.randomUUID?.() || ('id-' + Math.random().toString(36).slice(2, 10))
+            localStorage.setItem('minutes.userId', id)
+            try { window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'success', message: 'User ID generated and saved for uploads' } })) } catch {}
+          } catch (e) {
+            try {
+              const id2 = 'id-' + Math.random().toString(36).slice(2, 10)
+              localStorage.setItem('minutes.userId', id2)
+              try { window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'success', message: 'User ID generated and saved for uploads' } })) } catch {}
+            } catch {}
+          }
+        }
+      } catch {}
+
       setActiveIndex(0)
       setUploadProgress(0)
       const { xhr, promise } = uploadAudioBgWithProgress(f, (p) => setUploadProgress(p))

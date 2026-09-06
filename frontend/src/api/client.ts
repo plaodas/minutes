@@ -6,7 +6,7 @@ export async function uploadAudioBg(file: File) {
   const fd = new FormData()
   fd.append('file', file)
   const headers: Record<string, string> = {}
-  try { const uid = localStorage.getItem('user_id'); if (uid) headers['X-User-Id'] = uid } catch {}
+  try { const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id'); if (uid) headers['X-User-Id'] = uid } catch {}
   // include user settings (language, include_actions) if present
   try {
     const raw = localStorage.getItem('minutes.settings')
@@ -27,7 +27,7 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
   fd.append('file', file)
   xhr.open('POST', `${BASE}/transcribe-upload-bg`)
 
-  try { const uid = localStorage.getItem('user_id'); if (uid) xhr.setRequestHeader('X-User-Id', uid) } catch {}
+  try { const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id'); if (uid) xhr.setRequestHeader('X-User-Id', uid) } catch {}
 
   // include user settings (language, include_actions) if present
   try {
