@@ -147,7 +147,7 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
             db.close()
 
 
-def create_task(task_id: str, metadata: dict | None = None, db=None):
+def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[str] = None, db=None):
     with _lock:
         close = False
         if db is None:
@@ -165,6 +165,14 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                     metadata = {}
                 metadata = dict(metadata)
                 metadata.setdefault('external_task_id', task_id)
+            # Normalize user_id if provided
+            owner_val = None
+            if user_id:
+                try:
+                    owner_val = _parse_key(user_id)
+                except Exception:
+                    owner_val = None
+
             # Try PG-specific upsert to avoid race on insert. Fallback to
             # conservative get/add/commit with IntegrityError handling when
             # PG dialect isn't available.
@@ -177,6 +185,7 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                         progress=None,
                         result=metadata or None,
                         fail_count=0,
+                        user_id=owner_val,
                     ).on_conflict_do_nothing(index_elements=["id"])
                     db.execute(stmt)
                     db.commit()
@@ -189,7 +198,7 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                         logger.exception('rollback after pg_insert failed for %s', task_id)
                     t = db.get(Task, id_val)
                     if not t:
-                        t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0)
+                        t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0, user_id=owner_val)
                         db.add(t)
                         try:
                             db.commit()
@@ -198,8 +207,15 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                             db.rollback()
                             t = db.get(Task, id_val)
                     else:
+                        updated = False
                         if metadata:
                             t.result = metadata
+                            updated = True
+                        # set user_id if provided and not already set
+                        if owner_val and not getattr(t, 'user_id', None):
+                            t.user_id = owner_val
+                            updated = True
+                        if updated:
                             try:
                                 db.commit()
                             except IntegrityError:
@@ -208,7 +224,7 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
             else:
                 t = db.get(Task, id_val)
                 if not t:
-                    t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0)
+                    t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0, user_id=owner_val)
                     db.add(t)
                     try:
                         db.commit()
@@ -216,8 +232,14 @@ def create_task(task_id: str, metadata: dict | None = None, db=None):
                         db.rollback()
                         t = db.get(Task, id_val)
                 else:
+                    updated = False
                     if metadata:
                         t.result = metadata
+                        updated = True
+                    if owner_val and not getattr(t, 'user_id', None):
+                        t.user_id = owner_val
+                        updated = True
+                    if updated:
                         try:
                             db.commit()
                         except IntegrityError:
@@ -290,7 +312,12 @@ def update_task_success(task_id: str, result: Any, db=None):
                             logger.info('Bucket row already exists for %s (task %s)', bucket_name, task_id)
                         else:
                             logger.info('Inserting Bucket row for %s (task %s)', bucket_name, task_id)
-                            b = Bucket(name=bucket_name, owner_id=DUMMY_OWNER_ID, bucket_metadata=minio_info.get('metadata') or {})
+                            # Prefer task.user_id as owner if available, otherwise use DUMMY_OWNER_ID
+                            try:
+                                owner = getattr(t, 'user_id', None) or DUMMY_OWNER_ID
+                            except Exception:
+                                owner = DUMMY_OWNER_ID
+                            b = Bucket(name=bucket_name, owner_id=owner, bucket_metadata=minio_info.get('metadata') or {})
                             db.add(b)
                             try:
                                 db.commit()

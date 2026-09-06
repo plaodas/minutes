@@ -37,7 +37,8 @@ from minutes.bg_store import DB_PATH
 from minutes.sse import register_queue, unregister_queue
 import uuid
 from minutes.db import SessionLocal
-from minutes.models import Task, TaskHistory, Bucket
+from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
+from sqlalchemy.exc import IntegrityError
 import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 import time
@@ -392,7 +393,7 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
 
 
 @app.post("/transcribe-upload", response_model=CreateTaskResponse)
-def transcribe_upload(file: UploadFile = File(...)):
+def transcribe_upload(file: UploadFile = File(...), x_user_id: str | None = Header(None)):
     """Accept an audio file upload, run preprocess->transcribe->format, return minutes as plain text.
 
     This is a synchronous prototype endpoint intended for small/short audio files.
@@ -422,6 +423,15 @@ def transcribe_upload(file: UploadFile = File(...)):
             # synchronous callable (test monkeypatch) — call directly
             task = proc(dest_path)
         # return upload filename for UI convenience
+        # ensure a Task DB row exists and attach user if provided
+        try:
+            create_task(task.id, metadata={"upload_filename": safe_name}, user_id=x_user_id)
+        except TypeError:
+            # older create_task signature
+            try:
+                create_task(task.id, metadata={"upload_filename": safe_name})
+            except Exception:
+                pass
         return {"task_id": task.id, "upload_filename": safe_name}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -463,7 +473,7 @@ def task_result(task_id: str):
 
 
 @app.post("/transcribe-upload-bg", response_model=CreateTaskResponse)
-def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: BackgroundTasks = None, x_user_id: str | None = Header(None)):
     """Minimal async endpoint using FastAPI BackgroundTasks (no Redis/Celery).
 
     Note: tasks are stored in a file `bg_tasks.json` under the app directory.
@@ -486,22 +496,25 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
         raise HTTPException(status_code=500, detail=str(exc))
 
         # Enqueue as a Celery task so we can support revoke/terminate later.
-    try:
-        proc = tasks.process_audio
-        if hasattr(proc, "delay"):
-            task = proc.delay(dest_path)
-        else:
-            task = proc(dest_path)
-        task_id = task.id
-        # Store upload metadata (original filename) in the task record so
-        # the frontend can show a meaningful name when listing tasks.
         try:
-            create_task(task_id, metadata={"upload_filename": safe_name})
-        except TypeError:
-            # backward-compat: if create_task signature hasn't been updated,
-            # call without metadata
-            create_task(task_id)
-        return {"task_id": task_id}
+            proc = tasks.process_audio
+            if hasattr(proc, "delay"):
+                task = proc.delay(dest_path)
+            else:
+                task = proc(dest_path)
+            task_id = task.id
+            # Store upload metadata (original filename) in the task record so
+            # the frontend can show a meaningful name when listing tasks.
+            try:
+                create_task(task_id, metadata={"upload_filename": safe_name}, user_id=x_user_id)
+            except TypeError:
+                # backward-compat: if create_task signature hasn't been updated,
+                # call without metadata
+                try:
+                    create_task(task_id)
+                except Exception:
+                    pass
+            return {"task_id": task_id}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -1329,6 +1342,85 @@ def _is_request_admin(x_admin: str | None) -> bool:
         return bool(force or header_admin)
     except Exception:
         return False
+
+
+class CreateBucketReq(BaseModel):
+    name: str
+    public: bool | None = False
+
+
+def _get_user_id_from_header(x_user_id: str | None):
+    """Parse X-User-Id header if present; return UUID or None."""
+    if not x_user_id:
+        return None
+    try:
+        return uuid.UUID(x_user_id)
+    except Exception:
+        return None
+
+
+@app.post('/api/buckets')
+def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
+    """Create a MinIO bucket and record it in the `buckets` table.
+
+    Simple auth/ownership (temporary):
+    - If the request contains `X-User-Id: <uuid>`, that user becomes the owner.
+    - Admins (via `X-Admin`) can create buckets as well. Non-admins must supply `X-User-Id`.
+    """
+    is_admin = _is_request_admin(x_admin)
+    user_uuid = _get_user_id_from_header(x_user_id)
+    if not is_admin and not user_uuid:
+        return JSONResponse({"error": "unauthorized: missing X-User-Id"}, status_code=401)
+
+    svc = MinioService()
+    try:
+        if not svc.client.bucket_exists(payload.name):
+            svc.client.make_bucket(payload.name)
+    except Exception as exc:
+        return JSONResponse({"error": f"minio create failed: {str(exc)}"}, status_code=502)
+
+    db = SessionLocal()
+    try:
+        existing = db.query(Bucket).filter(Bucket.name == payload.name).one_or_none()
+        if existing:
+            return {"id": str(existing.id), "name": existing.name, "owner_id": str(existing.owner_id), "public": bool(existing.public)}
+
+        owner_id = user_uuid or DUMMY_OWNER_ID
+        b = Bucket(name=payload.name, owner_id=owner_id, public=bool(payload.public), bucket_metadata={})
+        db.add(b)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            try:
+                svc.delete_bucket(payload.name, force=True)
+            except Exception:
+                pass
+            return JSONResponse({"error": "db insert failed"}, status_code=500)
+        return {"id": str(b.id), "name": b.name, "owner_id": str(b.owner_id), "public": bool(b.public)}
+    finally:
+        db.close()
+
+
+@app.get('/api/buckets')
+def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
+    """List buckets. Admins see all; non-admins see only their own buckets."""
+    is_admin = _is_request_admin(x_admin)
+    user_uuid = _get_user_id_from_header(x_user_id)
+    db = SessionLocal()
+    try:
+        q = db.query(Bucket)
+        if not is_admin:
+            if user_uuid:
+                q = q.filter(Bucket.owner_id == user_uuid)
+            else:
+                return {"buckets": []}
+        out = []
+        for b in q.order_by(Bucket.created_at.desc()).all():
+            out.append({"id": str(b.id), "name": b.name, "owner_id": str(b.owner_id), "public": bool(b.public), "created_at": b.created_at.isoformat() if b.created_at else None})
+        return {"buckets": out}
+    finally:
+        db.close()
 
 
 @app.get("/admin/uploads/cleanup")

@@ -5,7 +5,9 @@ const BASE = import.meta.env.VITE_API_BASE || '/api'
 export async function uploadAudioBg(file: File) {
   const fd = new FormData()
   fd.append('file', file)
-  const res = await fetch(`${BASE}/transcribe-upload-bg`, { method: 'POST', body: fd })
+  const headers: Record<string, string> = {}
+  try { const uid = localStorage.getItem('user_id'); if (uid) headers['X-User-Id'] = uid } catch {}
+  const res = await fetch(`${BASE}/transcribe-upload-bg`, { method: 'POST', body: fd, headers })
   if (!res.ok) throw new Error('upload failed')
   return res.json() // { task_id }
 }
@@ -15,6 +17,8 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
   const fd = new FormData()
   fd.append('file', file)
   xhr.open('POST', `${BASE}/transcribe-upload-bg`)
+
+  try { const uid = localStorage.getItem('user_id'); if (uid) xhr.setRequestHeader('X-User-Id', uid) } catch {}
 
   const promise = new Promise<any>((resolve, reject) => {
     xhr.onload = () => {
