@@ -1363,6 +1363,12 @@ def auth_features(x_admin: str | None = Header(None)):
         return {"is_admin": False}
 
 
+@app.get('/api/auth/features')
+def api_auth_features(x_admin: str | None = Header(None)):
+    """Compatibility wrapper for `/api/auth/features` used by the frontend."""
+    return auth_features(x_admin)
+
+
 def _is_request_admin(x_admin: str | None) -> bool:
     try:
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
