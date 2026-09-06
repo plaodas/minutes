@@ -91,6 +91,8 @@ export function useTasks() {
                 if (data.payload && data.payload.result) {
                   item.result = data.payload.result
                 }
+                // On success, reload the task list to pick up server-side name/title changes
+                setTimeout(() => { load() }, 0)
               }
               copy[idx] = item
               return copy
