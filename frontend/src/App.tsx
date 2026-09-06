@@ -6,16 +6,27 @@ import ResultCards from './components/ResultCards'
 import UpdateToast from './components/UpdateToast'
 import Toasts from './components/Toasts'
 import { HistoryView, SettingsView } from './components/WorkspaceViews'
+import BucketsAdmin from './components/BucketsAdmin'
+import { getUserFeatures } from './api/client'
 
 export default function App() {
   const [activeIndex, setActiveIndex] = useState<number>(-1)
   const [result, setResult] = useState<any | null>(null)
   const [activeView, setActiveView] = useState<NavigationView>('upload')
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  React.useEffect(() => {
+    let mounted = true
+    getUserFeatures().then((f) => mounted && setIsAdmin(!!f && !!(f as any).is_admin)).catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   return (
     <div className="min-h-screen bg-[var(--bg-default)] text-[var(--text-primary)]">
       <div className="flex">
-        <Sidebar activeView={activeView} onNavigate={setActiveView} />
+        <Sidebar activeView={activeView} onNavigate={setActiveView} showAdmin={isAdmin} />
         <main className="min-w-0 flex-1 px-4 pb-6 pt-20 sm:p-6 md:p-8">
           <div className="mx-auto max-w-4xl">
             {activeView === 'upload' && (
@@ -36,6 +47,7 @@ export default function App() {
             )}
             {activeView === 'history' && <HistoryView onCreate={() => setActiveView('upload')} />}
             {activeView === 'settings' && <SettingsView />}
+            {activeView === 'admin' && isAdmin && <BucketsAdmin />}
           </div>
         </main>
       </div>

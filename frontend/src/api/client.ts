@@ -105,6 +105,23 @@ export async function getUserFeatures() {
   return res.json()
 }
 
+export async function getBuckets() {
+  const res = await fetch(`${BASE}/buckets`, { credentials: 'same-origin' })
+  if (!res.ok) throw new Error('failed to fetch buckets')
+  return res.json()
+}
+
+export async function createBucket(name: string) {
+  const res = await fetch(`${BASE}/buckets`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('failed to create bucket')
+  return res.json()
+}
+
 export async function undeleteTask(taskId: string) {
   const res = await fetch(`${BASE}/bg/undelete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin' })
   if (!res.ok) throw new Error('undelete failed')

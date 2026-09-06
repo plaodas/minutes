@@ -2,20 +2,23 @@ import React from 'react'
 import { Archive, ChevronLeft, ChevronRight, Menu, Settings, Upload, X } from 'lucide-react'
 import useLocalStorage from '../hooks/useLocalStorage'
 
-export type NavigationView = 'upload' | 'history' | 'settings'
+export type NavigationView = 'upload' | 'history' | 'settings' | 'admin'
 
 type Props = {
   activeView: NavigationView
   onNavigate: (view: NavigationView) => void
+  showAdmin?: boolean
 }
 
-const items: Array<{ view: NavigationView; label: string; icon: React.ReactNode }> = [
+const itemsBase: Array<{ view: NavigationView; label: string; icon: React.ReactNode }> = [
   { view: 'upload', label: 'Upload', icon: <Upload size={18} /> },
   { view: 'history', label: 'History', icon: <Archive size={18} /> },
   { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
 ]
 
-export default function Sidebar({ activeView, onNavigate }: Props) {
+const adminItem = { view: 'admin' as NavigationView, label: 'Buckets', icon: <Archive size={18} /> }
+
+export default function Sidebar({ activeView, onNavigate, showAdmin = false }: Props) {
   const [expanded, setExpanded] = useLocalStorage('sidebar-expanded', true)
   const [mobileOpen, setMobileOpen] = React.useState(false)
 
@@ -26,7 +29,7 @@ export default function Sidebar({ activeView, onNavigate }: Props) {
 
   const navigation = (showLabels: boolean) => (
     <nav className="flex-1 space-y-1" aria-label="Main navigation">
-      {items.map((item) => {
+      {itemsBase.map((item) => {
         const isActive = activeView === item.view
         return (
           <button
@@ -44,6 +47,21 @@ export default function Sidebar({ activeView, onNavigate }: Props) {
           </button>
         )
       })}
+      {showAdmin && (
+        <button
+          key={adminItem.view}
+          type="button"
+          aria-label={adminItem.label}
+          title={!showLabels ? adminItem.label : undefined}
+          onClick={() => navigate(adminItem.view)}
+          className={`flex w-full items-center rounded-md p-3 text-left transition-colors ${
+            activeView === adminItem.view ? 'bg-teal-50 text-[var(--accent)]' : 'hover:bg-[var(--bg-default)]'
+          } ${showLabels ? 'gap-3' : 'justify-center'}`}
+        >
+          <span className="shrink-0">{adminItem.icon}</span>
+          {showLabels && <span className="text-sm font-medium">{adminItem.label}</span>}
+        </button>
+      )}
     </nav>
   )
 
