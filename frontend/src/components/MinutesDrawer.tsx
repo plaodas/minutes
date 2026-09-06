@@ -12,6 +12,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
   const [error, setError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState<string | null>(null)
   const [isVisible, setIsVisible] = useState(false)
+  const [taskName, setTaskName] = useState<string | null>(null)
   const toast = useToast()
   // Show admin controls when env flag set OR when server reports admin features.
   const [isAdmin, setIsAdmin] = useState(
@@ -35,6 +36,27 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     // allow mount to complete before showing for CSS transition
     const id = setTimeout(() => setIsVisible(true), 10)
     return () => clearTimeout(id)
+  }, [taskId])
+
+  // fetch task name for header display
+  useEffect(() => {
+    if (!taskId) {
+      setTaskName(null)
+      return
+    }
+    ;(async () => {
+      try {
+        const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+        const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
+        const res = await fetchWithRetry(`${BASE}/bg/tasks`, { credentials: 'same-origin' }, { retries: 1, timeoutMs: 8000 })
+        if (!res.ok) return
+        const j = await res.json().catch(() => ({}))
+        const found = (j.tasks || []).find((t: any) => t.id === taskId)
+        if (found) setTaskName(found.name || null)
+      } catch (e) {
+        // ignore
+      }
+    })()
   }, [taskId])
   useEffect(() => {
     if (!taskId) return
@@ -185,10 +207,37 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
         <div className="md:hidden mb-3 flex items-center justify-center">
           <div className="w-12 h-1.5 bg-slate-300 rounded-full" />
         </div>
-        <div className="mb-3">
-          <h2 className="text-lg font-semibold">Minutes</h2>
-          <div className="text-xs text-[var(--muted)]">
-            Task: <button onClick={handleCopyTaskId} title="Copy task id" className="inline-block text-[var(--muted)] hover:underline focus:outline-none">{taskId}</button>
+        <div className="mb-3 flex items-start justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">{(taskName && taskName.length > 0) ? taskName : 'Minutes'}</h2>
+            <div className="text-xs text-[var(--muted)]">
+              Task: <button onClick={handleCopyTaskId} title="Copy task id" className="inline-block text-[var(--muted)] hover:underline focus:outline-none">{taskId}</button>
+            </div>
+          </div>
+          <div>
+            <button onClick={async () => {
+              const newName = window.prompt('Enter new name for this task', taskName || '')
+              if (!newName) return
+              try {
+                const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
+                const res = await fetchWithRetry(`${BASE}/bg/task/${taskId}/rename`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: newName })
+                }, { retries: 0, timeoutMs: 10000 })
+                if (res.ok) {
+                  setTaskName(newName)
+                  toast.addToast('Renamed', { level: 'success' })
+                  try { window.dispatchEvent(new CustomEvent('app:task-changed', { detail: { taskId, action: 'renamed' } })) } catch (e) {}
+                } else {
+                  const j = await res.json().catch(() => ({}))
+                  toast.addToast(j?.error || 'Rename failed', { level: 'error' })
+                }
+              } catch (e) {
+                toast.addToast('Rename failed', { level: 'error' })
+              }
+            }} className="rounded bg-slate-100 px-2 py-1 text-sm">Rename</button>
           </div>
         </div>
         {/* Screen-reader live region for action feedback (polite) */}
