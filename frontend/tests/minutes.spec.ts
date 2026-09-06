@@ -38,7 +38,7 @@ test('minutes drawer shows fetched text and actions', async ({ page }) => {
     }
   })
 
-  await page.goto('http://localhost:8080')
+  await page.goto(process.env.E2E_PORT ? `http://localhost:${process.env.E2E_PORT}` : 'http://localhost:8080')
   await page.waitForSelector('button[aria-label="History"]', { state: 'attached', timeout: 10000 })
   await page.evaluate(() => { const el = document.querySelector('button[aria-label="History"]') as HTMLElement | null; el?.click() })
   await page.waitForSelector('button[aria-label^="View minutes for"]', { state: 'attached', timeout: 10000 })

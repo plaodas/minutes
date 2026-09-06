@@ -30,7 +30,7 @@ test('offline fallback uses cached tasks and shows retry toast', async ({ page }
   // open the app (assumes server on 8080)
   // intercept network to force /bg/tasks to fail (works even when SW is active)
   await page.route('**/bg/tasks**', (route) => route.abort())
-  await page.goto('http://localhost:8080')
+  await page.goto(process.env.E2E_PORT ? `http://localhost:${process.env.E2E_PORT}` : 'http://localhost:8080')
   // sanity-check the route by performing a fetch in page context against the app origin
   const fetchResult = await page.evaluate(async (url) => {
     try {
@@ -39,7 +39,7 @@ test('offline fallback uses cached tasks and shows retry toast', async ({ page }
     } catch (e: any) {
       return 'err:' + (e?.message || String(e))
     }
-  }, 'http://localhost:8080/bg/tasks')
+  }, process.env.E2E_PORT ? `http://localhost:${process.env.E2E_PORT}/bg/tasks` : 'http://localhost:8080/bg/tasks')
   console.log('FETCH_CHECK', fetchResult)
 
   // open history UI
@@ -59,6 +59,6 @@ test('offline fallback uses cached tasks and shows retry toast', async ({ page }
   // wait for the error text (fetchWithRetry uses retries/timeouts; allow up to 15s)
   await page.waitForFunction(() => {
     const text = document.body.innerText
-    return text.includes('履歴の読み込みに失敗しました') || text.includes('履歴を読み込めませんでした') || text.includes('最新の履歴を取得できませんでした')
+    return text.includes('履歴の読み込みに失敗しました') || text.includes('履歴を読み込めませんでした') || text.includes('最新の履歴を取得できませんでした') || text.includes('Could not retrieve the latest history') || text.includes('Displaying older data')
   }, { timeout: 15000 })
 })

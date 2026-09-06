@@ -37,7 +37,7 @@ test.describe('modal focus trap', () => {
       }
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(resp) })
     })
-    await page.goto('http://localhost:8080')
+    await page.goto(process.env.E2E_PORT ? `http://localhost:${process.env.E2E_PORT}` : 'http://localhost:8080')
     // open the History view via the sidebar so the Recent minutes component is mounted
     await page.waitForSelector('button[aria-label="History"]', { state: 'attached', timeout: 10000 })
     // click the first matching history nav button via DOM to avoid Playwright actionability issues

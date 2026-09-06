@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",
     "test:e2e": "playwright test",
+    "test:e2e:ci": "E2E_PORT=8090 npx playwright test --reporter=list",
     "test:unit": "vitest src/lib --environment jsdom --run"
   },
   "dependencies": {
