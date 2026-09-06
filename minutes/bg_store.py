@@ -176,7 +176,14 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
             # Try PG-specific upsert to avoid race on insert. Fallback to
             # conservative get/add/commit with IntegrityError handling when
             # PG dialect isn't available.
-            if pg_insert is not None:
+            # Use Postgres-specific upsert only when the engine dialect is postgresql
+            use_pg_upsert = False
+            try:
+                use_pg_upsert = (pg_insert is not None and getattr(engine, 'dialect', None) and getattr(engine.dialect, 'name', '').lower() == 'postgresql')
+            except Exception:
+                use_pg_upsert = False
+
+            if use_pg_upsert:
                 try:
                     logger.debug('create_task using pg_insert for %s engine=%s', task_id, getattr(engine, 'url', None))
                     stmt = pg_insert(Task.__table__).values(

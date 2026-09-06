@@ -495,26 +495,26 @@ def transcribe_upload_bg(file: UploadFile = File(...), background_tasks: Backgro
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
-        # Enqueue as a Celery task so we can support revoke/terminate later.
+    # Enqueue as a Celery task so we can support revoke/terminate later.
+    try:
+        proc = tasks.process_audio
+        if hasattr(proc, "delay"):
+            task = proc.delay(dest_path)
+        else:
+            task = proc(dest_path)
+        task_id = task.id
+        # Store upload metadata (original filename) in the task record so
+        # the frontend can show a meaningful name when listing tasks.
         try:
-            proc = tasks.process_audio
-            if hasattr(proc, "delay"):
-                task = proc.delay(dest_path)
-            else:
-                task = proc(dest_path)
-            task_id = task.id
-            # Store upload metadata (original filename) in the task record so
-            # the frontend can show a meaningful name when listing tasks.
+            create_task(task_id, metadata={"upload_filename": safe_name}, user_id=x_user_id)
+        except TypeError:
+            # backward-compat: if create_task signature hasn't been updated,
+            # call without metadata
             try:
-                create_task(task_id, metadata={"upload_filename": safe_name}, user_id=x_user_id)
-            except TypeError:
-                # backward-compat: if create_task signature hasn't been updated,
-                # call without metadata
-                try:
-                    create_task(task_id)
-                except Exception:
-                    pass
-            return {"task_id": task_id}
+                create_task(task_id)
+            except Exception:
+                pass
+        return {"task_id": task_id}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
