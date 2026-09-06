@@ -456,7 +456,26 @@ def update_task_progress(task_id: str, progress: float, db=None):
                         if delta < 5.0 and age < 5.0:
                             should_record = False
                 if should_record:
-                    record_history(task_id, "progress", {"progress": float(progress)}, db=db)
+                    # If a recent progress row exists, update it in-place to avoid
+                    # accumulating many small progress INSERTs. Otherwise INSERT.
+                    try:
+                        recent_seconds = 24 * 3600  # keep one day's worth of updates consolidated
+                        last_age = (datetime.utcnow() - (last.event_ts or datetime.utcnow())).total_seconds() if last else None
+                        if last and last_age is not None and last_age < recent_seconds:
+                            # update existing row
+                            try:
+                                last.payload = {"progress": float(progress)}
+                                last.event_ts = datetime.utcnow()
+                                db.add(last)
+                                db.commit()
+                            except Exception:
+                                db.rollback()
+                                # fallback to inserting a new row if update fails
+                                record_history(task_id, "progress", {"progress": float(progress)}, db=db)
+                        else:
+                            record_history(task_id, "progress", {"progress": float(progress)}, db=db)
+                    except Exception:
+                        logger.exception('failed to upsert progress history for %s', task_id)
             except Exception:
                 logger.exception('record_history("progress") failed for %s', task_id)
         finally:

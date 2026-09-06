@@ -685,7 +685,8 @@ def bg_tasks(limit: int = 50, offset: int = 0):
         # it simple, support cursor via os.environ-like pattern is not ideal. Instead accept that clients can still use offset.
         # We'll implement cursor if provided via a special header in future. For now, implement offset-based but include preview events.
 
-        q = q.order_by(Task.updated_at.desc(), Task.id.desc()).offset(int(offset)).limit(int(limit))
+        # Order tasks by creation time (newest first) for history listing
+        q = q.order_by(Task.created_at.desc(), Task.id.desc()).offset(int(offset)).limit(int(limit))
 
         out = []
         for t in q.all():
