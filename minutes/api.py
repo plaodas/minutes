@@ -547,6 +547,29 @@ def transcribe_upload_bg(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.post('/api/transcribe-upload-bg', response_model=CreateTaskResponse)
+def api_transcribe_upload_bg(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+    x_user_id: str | None = Header(None),
+    language: str | None = Form(None),
+    include_actions: str | None = Form(None),
+):
+    """Compatibility wrapper for `/api/transcribe-upload-bg` used by the frontend."""
+    return transcribe_upload_bg(file=file, background_tasks=background_tasks, x_user_id=x_user_id, language=language, include_actions=include_actions)
+
+
+@app.post('/api/transcribe-upload', response_model=CreateTaskResponse)
+def api_transcribe_upload(
+    file: UploadFile = File(...),
+    x_user_id: str | None = Header(None),
+    language: str | None = Form(None),
+    include_actions: str | None = Form(None),
+):
+    """Compatibility wrapper for `/api/transcribe-upload` (synchronous) used by some clients."""
+    return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
+
+
 @app.get("/bg/status/{task_id}", response_model=StatusResponse)
 def bg_status(task_id: str):
     t = get_task(task_id)
