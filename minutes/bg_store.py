@@ -306,6 +306,17 @@ def update_task_success(task_id: str, result: Any, db=None):
                 record_history(task_id, "success", {"result": result}, db=db)
             except Exception:
                 logger.exception('record_history("success") failed for %s', task_id)
+            # Publish an explicit status event for frontends to consume (helps UIs
+            # that listen for 'status' events to update task rows immediately).
+            try:
+                publish_event({
+                    "type": "task.event",
+                    "task_id": str(key) if isinstance(key, uuid.UUID) else str(task_id),
+                    "event_type": "status",
+                    "payload": {"status": "success"},
+                })
+            except Exception:
+                logger.exception('publish_event failed for success status for %s', task_id)
         finally:
             if close:
                 db.close()

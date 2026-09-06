@@ -244,6 +244,18 @@ def process_audio(self, input_path: str):
         # mark formatting stage
         if task_id:
             update_task_status(task_id, "formatting", db=db)
+            # proactively publish an SSE event so frontends update immediately
+            try:
+                from minutes.sse import publish_event
+
+                publish_event({
+                    "type": "task.event",
+                    "task_id": str(task_id),
+                    "event_type": "status",
+                    "payload": {"status": "formatting"},
+                })
+            except Exception:
+                pass
 
         final_minutes = format_minutes_from_raw(raw_text)
 

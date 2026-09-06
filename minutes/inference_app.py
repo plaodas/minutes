@@ -29,13 +29,52 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
     # object per line for each segment as it is produced, then the final object.
     q = queue.Queue()
     segs = []
+    total_duration = None
+
+    def _get_duration(path: str):
+        """Try to get audio duration via ffprobe (falls back to None)."""
+        try:
+            import subprocess
+
+            cmd = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=nw=1:nk=1",
+                path,
+            ]
+            out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            return float(out.strip())
+        except Exception:
+            return None
 
     def _progress(s):
         try:
             st = float(getattr(s, "start", 0.0) or 0.0)
             ed = float(getattr(s, "end", 0.0) or 0.0)
             txt = str(getattr(s, "text", ""))
-            obj = {"type": "segment", "start": st, "end": ed, "text": txt}
+            nonlocal total_duration
+            if total_duration is None:
+                # attempt to probe duration once
+                total_duration = _get_duration(dest_path)
+
+            percent = None
+            try:
+                if total_duration and total_duration > 0:
+                    percent = min(100, int(100 * (ed / total_duration)))
+            except Exception:
+                percent = None
+
+            obj = {
+                "type": "segment",
+                "start": st,
+                "end": ed,
+                "text": txt,
+                "percent": percent,
+            }
             segs.append(obj)
             line = json.dumps(obj, ensure_ascii=False)
             logger.info("stream segment: %s", line[:200])

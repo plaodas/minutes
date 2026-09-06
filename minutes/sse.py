@@ -65,7 +65,9 @@ def publish_event(event: Dict[str, Any]):
 
     # publish to redis channel for other instances
     try:
-        redis_url = os.environ.get('REDIS_URL')
+        # allow fallback to commonly-set broker/url env vars so worker processes
+        # without explicit REDIS_URL still publish events (e.g., Celery uses REDIS)
+        redis_url = os.environ.get('REDIS_URL') or os.environ.get('CELERY_BROKER_URL') or os.environ.get('BROKER_URL')
         if not redis_url:
             return
         global _redis_pub
@@ -74,7 +76,7 @@ def publish_event(event: Dict[str, Any]):
             try:
                 _redis_pub = redis.from_url(redis_url, decode_responses=True)
             except Exception:
-                logger.exception('failed to create redis publisher')
+                logger.exception('failed to create redis publisher from %s', redis_url)
                 _redis_pub = None
         if _redis_pub is not None:
             try:

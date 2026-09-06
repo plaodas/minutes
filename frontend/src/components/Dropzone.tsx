@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import ErrorModal from './ErrorModal'
 import sanitizeError from '../lib/sanitizeError'
@@ -32,6 +32,8 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   const xhrRef = useRef<XMLHttpRequest | null>(null)
   const pollRef = useRef<number | null>(0)
   const [running, setRunning] = useState(false)
+  const [transcribeProgress, setTranscribeProgress] = useState<number | null>(null)
+  const esRef = useRef<EventSource | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   const onDrop = useCallback(async (files: FileList | null) => {
@@ -169,12 +171,51 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       clearTimeout(pollRef.current)
       pollRef.current = 0
     }
+    if (esRef.current) {
+      try { esRef.current.close() } catch {}
+      esRef.current = null
+    }
     setRunning(false)
     setUploadProgress(null)
     setTaskId(null)
     setActiveIndex(-1)
     window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'info', message: 'Upload cancelled' } }))
   }, [setActiveIndex])
+
+  useEffect(() => {
+    // Open EventSource when a task is running to receive progress updates
+    if (!taskId || !running) return
+    try {
+      const base = (import.meta.env.VITE_API_BASE || '/api')
+      const es = new EventSource(`${base}/bg/events`)
+      esRef.current = es
+      es.onmessage = (ev) => {
+        try {
+          const obj = JSON.parse(ev.data)
+          if (!obj || obj.type !== 'task.event') return
+          const tid = obj.task_id || obj.taskId || obj.id
+          if (!tid || tid !== taskId) return
+          const et = obj.event_type
+          if (et === 'progress' && obj.payload && typeof obj.payload.progress === 'number') {
+            setTranscribeProgress(Math.round(obj.payload.progress))
+          }
+          if (et === 'status' && obj.payload && (String(obj.payload.status || '').toLowerCase().includes('success'))) {
+            setTranscribeProgress(100)
+          }
+        } catch (e) {
+          // ignore parse errors
+        }
+      }
+      es.onerror = () => {
+        // ignore transient errors
+      }
+    } catch (e) {
+      // ignore EventSource setup failures
+    }
+    return () => {
+      try { if (esRef.current) { esRef.current.close(); esRef.current = null } } catch {}
+    }
+  }, [taskId, running])
 
   return (
     <div>
@@ -205,6 +246,14 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
                 <div className="bg-[var(--accent)] h-2 rounded-full" style={{ width: `${uploadProgress}%` }} />
               </div>
               <div className="text-xs text-[var(--muted)] mt-1">Uploading: {uploadProgress}%</div>
+            </div>
+          )}
+          {transcribeProgress !== null && (
+            <div className="w-full mt-3">
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-green-500 h-2 rounded-full" style={{ width: `${transcribeProgress}%` }} />
+              </div>
+              <div className="text-xs text-[var(--muted)] mt-1">Transcribing: {transcribeProgress}%</div>
             </div>
           )}
           {running && (

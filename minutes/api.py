@@ -960,8 +960,13 @@ def bg_delete(task_id: str):
         try:
             # prefer DB-backed update
             from .db import SessionLocal
+            # ensure we use the same key parsing as the DB-backed store
+            try:
+                from minutes.bg_store import _parse_key
+            except Exception:
+                _parse_key = None
             db = SessionLocal()
-            key = _parse_key(task_id)
+            key = _parse_key(task_id) if _parse_key else task_id
             obj = db.get(Task, key)
             if not obj:
                 db.close()
@@ -1109,8 +1114,13 @@ def bg_undelete(task_id: str):
         return JSONResponse({"error": "unknown task"}, status_code=404)
     try:
         from .db import SessionLocal
+        # use bg_store's _parse_key to normalize incoming task ids
+        try:
+            from minutes.bg_store import _parse_key
+        except Exception:
+            _parse_key = None
         db = SessionLocal()
-        key = _parse_key(task_id)
+        key = _parse_key(task_id) if _parse_key else task_id
         obj = db.get(Task, key)
         if not obj:
             db.close()
