@@ -443,7 +443,7 @@ def update_task_progress(task_id: str, progress: float, db=None):
                 last = db.query(TaskHistory).filter(
                     TaskHistory.task_id == key,
                     TaskHistory.event_type == 'progress'
-                ).order_by(TaskHistory.created_at.desc()).limit(1).one_or_none()
+                ).order_by(TaskHistory.event_ts.desc()).limit(1).one_or_none()
                 should_record = True
                 if last and isinstance(last.payload, dict):
                     try:
@@ -452,7 +452,7 @@ def update_task_progress(task_id: str, progress: float, db=None):
                         last_progress = None
                     if last_progress is not None:
                         delta = abs(float(progress) - last_progress)
-                        age = (datetime.utcnow() - (last.created_at or datetime.utcnow())).total_seconds()
+                        age = (datetime.utcnow() - (last.event_ts or datetime.utcnow())).total_seconds()
                         if delta < 5.0 and age < 5.0:
                             should_record = False
                 if should_record:

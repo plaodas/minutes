@@ -31,6 +31,9 @@ class Task(Base):
     fail_count = Column(Integer, default=0)
     last_failure_ts = Column(DateTime, nullable=True)
     last_success_ts = Column(DateTime, nullable=True)
+    # Soft-delete flag and timestamp
+    deleted = Column(Boolean, nullable=False, server_default='false')
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     schema_version = Column(Integer, default=1)

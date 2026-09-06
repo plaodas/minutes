@@ -22,6 +22,109 @@ from typing import Tuple, Any
 
 
 @celery.task(bind=True)
+def hard_delete_task(self, task_id: str, requester: str | None = None):
+    """Admin Celery job: delete MinIO objects for a task and remove DB rows.
+
+    This task is retryable by Celery if MinIO deletion fails.
+    """
+    logger = logging.getLogger('minutes.tasks')
+    from minutes.db import SessionLocal
+    from minutes.minio_client import MinioService
+    from minutes.models import Task, TaskHistory, Bucket
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        # normalize key
+        try:
+            from minutes.bg_store import _parse_key
+            key = _parse_key(task_id)
+        except Exception:
+            key = task_id
+
+        t = db.get(Task, key)
+        if not t:
+            logger.info('hard_delete_task: unknown task %s', task_id)
+            return {'deleted': False, 'reason': 'unknown task'}
+
+        res = t.result or {}
+        # attempt MinIO deletion if present
+        try:
+            if isinstance(res, dict):
+                minio_info = res.get('minio') if isinstance(res.get('minio'), dict) else None
+                svc = None
+                if minio_info and minio_info.get('bucket'):
+                    svc = MinioService()
+                    bucket = minio_info.get('bucket')
+                    # if an object key is provided, delete it; otherwise delete prefix for task
+                    if minio_info.get('object'):
+                        logger.info('hard_delete_task removing object %s/%s', bucket, minio_info.get('object'))
+                        svc.delete_object(bucket, minio_info.get('object'), ignore_missing=True)
+                    else:
+                        prefix = f'minutes/{task_id}/'
+                        logger.info('hard_delete_task removing objects under %s prefix in bucket %s', prefix, bucket)
+                        svc.delete_objects_with_prefix(bucket, prefix, ignore_missing=True)
+        except Exception as exc:
+            logger.exception('hard_delete_task: MinIO deletion failed for %s: %s', task_id, exc)
+            db.close()
+            # raise to allow Celery to retry
+            raise
+
+        # remove output file if present locally
+        try:
+            output_file = res.get('output_file') or (res.get('result') or {}).get('output_file')
+            if output_file:
+                outputs_dir = os.environ.get('OUTPUTS_DIR', 'outputs')
+                candidate = os.path.join(outputs_dir, os.path.basename(output_file))
+                if os.path.exists(candidate):
+                    os.remove(candidate)
+        except Exception:
+            logger.exception('hard_delete_task: failed to remove local output for %s', task_id)
+
+        # delete TaskHistory and Task rows
+        try:
+            db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
+            # attempt to delete Task row
+            db.delete(t)
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception('hard_delete_task: failed DB delete for %s', task_id)
+            db.close()
+            raise
+
+        # attempt to delete Bucket row if no other task references it
+        try:
+            if isinstance(res, dict) and res.get('minio') and res['minio'].get('bucket'):
+                bucket_name = res['minio'].get('bucket')
+                # check other tasks referencing this bucket
+                other = db.query(Task).filter(Task.result['minio']['bucket'].astext == bucket_name).count()
+                if other == 0:
+                    b = db.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
+                    if b:
+                        db.delete(b)
+                        db.commit()
+        except Exception:
+            # non-fatal
+            logger.exception('hard_delete_task: failed to cleanup bucket row for %s', task_id)
+
+        # record audit history row
+        try:
+            from minutes.bg_store import record_history
+
+            record_history(task_id, 'deleted_hard', {'requester': requester or None, 'deleted_at': datetime.utcnow().isoformat()})
+        except Exception:
+            logger.exception('hard_delete_task: failed to record deletion history for %s', task_id)
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+    logger.info('hard_delete_task completed for %s', task_id)
+    return {'deleted': True}
+
+
+@celery.task(bind=True)
 def process_audio(self, input_path: str):
     """Celery task: preprocess -> transcribe -> format.
 

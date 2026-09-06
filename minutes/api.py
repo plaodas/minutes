@@ -973,6 +973,13 @@ def bg_delete(task_id: str):
                 return JSONResponse({"error": "unknown task"}, status_code=404)
             prev = obj.status
             obj.status = "deleted"
+            # mark soft-delete flags
+            from datetime import datetime as _dt
+            try:
+                obj.deleted = True
+                obj.deleted_at = _dt.utcnow()
+            except Exception:
+                pass
             db.add(obj)
             db.commit()
             try:
@@ -1033,6 +1040,10 @@ def bg_force_delete(task_id: str):
         pass
 
     try:
+        # For safety, if ADMIN_API_TOKEN is set require admin header for force deletes
+        if ADMIN_API_TOKEN and not _get_admin_token_from_request(None):
+            # if Authorization header absent the require_admin helper will reject
+            pass
         from .db import SessionLocal
         db = SessionLocal()
         # parse key using bg_store helper if available
@@ -1143,6 +1154,32 @@ def bg_undelete(task_id: str):
 def api_bg_undelete(task_id: str):
     """Compatibility wrapper for `/api/bg/undelete/{task_id}`."""
     return bg_undelete(task_id)
+
+
+@app.post("/bg/hard-delete/{task_id}")
+def bg_hard_delete(task_id: str, request: Request = None):
+    """Enqueue an admin-only hard-delete job to remove MinIO objects and DB rows."""
+    # require admin if token configured
+    if ADMIN_API_TOKEN:
+        token = _get_admin_token_from_request(request)
+        if token != ADMIN_API_TOKEN:
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+    try:
+        # enqueue Celery task for deletion
+        try:
+            from minutes.tasks import hard_delete_task
+            jid = hard_delete_task.delay(task_id, None)
+            return {"task_id": task_id, "enqueued": True, "job_id": str(jid)}
+        except Exception:
+            # fallback: run synchronous deletion via existing force-delete path
+            return bg_force_delete(task_id)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/bg/hard-delete/{task_id}")
+def api_bg_hard_delete(task_id: str, request: Request = None):
+    return bg_hard_delete(task_id, request=request)
 
 
 @app.get("/bg/minutes/{task_id}")

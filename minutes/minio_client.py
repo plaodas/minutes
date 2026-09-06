@@ -63,3 +63,19 @@ class MinioService:
 
     def presigned_get(self, bucket: str, obj: str, expires: int = 3600):
         return self.client.get_presigned_url("GET", bucket, obj, expires=expires)
+
+    def delete_object(self, bucket: str, obj: str, ignore_missing: bool = True):
+        try:
+            self.client.remove_object(bucket, obj)
+        except Exception:
+            if not ignore_missing:
+                raise
+
+    def delete_objects_with_prefix(self, bucket: str, prefix: str, ignore_missing: bool = True):
+        # iterate and remove objects under prefix
+        for obj in self.client.list_objects(bucket, prefix=prefix, recursive=True):
+            try:
+                self.client.remove_object(bucket, obj.object_name)
+            except Exception:
+                if not ignore_missing:
+                    raise
