@@ -428,10 +428,35 @@ def update_task_progress(task_id: str, progress: float, db=None):
                 except Exception:
                     pass
                 t = db.get(Task, key)
+            # Always update the Task.progress column so reads get latest value
             t.progress = float(progress)
-            db.commit()
             try:
-                record_history(task_id, "progress", {"progress": float(progress)}, db=db)
+                db.commit()
+            except Exception:
+                db.rollback()
+
+            # Coalesce frequent progress updates to avoid inserting too many
+            # TaskHistory rows. Only record a new progress row when either:
+            # - delta >= 5.0 percentage points from the most recent progress row, or
+            # - the most recent progress row is older than 5 seconds.
+            try:
+                last = db.query(TaskHistory).filter(
+                    TaskHistory.task_id == key,
+                    TaskHistory.event_type == 'progress'
+                ).order_by(TaskHistory.created_at.desc()).limit(1).one_or_none()
+                should_record = True
+                if last and isinstance(last.payload, dict):
+                    try:
+                        last_progress = float(last.payload.get('progress', 0.0))
+                    except Exception:
+                        last_progress = None
+                    if last_progress is not None:
+                        delta = abs(float(progress) - last_progress)
+                        age = (datetime.utcnow() - (last.created_at or datetime.utcnow())).total_seconds()
+                        if delta < 5.0 and age < 5.0:
+                            should_record = False
+                if should_record:
+                    record_history(task_id, "progress", {"progress": float(progress)}, db=db)
             except Exception:
                 logger.exception('record_history("progress") failed for %s', task_id)
         finally:
