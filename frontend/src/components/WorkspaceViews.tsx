@@ -342,6 +342,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
 
 export function SettingsView() {
   const [settings, setSettings] = useLocalStorage('minutes.settings', { language: 'Japanese', includeActions: true })
+  const [features, setFeatures] = React.useState<{ authenticated?: boolean, is_admin?: boolean, user_id?: string } | null>(null)
   const prevRef = useRef<typeof settings | null>(null)
   const { addToast } = useToast()
 
@@ -360,6 +361,24 @@ export function SettingsView() {
     }
   }, [settings, addToast])
 
+  React.useEffect(() => {
+    let mounted = true
+    import('../api/client').then(({ getUserFeatures }) => {
+      getUserFeatures().then((f) => { if (mounted) setFeatures(f) }).catch(() => { if (mounted) setFeatures({ authenticated: false }) })
+    })
+    return () => { mounted = false }
+  }, [])
+
+  React.useEffect(() => {
+    const onAuth = () => {
+      import('../api/client').then(({ getUserFeatures }) => {
+        getUserFeatures().then((f) => setFeatures(f)).catch(() => setFeatures({ authenticated: false }))
+      })
+    }
+    window.addEventListener('auth-changed', onAuth)
+    return () => { window.removeEventListener('auth-changed', onAuth) }
+  }, [])
+
   return (
     <section>
       <div className="mb-6">
@@ -374,7 +393,7 @@ export function SettingsView() {
         <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Settings</h1>
       </div>
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <UserIdWidget />
+        {(!features || features.authenticated === false) && <UserIdWidget />}
         <div className="flex items-start gap-3 border-b border-slate-100 p-4">
           <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><SlidersHorizontal size={20} /></span>
           <div className="min-w-0 flex-1">

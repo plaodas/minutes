@@ -14,8 +14,8 @@ export default function LoginForm() {
     try {
       await login(username, password)
       addToast('Login successful', { level: 'success' })
-      // reload to refresh features/state
-      window.location.reload()
+      // notify app about auth change so UI can refresh without full reload
+      try { window.dispatchEvent(new CustomEvent('auth-changed')) } catch (e) {}
     } catch (err: any) {
       addToast(err?.message || 'Login failed', { level: 'error' })
     } finally {
@@ -28,7 +28,7 @@ export default function LoginForm() {
     try {
       await logout()
       addToast('Logged out', { level: 'success' })
-      window.location.reload()
+      try { window.dispatchEvent(new CustomEvent('auth-changed')) } catch (e) {}
     } catch (err: any) {
       addToast(err?.message || 'Logout failed', { level: 'error' })
     } finally {

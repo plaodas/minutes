@@ -135,13 +135,21 @@ export async function login(username: string, password: string) {
     const text = await res.text()
     throw new Error(text || 'login failed')
   }
-  return res.json()
+    try {
+      return await res.json()
+    } catch {
+      return res
+    }
 }
 
 export async function logout() {
   const res = await fetch(`${BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
   if (!res.ok) throw new Error('logout failed')
-  return res.json()
+    try {
+      return await res.json()
+    } catch {
+      return res
+    }
 }
 
 export async function getBuckets() {

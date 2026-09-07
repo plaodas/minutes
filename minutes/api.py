@@ -1406,7 +1406,7 @@ def api_bg_minutes(task_id: str):
 
 
 @app.get("/auth/features")
-def auth_features(x_admin: str | None = Header(None)):
+def auth_features(x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)):
     """Return feature flags for the current user.
 
     This is a lightweight endpoint used by the frontend to decide which
@@ -1416,40 +1416,29 @@ def auth_features(x_admin: str | None = Header(None)):
     `FORCE_ADMIN` is set to 'true'.
     """
     try:
-        # first try cookie-based authentication (JWT)
-        try:
-            # FastAPI will supply cookie value via dependency when present
-            # here we check manually using get_current_user_from_cookie
-            from fastapi import Cookie as _Cookie  # noqa: F401
-        except Exception:
-            pass
-        # Attempt to use minutes_session cookie if present
-        # Note: FastAPI does not automatically inject cookies into this
-        # compatibility function; read directly from request headers if
-        # provided through middleware. We accept a cookie via `Cookie`
-        # when routed through `api_auth_features` below.
-        # Fallback to header/env behavior if no valid cookie user.
-        # (Try to read cookie from the function arguments if available.)
-        # For compatibility we will attempt to read the cookie from the
-        # `X-Auth-Token` header if present, else fall back to header/env.
-        # Use get_current_user_from_cookie to validate token if provided.
-        cookie_token = None
-        # try common header where proxies may surface the cookie
-        cookie_token = None
-        # If an actual cookie was provided via `Cookie` param in the wrapper
-        # endpoint it will be handled there; keep header-based behavior here.
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
         header_admin = (x_admin == "1" or (isinstance(x_admin, str) and x_admin.lower() == "true"))
-        is_admin = force or header_admin
-        return {"is_admin": bool(is_admin)}
+        # attempt cookie-based user detection
+        user = None
+        try:
+            if minutes_session:
+                user = get_current_user_from_cookie(minutes_session)
+        except Exception:
+            user = None
+
+        user_id = str(user.id) if user else None
+        user_is_admin = bool(getattr(user, 'is_admin', False)) if user else False
+        is_admin = force or header_admin or user_is_admin
+
+        return {"is_admin": bool(is_admin), "authenticated": bool(user), "user_id": user_id}
     except Exception:
-        return {"is_admin": False}
+        return {"is_admin": False, "authenticated": False, "user_id": None}
 
 
 @app.get('/api/auth/features')
-def api_auth_features(x_admin: str | None = Header(None)):
+def api_auth_features(x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)):
     """Compatibility wrapper for `/api/auth/features` used by the frontend."""
-    return auth_features(x_admin)
+    return auth_features(x_admin, minutes_session)
 
 
 class LoginReq(BaseModel):
