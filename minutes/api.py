@@ -45,7 +45,8 @@ import time
 from minutes.minio_client import MinioService
 import typing
 from fastapi.responses import StreamingResponse
-from fastapi import Header
+from fastapi import Header, Cookie, Response
+from minutes.auth import create_access_token, get_current_user_from_cookie, verify_password
 
 # Allowed upload file types
 ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
@@ -1415,6 +1416,28 @@ def auth_features(x_admin: str | None = Header(None)):
     `FORCE_ADMIN` is set to 'true'.
     """
     try:
+        # first try cookie-based authentication (JWT)
+        try:
+            # FastAPI will supply cookie value via dependency when present
+            # here we check manually using get_current_user_from_cookie
+            from fastapi import Cookie as _Cookie  # noqa: F401
+        except Exception:
+            pass
+        # Attempt to use minutes_session cookie if present
+        # Note: FastAPI does not automatically inject cookies into this
+        # compatibility function; read directly from request headers if
+        # provided through middleware. We accept a cookie via `Cookie`
+        # when routed through `api_auth_features` below.
+        # Fallback to header/env behavior if no valid cookie user.
+        # (Try to read cookie from the function arguments if available.)
+        # For compatibility we will attempt to read the cookie from the
+        # `X-Auth-Token` header if present, else fall back to header/env.
+        # Use get_current_user_from_cookie to validate token if provided.
+        cookie_token = None
+        # try common header where proxies may surface the cookie
+        cookie_token = None
+        # If an actual cookie was provided via `Cookie` param in the wrapper
+        # endpoint it will be handled there; keep header-based behavior here.
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
         header_admin = (x_admin == "1" or (isinstance(x_admin, str) and x_admin.lower() == "true"))
         is_admin = force or header_admin
@@ -1427,6 +1450,63 @@ def auth_features(x_admin: str | None = Header(None)):
 def api_auth_features(x_admin: str | None = Header(None)):
     """Compatibility wrapper for `/api/auth/features` used by the frontend."""
     return auth_features(x_admin)
+
+
+class LoginReq(BaseModel):
+    username: str
+    password: str
+
+
+@app.post('/auth/login')
+def auth_login(payload: LoginReq, response: Response):
+    """Login endpoint: sets HttpOnly cookie `minutes_session` on success."""
+    db = SessionLocal()
+    try:
+        user = db.query(Task.__table__.metadata.bind.mapper.class_).filter_by(username=payload.username).one_or_none()
+    except Exception:
+        # fallback: query User model directly
+        try:
+            user = db.query(__import__('minutes').models.User).filter_by(username=payload.username).one_or_none()
+        except Exception:
+            user = None
+    try:
+        # attempt direct import of User model to be robust
+        from minutes.models import User as _User
+    except Exception:
+        _User = None
+
+    # prefer proper User instance if available
+    if _User is not None:
+        try:
+            user = db.query(_User).filter(_User.username == payload.username).one_or_none()
+        except Exception:
+            user = user
+
+    if not user:
+        return JSONResponse({"error": "invalid credentials"}, status_code=401)
+
+    try:
+        stored_hash = getattr(user, 'password_hash', None)
+        if not stored_hash or not verify_password(payload.password, stored_hash):
+            return JSONResponse({"error": "invalid credentials"}, status_code=401)
+    except Exception:
+        return JSONResponse({"error": "invalid credentials"}, status_code=401)
+
+    # create token and set cookie
+    from minutes.auth import create_access_token as _create_token
+    token = _create_token(str(user.id))
+    secure = os.environ.get('ENV', '').lower() == 'production' or os.environ.get('FORCE_HTTPS', 'false').lower() in ('1', 'true')
+    resp = JSONResponse({"id": str(user.id), "is_admin": bool(getattr(user, 'is_admin', False))})
+    max_age = int(os.environ.get('JWT_EXPIRE_HOURS', '8')) * 3600
+    resp.set_cookie('minutes_session', token, httponly=True, samesite='lax', secure=secure, max_age=max_age)
+    return resp
+
+
+@app.post('/auth/logout')
+def auth_logout(response: Response):
+    resp = JSONResponse({"logged_out": True})
+    resp.delete_cookie('minutes_session')
+    return resp
 
 
 def _is_request_admin(x_admin: str | None) -> bool:

@@ -15,6 +15,7 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    is_admin = Column(Boolean, nullable=False, server_default='false')
     email = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
