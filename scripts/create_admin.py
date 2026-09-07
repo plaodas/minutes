@@ -6,7 +6,14 @@ Usage:
 If no args provided, reads from environment variables ADMIN_USER and ADMIN_PASS.
 """
 import os
+import sys
 import argparse
+from pathlib import Path
+
+# Ensure project root is on sys.path so `minutes` package can be imported
+ROOT = str(Path(__file__).resolve().parents[1])
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from minutes.db import SessionLocal
 from minutes.models import User

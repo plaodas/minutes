@@ -5,7 +5,7 @@ from typing import Optional
 
 import jwt
 from fastapi import Cookie, HTTPException, status
-from passlib.context import CryptContext
+from passlib.hash import pbkdf2_sha256
 
 from minutes.db import SessionLocal
 from minutes.models import User
@@ -16,18 +16,15 @@ SECRET_KEY = os.environ.get("JWT_SECRET") or os.environ.get("ADMIN_API_TOKEN") o
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "8"))
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        return pbkdf2_sha256.verify(plain_password, hashed_password)
     except Exception:
         return False
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return pbkdf2_sha256.hash(password)
 
 
 def create_access_token(sub: str, expires_delta: Optional[timedelta] = None) -> str:
