@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import useLocalStorage from '../hooks/useLocalStorage'
 import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
 import UserIdWidget from './UserIdWidget'
 import { useTasks } from '../hooks/useTasks'
+import { useToast } from './ToastProvider'
 
 const sampleMinutes = [
   { name: 'Product planning.mp3', date: 'Today, 09:42', duration: '42 min', status: 'Ready', id: 'sample-1', created_at: new Date().toISOString() },
@@ -340,6 +341,23 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
 
 export function SettingsView() {
   const [settings, setSettings] = useLocalStorage('minutes.settings', { language: 'Japanese', includeActions: true })
+  const prevRef = useRef<typeof settings | null>(null)
+  const { addToast } = useToast()
+
+  useEffect(() => {
+    if (prevRef.current === null) {
+      prevRef.current = settings
+      return
+    }
+    const prev = prevRef.current
+    prevRef.current = settings
+    if (prev.language !== settings.language) {
+      addToast(`Transcript language: ${settings.language}`, { level: 'success', duration: 2000 })
+    }
+    if (prev.includeActions !== settings.includeActions) {
+      addToast(`Include action items: ${settings.includeActions ? 'On' : 'Off'}`, { level: 'success', duration: 2000 })
+    }
+  }, [settings, addToast])
 
   return (
     <section>
