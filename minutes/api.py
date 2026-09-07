@@ -301,6 +301,11 @@ def health():
     return {"status": "ok"}
 
 
+@app.get('/api/health')
+def api_health():
+    return health()
+
+
 @app.get("/admin/buckets")
 def admin_list_buckets(_=Depends(require_admin)):
     try:
@@ -349,6 +354,11 @@ def admin_list_buckets(_=Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get('/api/admin/buckets')
+def api_admin_list_buckets(_=Depends(require_admin)):
+    return admin_list_buckets(_)
+
+
 @app.post("/admin/buckets")
 def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
     name = (payload or {}).get("name")
@@ -375,6 +385,11 @@ def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.post('/api/admin/buckets')
+def api_admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
+    return admin_create_bucket(payload, _=_)
+
+
 @app.delete("/admin/buckets/{name}")
 def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
     try:
@@ -390,6 +405,11 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
         return {"deleted": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete('/api/admin/buckets/{name}')
+def api_admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
+    return admin_delete_bucket(name, force=force, _=_)
 
 
 @app.post("/transcribe-upload", response_model=CreateTaskResponse)
@@ -464,10 +484,20 @@ def format_raw(payload: FormatRawRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.post('/api/format-raw', response_model=FormatRawResponse)
+def api_format_raw(payload: FormatRawRequest):
+    return format_raw(payload)
+
+
 @app.get("/status/{task_id}")
 def task_status(task_id: str):
     res = AsyncResult(task_id, app=celery)
     return {"task_id": task_id, "status": res.status, "info": str(res.info)}
+
+
+@app.get('/api/status/{task_id}')
+def api_task_status(task_id: str):
+    return task_status(task_id)
 
 
 @app.get("/api/bg/status/{task_id}")
@@ -483,6 +513,11 @@ def task_result(task_id: str):
     if res.failed():
         return JSONResponse({"status": "failed", "info": str(res.info)}, status_code=500)
     return JSONResponse({"status": "success", "result": res.result})
+
+
+@app.get('/api/result/{task_id}')
+def api_task_result(task_id: str):
+    return task_result(task_id)
 
 
 @app.post("/transcribe-upload-bg", response_model=CreateTaskResponse)
@@ -628,6 +663,11 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
         return {"task_id": task_id, "history": out}
     finally:
         session.close()
+
+
+@app.get('/api/bg/history/{task_id}')
+def api_bg_history(task_id: str, limit: int = 100, offset: int = 0):
+    return bg_history(task_id, limit=limit, offset=offset)
 
 
 @app.get("/api/bg/tasks")
@@ -790,6 +830,11 @@ def bg_tasks(limit: int = 50, offset: int = 0):
         return {"tasks": out}
     finally:
         session.close()
+
+
+@app.get('/api/bg/tasks')
+def api_bg_tasks_alias(limit: int = 50, offset: int = 0):
+    return bg_tasks(limit=limit, offset=offset)
 
 
 
@@ -1565,6 +1610,24 @@ def admin_uploads_cleanup_post(payload: dict, x_admin: str | None = Header(None)
     return {"deleted": deleted, "errors": errors, "count": len(deleted)}
 
 
+@app.get('/api/admin/uploads/cleanup')
+def api_admin_uploads_cleanup_get(
+    dir: str | None = None,
+    pattern: str = "",
+    older_than: int = 0,
+    limit: int = 100,
+    dry_run: bool = True,
+    x_admin: str | None = Header(None),
+    request: Request = None,
+):
+    return admin_uploads_cleanup_get(dir=dir, pattern=pattern, older_than=older_than, limit=limit, dry_run=dry_run, x_admin=x_admin, request=request)
+
+
+@app.post('/api/admin/uploads/cleanup')
+def api_admin_uploads_cleanup_post(payload: dict, x_admin: str | None = Header(None), request: Request = None):
+    return admin_uploads_cleanup_post(payload=payload, x_admin=x_admin, request=request)
+
+
 def _read_minio_object_text(bucket: str, object_name: str) -> str:
     svc = MinioService()
     obj = None
@@ -1764,7 +1827,7 @@ def bg_action_items(task_id: str, format: str = "json"):
     return JSONResponse({"error": "unsupported format"}, status_code=400)
 
 
-    @app.get("/api/bg/action-items/{task_id}")
-    def api_bg_action_items(task_id: str, format: str = "json"):
-        """Compatibility wrapper for frontend `/api/bg/action-items/{task_id}`."""
-        return bg_action_items(task_id, format=format)
+@app.get('/api/bg/action-items/{task_id}')
+def api_bg_action_items(task_id: str, format: str = 'json'):
+    """Compatibility wrapper for frontend `/api/bg/action-items/{task_id}`."""
+    return bg_action_items(task_id, format=format)
