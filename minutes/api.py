@@ -1509,6 +1509,18 @@ def auth_logout(response: Response):
     return resp
 
 
+@app.post('/api/auth/login')
+def api_auth_login(payload: LoginReq, response: Response):
+    """Compatibility wrapper so frontend using `/api` prefix can login."""
+    return auth_login(payload, response)
+
+
+@app.post('/api/auth/logout')
+def api_auth_logout(response: Response):
+    """Compatibility wrapper so frontend using `/api` prefix can logout."""
+    return auth_logout(response)
+
+
 def _is_request_admin(x_admin: str | None) -> bool:
     try:
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
