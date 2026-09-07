@@ -296,17 +296,12 @@ async def shutdown_reconciler():
         logger.exception('failed to stop redis listener')
 
 
-@app.get("/health")
+@app.get('/api/health')
 def health():
     return {"status": "ok"}
 
 
-@app.get('/api/health')
-def api_health():
-    return health()
-
-
-@app.get("/admin/buckets")
+@app.get('/api/admin/buckets')
 def admin_list_buckets(_=Depends(require_admin)):
     try:
         svc = MinioService()
@@ -359,7 +354,7 @@ def api_admin_list_buckets(_=Depends(require_admin)):
     return admin_list_buckets(_)
 
 
-@app.post("/admin/buckets")
+@app.post('/api/admin/buckets')
 def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
     name = (payload or {}).get("name")
     if not name:
@@ -390,7 +385,7 @@ def api_admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_ad
     return admin_create_bucket(payload, _=_)
 
 
-@app.delete("/admin/buckets/{name}")
+@app.delete('/api/admin/buckets/{name}')
 def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
     try:
         svc = MinioService()
@@ -412,7 +407,7 @@ def api_admin_delete_bucket(name: str, force: bool = False, _=Depends(require_ad
     return admin_delete_bucket(name, force=force, _=_)
 
 
-@app.post("/transcribe-upload", response_model=CreateTaskResponse)
+@app.post('/api/transcribe-upload', response_model=CreateTaskResponse)
 def transcribe_upload(
     file: UploadFile = File(...),
     x_user_id: str | None = Header(None),
@@ -470,7 +465,7 @@ def transcribe_upload(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/format-raw", response_model=FormatRawResponse)
+@app.post('/api/format-raw', response_model=FormatRawResponse)
 def format_raw(payload: FormatRawRequest):
     """Accept JSON {"raw": "..."} and return formatted minutes as JSON."""
     raw = payload.raw
@@ -489,7 +484,7 @@ def api_format_raw(payload: FormatRawRequest):
     return format_raw(payload)
 
 
-@app.get("/status/{task_id}")
+@app.get('/api/status/{task_id}')
 def task_status(task_id: str):
     res = AsyncResult(task_id, app=celery)
     return {"task_id": task_id, "status": res.status, "info": str(res.info)}
@@ -505,7 +500,7 @@ def api_bg_status(task_id: str):
     return task_status(task_id)
 
 
-@app.get("/result/{task_id}")
+@app.get('/api/result/{task_id}')
 def task_result(task_id: str):
     res = AsyncResult(task_id, app=celery)
     if not res.ready():
@@ -605,7 +600,7 @@ def api_transcribe_upload(
     return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
 
 
-@app.get("/bg/status/{task_id}", response_model=StatusResponse)
+@app.get('/api/bg/status/{task_id}', response_model=StatusResponse)
 def bg_status(task_id: str):
     t = get_task(task_id)
     if not t:
@@ -614,7 +609,7 @@ def bg_status(task_id: str):
 
 
 @app.get(
-    "/bg/result/{task_id}",
+    '/api/bg/result/{task_id}',
     responses={
         200: {"description": "success", "content": {"application/json": {}}},
         202: {"description": "pending or failed"},
@@ -635,7 +630,7 @@ def api_bg_result(task_id: str):
     return bg_result(task_id)
 
 
-@app.get("/bg/history/{task_id}")
+@app.get('/api/bg/history/{task_id}')
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return task history events. Works with DB-backed store or file-backed fallback."""
     # DB-backed only: query TaskHistory rows for the given task id.
@@ -694,7 +689,7 @@ def api_bg_task_events(task_id: str):
     return bg_task_events(task_id)
 
 
-@app.post("/bg/task/{task_id}/rename")
+@app.post('/api/bg/task/{task_id}/rename')
 def bg_task_rename(task_id: str, payload: Dict[str, str]):
     """Rename a task display `name`.
 
@@ -724,7 +719,7 @@ def bg_task_rename(task_id: str, payload: Dict[str, str]):
         session.close()
 
 
-@app.post("/bg/task/{task_id}/regenerate-name")
+@app.post('/api/bg/task/{task_id}/regenerate-name')
 def bg_task_regenerate_name(task_id: str):
     """Regenerate the task display `name` from the output file using the local summarizer."""
     session = SessionLocal()
@@ -767,7 +762,7 @@ def bg_task_regenerate_name(task_id: str):
         session.close()
 
 
-@app.get("/bg/tasks")
+@app.get('/api/bg/tasks')
 def bg_tasks(limit: int = 50, offset: int = 0):
     """Return a paginated list of background tasks (DB-backed only).
 
@@ -838,7 +833,7 @@ def api_bg_tasks_alias(limit: int = 50, offset: int = 0):
 
 
 
-@app.get('/bg/events')
+@app.get('/api/bg/events')
 async def bg_events(request: Request):
     """Server-Sent Events endpoint streaming task events to clients.
 
@@ -868,14 +863,11 @@ async def bg_events(request: Request):
     return StreamingResponse(event_generator(), media_type='text/event-stream')
 
 
-@app.get('/api/bg/events')
-def api_bg_events(request: Request):
-    """Compatibility wrapper for `/api/bg/events` (SSE)."""
-    return bg_events(request)
 
 
 
-@app.get("/bg/tasks/{task_id}/events")
+
+@app.get('/api/bg/tasks/{task_id}/events')
 def bg_task_events(task_id: str):
     """Return all events for a task (descending by timestamp). This is intended for the "View full events" modal.
 
@@ -914,7 +906,7 @@ class IdList(BaseModel):
     offsets: Dict[str, int] | None = None
 
 
-@app.post("/bg/histories")
+@app.post('/api/bg/histories')
 def bg_histories(payload: IdList):
     """Return history entries for multiple task ids in one request.
 
@@ -1030,7 +1022,7 @@ def api_bg_histories(payload: IdList):
     return bg_histories(payload)
 
 
-@app.post("/bg/cancel/{task_id}")
+@app.post('/api/bg/cancel/{task_id}')
 def bg_cancel(task_id: str):
     """Request cancellation for a background task started via Celery.
 
@@ -1056,7 +1048,7 @@ def api_bg_cancel(task_id: str):
     return bg_cancel(task_id)
 
 
-@app.post("/bg/delete/{task_id}")
+@app.post('/api/bg/delete/{task_id}')
 def bg_delete(task_id: str):
     """Soft-delete a background task by marking its status as 'deleted'."""
     try:
@@ -1135,7 +1127,7 @@ def api_bg_force_delete(task_id: str):
     return bg_force_delete(task_id)
 
 
-@app.post("/bg/force-delete/{task_id}")
+@app.post('/api/bg/force-delete/{task_id}')
 def bg_force_delete(task_id: str):
     """Force-delete a background task: revoke running worker, remove outputs (MinIO/files),
     and delete DB Task and TaskHistory rows.
@@ -1221,7 +1213,7 @@ def bg_force_delete(task_id: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post("/bg/undelete/{task_id}")
+@app.post('/api/bg/undelete/{task_id}')
 def bg_undelete(task_id: str):
     """Attempt to restore a soft-deleted task to its prior lifecycle state.
 
@@ -1266,7 +1258,7 @@ def api_bg_undelete(task_id: str):
     return bg_undelete(task_id)
 
 
-@app.post("/bg/hard-delete/{task_id}")
+@app.post('/api/bg/hard-delete/{task_id}')
 def bg_hard_delete(task_id: str, request: Request = None):
     """Enqueue an admin-only hard-delete job to remove MinIO objects and DB rows."""
     # require admin if token configured
@@ -1292,7 +1284,7 @@ def api_bg_hard_delete(task_id: str, request: Request = None):
     return bg_hard_delete(task_id, request=request)
 
 
-@app.get("/bg/minutes/{task_id}")
+@app.get('/api/bg/minutes/{task_id}')
 def bg_minutes_file(task_id: str):
     """Return the rendered minutes text for a background task.
 
@@ -1649,7 +1641,7 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
                 pass
 
 
-@app.get("/bg/transcript/{task_id}")
+@app.get('/api/bg/transcript/{task_id}')
 def bg_transcript(task_id: str, format: str = "txt"):
     """Return the transcript portion. Supported formats: txt, md."""
     t = get_task(task_id)
@@ -1698,7 +1690,7 @@ def api_bg_transcript(task_id: str, format: str = "txt"):
     return bg_transcript(task_id, format=format)
 
 
-@app.get("/bg/summary/{task_id}")
+@app.get('/api/bg/summary/{task_id}')
 def bg_summary(task_id: str, format: str = "txt"):
     """Return a short summary. If the output contains a clearly delimited Summary section, use it; else run local summarizer."""
     t = get_task(task_id)
@@ -1749,13 +1741,10 @@ def bg_summary(task_id: str, format: str = "txt"):
     return Response(content=summary_text, media_type=media)
 
 
-@app.get("/api/bg/summary/{task_id}")
-def api_bg_summary(task_id: str, format: str = "txt"):
-    """Compatibility wrapper for frontend `/api/bg/summary/{task_id}`."""
-    return bg_summary(task_id, format=format)
 
 
-@app.get("/bg/action-items/{task_id}")
+
+@app.get('/api/bg/action-items/{task_id}')
 def bg_action_items(task_id: str, format: str = "json"):
     """Return action items. Supported formats: json, csv, txt"""
     t = get_task(task_id)
@@ -1827,7 +1816,4 @@ def bg_action_items(task_id: str, format: str = "json"):
     return JSONResponse({"error": "unsupported format"}, status_code=400)
 
 
-@app.get('/api/bg/action-items/{task_id}')
-def api_bg_action_items(task_id: str, format: str = 'json'):
-    """Compatibility wrapper for frontend `/api/bg/action-items/{task_id}`."""
-    return bg_action_items(task_id, format=format)
+
