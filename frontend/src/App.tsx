@@ -14,14 +14,47 @@ export default function App() {
   const [result, setResult] = useState<any | null>(null)
   const [activeView, setActiveView] = useState<NavigationView>('upload')
   const [isAdmin, setIsAdmin] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
 
   React.useEffect(() => {
     let mounted = true
-    getUserFeatures().then((f) => mounted && setIsAdmin(!!f && !!(f as any).is_admin)).catch(() => {})
+    const refresh = () => {
+      getUserFeatures()
+        .then((f) => {
+          if (!mounted) return
+          setIsAdmin(!!f && !!(f as any).is_admin)
+          setAuthenticated(Boolean((f as any)?.authenticated))
+          setAuthChecked(true)
+        })
+        .catch(() => {
+          if (!mounted) return
+          setIsAdmin(false)
+          setAuthenticated(false)
+          setAuthChecked(true)
+        })
+    }
+    refresh()
+    window.addEventListener('auth-changed', refresh)
     return () => {
       mounted = false
+      window.removeEventListener('auth-changed', refresh)
     }
   }, [])
+
+  if (authChecked && authenticated === false) {
+    // show minimal login UI for unauthenticated users
+    const LoginForm = React.lazy(() => import('./components/LoginForm'))
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--bg-default)]">
+        <React.Suspense fallback={<div>Loading...</div>}>
+          <div className="w-full max-w-md">
+            <LoginForm />
+          </div>
+        </React.Suspense>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg-default)] text-[var(--text-primary)]">

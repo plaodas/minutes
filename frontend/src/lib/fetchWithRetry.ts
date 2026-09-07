@@ -17,6 +17,11 @@ export async function fetchWithRetry(input: RequestInfo, init?: RequestInit, opt
     try {
       const res = await fetch(input, { ...init, signal: controller.signal })
       clearTimeout(id)
+      // global handling: if server rejects with 401, notify app and treat as non-retryable
+      if (res.status === 401) {
+        try { window.dispatchEvent(new CustomEvent('auth-changed')) } catch (e) {}
+        throw res
+      }
       // If it's a client error (4xx) that is not authentication, treat as non-retryable
       if (!res.ok && !(res.status >= 500 && res.status < 600)) {
         throw res

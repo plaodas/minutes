@@ -202,6 +202,49 @@ def _run_pipeline_background(input_path: str, task_id: str):
 
 app = FastAPI(title="Minutes Service (prototype)")
 
+
+# Authentication middleware: require login for most API routes, allow explicit exemptions
+@app.middleware("http")
+async def require_login_middleware(request: Request, call_next):
+    # Paths that should remain public
+    exempt_prefixes = (
+        '/auth',
+        '/api/auth',
+        '/api/health',
+        '/api/public',
+        '/static',
+        '/assets',
+        '/',
+        '/index.html',
+        '/favicon.ico',
+        '/playwright',
+    )
+    path = request.url.path or ''
+    # Allow OPTIONS preflight
+    if request.method == 'OPTIONS':
+        return await call_next(request)
+    for p in exempt_prefixes:
+        if path == p or path.startswith(p + '/') or path.startswith(p):
+            return await call_next(request)
+
+    # attempt to validate session cookie
+    try:
+        cookie = request.cookies.get('minutes_session')
+        user = None
+        if cookie:
+            try:
+                user = get_current_user_from_cookie(cookie)
+            except Exception:
+                user = None
+        if not user:
+            return JSONResponse({'error': 'unauthenticated'}, status_code=401)
+        # attach user to request state for handlers that want it
+        request.state.user = user
+    except Exception:
+        return JSONResponse({'error': 'unauthenticated'}, status_code=401)
+
+    return await call_next(request)
+
 # Admin token for simple admin API protection (optional)
 ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
 

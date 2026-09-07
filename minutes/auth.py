@@ -6,6 +6,7 @@ from typing import Optional
 import jwt
 from fastapi import Cookie, HTTPException, status
 from passlib.hash import pbkdf2_sha256
+from fastapi import Depends
 
 from minutes.db import SessionLocal
 from minutes.models import User
@@ -65,3 +66,14 @@ def get_current_user_from_cookie(token: Optional[str]) -> Optional[User]:
     if not sub:
         return None
     return get_user_by_id(sub)
+
+
+def require_current_user(minutes_session: Optional[str] = Cookie(None)) -> User:
+    """FastAPI dependency to require a logged-in user via the `minutes_session` cookie.
+
+    Raises HTTP 401 if not authenticated.
+    """
+    user = get_current_user_from_cookie(minutes_session)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return user
