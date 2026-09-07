@@ -124,6 +124,26 @@ export async function getUserFeatures() {
   return res.json()
 }
 
+export async function login(username: string, password: string) {
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || 'login failed')
+  }
+  return res.json()
+}
+
+export async function logout() {
+  const res = await fetch(`${BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
+  if (!res.ok) throw new Error('logout failed')
+  return res.json()
+}
+
 export async function getBuckets() {
   const res = await fetch(`${BASE}/buckets`, { credentials: 'same-origin' })
   if (!res.ok) throw new Error('failed to fetch buckets')

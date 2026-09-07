@@ -6,6 +6,7 @@ import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide
 import UserIdWidget from './UserIdWidget'
 import { useTasks } from '../hooks/useTasks'
 import { useToast } from './ToastProvider'
+const LoginForm = React.lazy(() => import('./LoginForm'))
 
 const sampleMinutes = [
   { name: 'Product planning.mp3', date: 'Today, 09:42', duration: '42 min', status: 'Ready', id: 'sample-1', created_at: new Date().toISOString() },
@@ -361,6 +362,13 @@ export function SettingsView() {
 
   return (
     <section>
+      <div className="mb-6">
+        {/* Login form */}
+        {/* lazy load to avoid circular imports in some bundlers */}
+        <React.Suspense fallback={<div className="p-4">Loading auth...</div>}>
+          <LoginForm />
+        </React.Suspense>
+      </div>
       <div className="mb-7">
         <p className="text-sm font-medium text-[var(--accent)]">Preferences</p>
         <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Settings</h1>
