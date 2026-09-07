@@ -10,8 +10,8 @@ export default function BucketsAdmin() {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await getBuckets()
-      setBuckets(data || [])
+    const data = await getBuckets()
+    setBuckets((data && data.buckets) || [])
     } catch (e: any) {
       setError(e.message || 'failed')
     } finally {
