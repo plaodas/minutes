@@ -94,3 +94,26 @@ celery -A minutes.celery_app.celery worker --loglevel=info
 ## ライセンス
 - リポジトリにライセンスファイルがある場合はそちらを参照してください。
 
+## CI / 本番デプロイ（フロントエンド）
+
+このリポジトリはフロントエンドのビルド成果物を `deploy/frontend_html/` に配置し、`nginx` がそれを配信する構成です。CI パイプラインでは以下のいずれかの方法で扱えます。
+
+- ローカル／手動デプロイ（ホスト上で実行）:
+
+```bash
+# ビルド → 配置 → nginx 再起動
+make deploy-frontend
+```
+
+- CI（アーティファクト生成）:
+
+```bash
+# CI イメージ上で実行（npm ci を使い決定論的に依存をインストール）
+make ci-frontend-artifact
+# 成果物は artifacts/frontend_html.tar.gz に作成されます。CI からはこのアーティファクトを取り出して本番サーバへ配布してください。
+```
+
+注意:
+- `deploy/frontend_html/` と `frontend/dist/` はビルド成果物のため `.gitignore` に登録されています。
+- 本番では CDN やオブジェクトストレージを使って静的ファイルを配信することを推奨します。
+

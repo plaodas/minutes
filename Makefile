@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 .PHONY: frontend-build frontend-deploy nginx-reload deploy-frontend
+.PHONY: ci-frontend-build ci-frontend-artifact
 
 # Build the frontend (installs deps if needed) and outputs to frontend/dist
 frontend-build:
@@ -25,6 +26,19 @@ nginx-reload:
 # Combined target: build, deploy to host dir, and reload nginx
 deploy-frontend: frontend-deploy nginx-reload
 	@echo "Frontend deployed and nginx reloaded."
+
+# CI-friendly: install with npm ci, build, and produce a tarball artifact
+ci-frontend-build:
+	@echo "CI: Building frontend (npm ci + build)..."
+	cd frontend && npm ci && npm run build
+	@echo "CI: copying build to deploy/frontend_html"
+	./scripts/deploy_frontend.sh --no-install
+
+ci-frontend-artifact: ci-frontend-build
+	@echo "CI: creating artifact artifacts/frontend_html.tar.gz"
+	mkdir -p artifacts
+	tar -C deploy -czf artifacts/frontend_html.tar.gz frontend_html
+	@echo "CI artifact created: artifacts/frontend_html.tar.gz"
 # Project Makefile
 
 .PHONY: build
