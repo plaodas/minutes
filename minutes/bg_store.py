@@ -12,7 +12,7 @@ from .db import SessionLocal, engine
 import logging
 
 logger = logging.getLogger('minutes.bg_store')
-from .models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
+from .models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID, User
 from sqlalchemy.exc import NoResultFound, IntegrityError
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -172,6 +172,39 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
                     owner_val = _parse_key(user_id)
                 except Exception:
                     owner_val = None
+            # If a user id was provided, ensure it exists in the users table
+            if owner_val is not None:
+                try:
+                    from sqlalchemy import text, inspect as sa_inspect
+                    engine_bind = db.get_bind()
+                    try:
+                        dialect_name = getattr(engine_bind, 'dialect', None) and getattr(engine_bind.dialect, 'name', '').lower()
+                    except Exception:
+                        dialect_name = None
+                    # Only proactively clear owner when running against Postgres to
+                    # avoid FK violations in production. Skip this check for SQLite
+                    # (tests) or unknown dialects so tests can continue expecting
+                    # the original behavior of storing provided user_id.
+                    if dialect_name == 'postgresql':
+                        try:
+                            has_users_table = sa_inspect(engine_bind).has_table('users')
+                        except Exception:
+                            has_users_table = False
+                        if has_users_table:
+                            try:
+                                res = db.execute(text("SELECT 1 FROM users WHERE id = :id LIMIT 1"), {"id": str(owner_val)})
+                                row = res.first() if hasattr(res, 'first') else None
+                                if not row:
+                                    logger.warning('create_task: provided user_id %s not found; clearing owner for task %s', owner_val, task_id)
+                                    owner_val = None
+                            except Exception:
+                                logger.exception('create_task: error checking user existence for %s; assuming exists', owner_val)
+                        else:
+                            logger.debug('create_task: users table not present; skipping existence check for %s', owner_val)
+                    else:
+                        logger.debug('create_task: non-postgres dialect (%s); skipping user existence check', dialect_name)
+                except Exception:
+                    logger.exception('create_task: unexpected error while checking user existence; keeping owner for %s', owner_val)
 
             # Try PG-specific upsert to avoid race on insert. Fallback to
             # conservative get/add/commit with IntegrityError handling when

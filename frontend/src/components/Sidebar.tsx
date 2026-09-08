@@ -115,7 +115,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
             <span className="ml-3 text-sm font-medium">Sign out</span>
           </button>
         </div>
-        <footer className="mt-4 text-xs text-[var(--muted)]">v0.1 · Offline ready</footer>
+        <footer className="mt-4 text-xs text-[var(--muted)]">v0.1</footer>
       </aside>
 
       <aside className={`hidden min-h-screen shrink-0 flex-col bg-white p-3 transition-all duration-200 md:flex ${expanded ? 'w-60' : 'w-16'}`}>
@@ -157,7 +157,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
             {expanded && <span className="text-sm font-medium">Sign out</span>}
           </button>
         </div>
-        {expanded && <footer className="mt-4 text-xs text-[var(--muted)]">v0.1 · Offline ready</footer>}
+        {expanded && <footer className="mt-4 text-xs text-[var(--muted)]">v0.1</footer>}
       </aside>
     </>
   )
