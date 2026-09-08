@@ -80,6 +80,12 @@ docker compose down
 このセクションは開発運用に合わせて随時更新してください。
 
 ショートカット
+<!-- TODO: make clean, deploy_frontend.sh, or make dev-nginx -->
+- フロントエンドをデプロイ:
+```bash
+./scripts/deploy_frontend.sh
+```
+
 
 - リポジトリルートに `Makefile` と `scripts/dev-nginx.sh` を追加しました。ワンコマンドでフロントエンドビルドと nginx 付きの開発スタックを起動するには:
 
