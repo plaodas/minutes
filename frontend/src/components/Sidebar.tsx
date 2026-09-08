@@ -1,5 +1,5 @@
 import React from 'react'
-import { Archive, ChevronLeft, ChevronRight, Menu, Settings, Upload, X, LogOut } from 'lucide-react'
+import { Archive, ChevronLeft, ChevronRight, Menu, Settings, Upload, X, LogOut, SlidersHorizontal } from 'lucide-react'
 import { logout } from '../api/client'
 import { useToast } from './ToastProvider'
 import useLocalStorage from '../hooks/useLocalStorage'
@@ -18,7 +18,7 @@ const itemsBase: Array<{ view: NavigationView; label: string; icon: React.ReactN
   { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
 ]
 
-const adminItem = { view: 'admin' as NavigationView, label: 'Buckets', icon: <Archive size={18} /> }
+const adminItem = { view: 'admin' as NavigationView, label: 'Admin', icon: <SlidersHorizontal size={18} /> }
 
 export default function Sidebar({ activeView, onNavigate, showAdmin = false }: Props) {
   const [expanded, setExpanded] = useLocalStorage('sidebar-expanded', true)

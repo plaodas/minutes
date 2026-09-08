@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { getBuckets, createBucket } from '../api/client'
+import UserIdWidget from './UserIdWidget'
+
+// BucketsAdmin also hosts other admin tools (service tokens, user id helper)
 
 export default function BucketsAdmin() {
   const [buckets, setBuckets] = useState<any[]>([])
@@ -21,6 +24,15 @@ export default function BucketsAdmin() {
 
   useEffect(() => { load() }, [])
 
+  const [features, setFeatures] = useState<{ authenticated?: boolean } | null>(null)
+  useEffect(() => {
+    let mounted = true
+    import('../api/client').then(({ getUserFeatures }) => {
+      getUserFeatures().then((f) => { if (mounted) setFeatures(f) }).catch(() => { if (mounted) setFeatures({ authenticated: false }) })
+    })
+    return () => { mounted = false }
+  }, [])
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -36,9 +48,11 @@ export default function BucketsAdmin() {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Bucket management</h2>
-        <p className="text-sm text-[var(--muted)]">Create and view storage buckets. Admins only.</p>
+        <h2 className="text-lg font-semibold">Admin Tools</h2>
+        <p className="text-sm text-[var(--muted)]">Manage buckets, service tokens, and admin helpers.</p>
       </div>
+
+      {(!features || features.authenticated === false) && <div className="mb-4"><UserIdWidget /></div>}
 
       <form onSubmit={handleCreate} className="mb-4 flex gap-2">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="bucket-name" className="rounded border px-2 py-1" />

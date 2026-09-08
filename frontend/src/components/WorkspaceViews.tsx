@@ -3,7 +3,7 @@ import useLocalStorage from '../hooks/useLocalStorage'
 import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
-import UserIdWidget from './UserIdWidget'
+// UserIdWidget moved to BucketsAdmin
 import { useTasks } from '../hooks/useTasks'
 import { useToast } from './ToastProvider'
 const LoginForm = React.lazy(() => import('./LoginForm'))
@@ -381,19 +381,12 @@ export function SettingsView() {
 
   return (
     <section>
-      <div className="mb-6">
-        {/* Login form */}
-        {/* lazy load to avoid circular imports in some bundlers */}
-        <React.Suspense fallback={<div className="p-4">Loading auth...</div>}>
-          <LoginForm />
-        </React.Suspense>
-      </div>
       <div className="mb-7">
         <p className="text-sm font-medium text-[var(--accent)]">Preferences</p>
         <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Settings</h1>
       </div>
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        {(!features || features.authenticated === false) && <UserIdWidget />}
+        {/* UserIdWidget moved to the admin area */}
         <div className="flex items-start gap-3 border-b border-slate-100 p-4">
           <span className="rounded-md bg-teal-50 p-2 text-[var(--accent)]"><SlidersHorizontal size={20} /></span>
           <div className="min-w-0 flex-1">

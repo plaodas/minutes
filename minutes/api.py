@@ -265,12 +265,42 @@ def _get_admin_token_from_request(req: Request | None):
 
 
 def require_admin(req: Request = None):
+    """Require an admin caller.
+
+    Resolution order:
+    1. If the request has an authenticated user attached to `request.state.user` and
+       that user has `is_admin`, allow.
+    2. Otherwise, if `ADMIN_API_TOKEN` is configured, require the token via
+       `X-Admin-Token` or `Authorization: Bearer <token>`.
+    3. Otherwise deny.
+    """
+    # 1) cookie / session-based admin (middleware attaches request.state.user)
+    try:
+        if req is not None:
+            user = getattr(req.state, 'user', None)
+            if user and getattr(user, 'is_admin', False):
+                return True
+    except Exception:
+        # ignore and fallthrough to token check
+        pass
+
+    # 2) admin API token fallback
     token = _get_admin_token_from_request(req)
-    if not ADMIN_API_TOKEN:
-        raise HTTPException(status_code=403, detail="admin API not enabled")
-    if token != ADMIN_API_TOKEN:
+    if ADMIN_API_TOKEN:
+        if token == ADMIN_API_TOKEN:
+            # If the admin token is used, attach a pseudo-user to request.state.user
+            try:
+                from types import SimpleNamespace
+                if req is not None:
+                    req.state.user = SimpleNamespace(id='admin-token', is_admin=True, username='admin-token')
+            except Exception:
+                pass
+            return True
+        # admin token configured but not provided / mismatch
         raise HTTPException(status_code=403, detail="forbidden")
-    return True
+
+    # 3) no admin mechanism available
+    raise HTTPException(status_code=403, detail="admin API not enabled")
 
 # CORS: allow local dev origins used by the frontend and Playwright
 app.add_middleware(

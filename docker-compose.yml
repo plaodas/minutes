@@ -24,6 +24,7 @@ services:
       - FORCE_ADMIN=true
       - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-outputs}
       - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN}
       # - ENV=production
       # - FORCE_HTTPS=1
       - ENV=dev
