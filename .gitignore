@@ -104,3 +104,8 @@ models/
 local_settings.py
 secrets.json
 data/bg_tasks.json
+
+# Frontend build outputs (generated)
+deploy/frontend_html/
+frontend/dist/
+frontend/node_modules/

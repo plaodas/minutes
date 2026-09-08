@@ -23,6 +23,11 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
       - FORCE_ADMIN=true
       - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-outputs}
+      - JWT_SECRET=${JWT_SECRET}
+      # - ENV=production
+      # - FORCE_HTTPS=1
+      - ENV=dev
+      - FORCE_HTTPS=0
     env_file:
       - .env
     depends_on:
@@ -116,7 +121,7 @@ services:
       - "80:80"
     volumes:
       - ./deploy/nginx_test.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./deploy/frontend_html:/var/www/html:ro
     depends_on:
       - minutes
       - redis

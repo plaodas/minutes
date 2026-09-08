@@ -14,7 +14,7 @@ export function useTasks() {
     setLoading(true)
     setError(null)
     try {
-      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+      const BASE = (import.meta.env.VITE_API_BASE || '/api')
       const res = await fetchWithRetry(`${BASE}/bg/tasks`, { credentials: 'same-origin' }, { retries: 3, timeoutMs: 10000 })
       const data = await res.json()
       const payload = (data && data.tasks) ? data.tasks : data
@@ -56,7 +56,7 @@ export function useTasks() {
     const onOnline = () => load()
     window.addEventListener('online', onOnline)
     // Subscribe to server-sent events for live task updates
-    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+    const BASE = (import.meta.env.VITE_API_BASE || '/api')
     let es: EventSource | null = null
     try {
       if (typeof window !== 'undefined' && (window as any).EventSource) {

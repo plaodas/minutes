@@ -74,7 +74,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
     setModalTask(id)
     // fetch full events for this task once (modal will display full events)
     ;(async () => {
-      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+      const BASE = (import.meta.env.VITE_API_BASE || '/api')
       try {
         setLoadingPerTask((s) => ({ ...s, [id]: true }))
         const res = await fetch(`${BASE}/bg/tasks/${id}/events`)
@@ -161,7 +161,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           setLoadingMore(true)
                 ;(async () => {
                   try {
-                    const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                    const BASE = (import.meta.env.VITE_API_BASE || '/api')
                     const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
                     const offset = items.length
                     // If offset is 0 the initial page is already loaded via `useTasks`.
@@ -294,7 +294,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   const newName = window.prompt('Enter new name for this task', items.find((it) => it.id === modalTask)?.name || '')
                   if (!newName) return
                     try {
-                      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                      const BASE = (import.meta.env.VITE_API_BASE || '/api')
                       // use fetchWithRetry but with zero retries to get timeout/abort behavior without unsafe POST retries
                       const res = await fetchWithRetry(`${BASE}/bg/task/${modalTask}/rename`, {
                         method: 'POST',
@@ -320,7 +320,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   <div className="mt-2 text-xs">
                     <pre className="rounded bg-slate-50 p-2 text-xs">{JSON.stringify(h.payload, null, 2)}</pre>
                     {h.payload?.result?.output_file && (
-                      <div className="mt-2 text-sm"><a target="_blank" rel="noreferrer" href={(import.meta.env.VITE_API_BASE || 'http://localhost:8000') + '/' + h.payload.result.output_file}>Open output file</a></div>
+                      <div className="mt-2 text-sm"><a target="_blank" rel="noreferrer" href={(import.meta.env.VITE_API_BASE || '/api') + '/' + h.payload.result.output_file}>Open output file</a></div>
                     )}
                   </div>
                 </div>

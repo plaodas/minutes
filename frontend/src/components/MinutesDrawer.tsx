@@ -46,7 +46,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     }
     ;(async () => {
       try {
-        const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+        const BASE = (import.meta.env.VITE_API_BASE || '/api')
         const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
         const res = await fetchWithRetry(`${BASE}/bg/tasks`, { credentials: 'same-origin' }, { retries: 1, timeoutMs: 8000 })
         if (!res.ok) return
@@ -64,7 +64,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
       setLoading(true)
       setError(null)
       setText(null)
-      const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+      const BASE = (import.meta.env.VITE_API_BASE || '/api')
       try {
         const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
         const res = await fetchWithRetry(`${BASE}/bg/minutes/${taskId}`, { credentials: 'same-origin' }, { retries: 2, timeoutMs: 10000 })
@@ -219,7 +219,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
               const newName = window.prompt('Enter new name for this task', taskName || '')
               if (!newName) return
               try {
-                const BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:8000')
+                const BASE = (import.meta.env.VITE_API_BASE || '/api')
                 const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
                 const res = await fetchWithRetry(`${BASE}/bg/task/${taskId}/rename`, {
                   method: 'POST',

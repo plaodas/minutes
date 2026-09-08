@@ -42,6 +42,15 @@ const pwaOptions = {
 export default defineConfig({
   plugins: [react(), VitePWA(pwaOptions)],
   server: {
-    port: 5173
+    port: 5173,
+    proxy: {
+      // Proxy all /api requests to the backend running on :8000
+      // Backend uses /api/* routes, so no rewrite is necessary.
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   }
 })
