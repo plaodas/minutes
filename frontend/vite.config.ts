@@ -28,7 +28,7 @@ const pwaOptions = {
         // unexpected network errors. Use NetworkOnly so requests
         // are always forwarded to the network/backend.
         handler: 'NetworkOnly',
-        options: { cacheName: 'api-cache' }
+        options: { cacheName: 'api-cache', fetchOptions: { credentials: 'same-origin' } }
       },
       {
         urlPattern: /\.(?:js|css|png|jpg|jpeg|svg)$/,

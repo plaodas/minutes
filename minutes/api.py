@@ -21,32 +21,27 @@ import os
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw
-from minutes.tasks import process_audio
-import minutes.tasks as tasks
+# Import `minutes.tasks` lazily inside handlers to avoid pulling in DB
+# configuration (and causing runtime errors) at module import time during
+# test collection.
 from minutes.celery_app import celery
 from celery.result import AsyncResult
-from minutes.bg_store import (
-    create_task,
-    update_task_success,
-    update_task_failure,
-    get_task,
-    update_task_status,
-)
-from minutes.bg_store import update_task_cancelled
-from minutes.bg_store import DB_PATH
+# `minutes.bg_store` and DB session machinery are imported lazily inside
+# request handlers so test collection and simple imports don't require a
+# configured DATABASE_URL at module import time.
 from minutes.sse import register_queue, unregister_queue
 import uuid
-from minutes.db import SessionLocal
-from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
+from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID, ServiceToken
 from sqlalchemy.exc import IntegrityError
 import uuid
-from minutes.reconcile_bg_tasks import reconcile_once
+# Reconciliation helper imported lazily inside startup handler to avoid
+# importing bg_store/db at module import time.
 import time
 from minutes.minio_client import MinioService
 import typing
 from fastapi.responses import StreamingResponse
 from fastapi import Header, Cookie, Response
-from minutes.auth import create_access_token, get_current_user_from_cookie, verify_password
+# Auth helpers imported lazily inside handlers to avoid importing DB at module import time
 
 # Allowed upload file types
 ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
@@ -115,6 +110,44 @@ MAX_IDS_PER_REQUEST = int(os.environ.get("MAX_BG_HISTORIES_IDS", "500"))
 HARD_IDS_LIMIT = int(os.environ.get("MAX_BG_HISTORIES_HARD_LIMIT", "5000"))
 # Internal batch size used to split large id lists into smaller DB IN(...) queries
 BG_HISTORIES_BATCH_SIZE = int(os.environ.get("BG_HISTORIES_BATCH_SIZE", "200"))
+
+
+def _bg_store():
+    import minutes.bg_store as bg
+
+    return bg
+
+
+# Module-level proxies for bg_store functions. These allow tests to monkeypatch
+# `minutes.api.create_task` etc. without importing the DB-backed store at module
+# import time.
+def create_task(*args, **kwargs):
+    return _bg_store().create_task(*args, **kwargs)
+
+
+def get_task(*args, **kwargs):
+    return _bg_store().get_task(*args, **kwargs)
+
+
+def update_task_status(*args, **kwargs):
+    return _bg_store().update_task_status(*args, **kwargs)
+
+
+def update_task_success(*args, **kwargs):
+    return _bg_store().update_task_success(*args, **kwargs)
+
+
+def update_task_failure(*args, **kwargs):
+    return _bg_store().update_task_failure(*args, **kwargs)
+
+
+def update_task_cancelled(*args, **kwargs):
+    return _bg_store().update_task_cancelled(*args, **kwargs)
+
+
+def record_history(*args, **kwargs):
+    return _bg_store().record_history(*args, **kwargs)
+
 
 
 def _run_pipeline_background(input_path: str, task_id: str):
@@ -212,6 +245,8 @@ async def require_login_middleware(request: Request, call_next):
         '/api/auth',
         '/api/health',
         '/api/public',
+        '/admin',
+        '/api/admin',
         '/static',
         '/assets',
         '/',
@@ -221,6 +256,7 @@ async def require_login_middleware(request: Request, call_next):
         # Public upload endpoints used by clients/tests
         '/transcribe-upload',
         '/transcribe-upload-bg',
+        '/api/bg',
         # Background task/status endpoints
         '/bg',
     )
@@ -229,11 +265,14 @@ async def require_login_middleware(request: Request, call_next):
     if request.method == 'OPTIONS':
         return await call_next(request)
     for p in exempt_prefixes:
-        if path == p or path.startswith(p + '/') or path.startswith(p):
+        # match exact prefix or prefix followed by '/' to avoid accidental
+        # matching of unrelated paths (avoid matching '/' for all requests)
+        if path == p or path.startswith(p + '/'):
             return await call_next(request)
 
     # attempt to validate session cookie
     try:
+        from minutes.auth import get_current_user_from_cookie
         cookie = request.cookies.get('minutes_session')
         user = None
         if cookie:
@@ -320,6 +359,8 @@ async def startup_reconciler():
     """
     logger = logging.getLogger("minutes.api")
     try:
+        # import lazily to avoid importing DB-backed modules at import time
+        from minutes.reconcile_bg_tasks import reconcile_once
         # run once immediately in a thread to avoid blocking the event loop
         await asyncio.to_thread(reconcile_once)
         logger.info("Initial bg task reconciliation completed")
@@ -332,6 +373,7 @@ async def startup_reconciler():
         while True:
             try:
                 await asyncio.sleep(interval)
+                from minutes.reconcile_bg_tasks import reconcile_once
                 await asyncio.to_thread(reconcile_once)
                 logger.info("Periodic bg task reconciliation completed")
             except asyncio.CancelledError:
@@ -385,6 +427,7 @@ def admin_list_buckets(_=Depends(require_admin)):
     try:
         svc = MinioService()
         # List DB-backed buckets first, then include any MinIO-only buckets
+        from minutes.db import SessionLocal
         session = SessionLocal()
         try:
             db_buckets = {b.name: b for b in session.query(Bucket).all()}
@@ -443,6 +486,7 @@ def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)
         svc = MinioService()
         svc.create_bucket(name, public=public)
         # create DB record if not exists
+        from minutes.db import SessionLocal
         session = SessionLocal()
         try:
             existing = session.query(Bucket).filter(Bucket.name == name).one_or_none()
@@ -470,6 +514,7 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
         svc = MinioService()
         svc.delete_bucket(name, force=force)
         # remove DB record if present
+        from minutes.db import SessionLocal
         session = SessionLocal()
         try:
             session.query(Bucket).filter(Bucket.name == name).delete()
@@ -516,7 +561,9 @@ def transcribe_upload(
         with open(dest_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
 
-        # Enqueue Celery task (use minutes.tasks so tests can monkeypatch it)
+        # Enqueue Celery task (import minutes.tasks lazily so test imports
+        # don't require DB configuration at module import time)
+        import minutes.tasks as tasks
         proc = tasks.process_audio
         if hasattr(proc, "delay"):
             task = proc.delay(dest_path)
@@ -633,6 +680,7 @@ def transcribe_upload_bg(
 
     # Enqueue as a Celery task so we can support revoke/terminate later.
     try:
+        import minutes.tasks as tasks
         proc = tasks.process_audio
         if hasattr(proc, "delay"):
             task = proc.delay(dest_path)
@@ -735,6 +783,7 @@ def api_bg_result(task_id: str):
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return task history events. Works with DB-backed store or file-backed fallback."""
     # DB-backed only: query TaskHistory rows for the given task id.
+    from minutes.db import SessionLocal
     session = SessionLocal()
     try:
         try:
@@ -799,6 +848,7 @@ def bg_task_rename(task_id: str, payload: Dict[str, str]):
     name = (payload or {}).get("name")
     if not name:
         return JSONResponse({"error": "missing name"}, status_code=400)
+    from minutes.db import SessionLocal
     session = SessionLocal()
     try:
         try:
@@ -823,6 +873,7 @@ def bg_task_rename(task_id: str, payload: Dict[str, str]):
 @app.post('/api/bg/task/{task_id}/regenerate-name')
 def bg_task_regenerate_name(task_id: str):
     """Regenerate the task display `name` from the output file using the local summarizer."""
+    from minutes.db import SessionLocal
     session = SessionLocal()
     try:
         try:
@@ -873,6 +924,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     # Cursor format: "<updated_at_iso>|<id>" (optional). If not provided, fall back to offset paging.
     from datetime import datetime
 
+    from minutes.db import SessionLocal
     session = SessionLocal()
     try:
         cursor = None
@@ -974,6 +1026,7 @@ def bg_task_events(task_id: str):
 
     Returns: { task_id, events: [ { event_ts, event_type, payload }, ... ] }
     """
+    from minutes.db import SessionLocal
     session = SessionLocal()
     try:
         try:
@@ -1045,6 +1098,7 @@ def bg_histories(payload: IdList):
     out: Dict[str, List[Dict[str, Any]]] = {}
 
     # DB-backed path only: reuse a single session and process ids in chunks
+    from minutes.db import SessionLocal
     session = SessionLocal()
     try:
         # pre-fill keys with empty lists so missing ids return []
@@ -1521,6 +1575,7 @@ def auth_features(x_admin: str | None = Header(None), minutes_session: str | Non
         # attempt cookie-based user detection
         user = None
         try:
+            from minutes.auth import get_current_user_from_cookie
             if minutes_session:
                 user = get_current_user_from_cookie(minutes_session)
         except Exception:
@@ -1549,6 +1604,8 @@ class LoginReq(BaseModel):
 @app.post('/auth/login')
 def auth_login(payload: LoginReq, response: Response):
     """Login endpoint: sets HttpOnly cookie `minutes_session` on success."""
+    from minutes.db import SessionLocal
+    from minutes.auth import verify_password
     db = SessionLocal()
     try:
         user = db.query(Task.__table__.metadata.bind.mapper.class_).filter_by(username=payload.username).one_or_none()
@@ -1626,6 +1683,7 @@ def api_create_service_token(payload: CreateServiceTokenReq, _=Depends(require_a
 
 @app.get('/api/service-tokens')
 def api_list_service_tokens(_=Depends(require_admin)):
+    from minutes.db import SessionLocal
     db = SessionLocal()
     try:
         rows = db.query(ServiceToken).all()
@@ -1639,6 +1697,7 @@ def api_list_service_tokens(_=Depends(require_admin)):
 
 @app.delete('/api/service-tokens/{token_id}')
 def api_revoke_service_token(token_id: str, _=Depends(require_admin)):
+    from minutes.db import SessionLocal
     db = SessionLocal()
     try:
         try:
@@ -1719,6 +1778,7 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
     except Exception as exc:
         return JSONResponse({"error": f"minio create failed: {str(exc)}"}, status_code=502)
 
+    from minutes.db import SessionLocal
     db = SessionLocal()
     try:
         existing = db.query(Bucket).filter(Bucket.name == payload.name).one_or_none()
@@ -1747,6 +1807,7 @@ def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None =
     """List buckets. Admins see all; non-admins see only their own buckets."""
     is_admin = _is_request_admin(x_admin)
     user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
+    from minutes.db import SessionLocal
     db = SessionLocal()
     try:
         q = db.query(Bucket)
