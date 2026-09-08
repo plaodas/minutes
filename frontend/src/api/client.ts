@@ -2,11 +2,26 @@ import fetchWithRetry from '../lib/fetchWithRetry'
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {}
+  try {
+    const token = localStorage.getItem('minutes.serviceToken') || localStorage.getItem('service_token') || import.meta.env.VITE_SERVICE_TOKEN
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+      return headers
+    }
+  } catch (e) {}
+  return headers
+}
+
 export async function uploadAudioBg(file: File) {
   const fd = new FormData()
   fd.append('file', file)
-  const headers: Record<string, string> = {}
-  try { const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id'); if (uid) headers['X-User-Id'] = uid } catch {}
+  const headers: Record<string, string> = { ...getAuthHeaders() }
+  // fallback to X-User-Id for legacy clients/tests
+  if (!headers['Authorization']) {
+    try { const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id'); if (uid) headers['X-User-Id'] = uid } catch {}
+  }
   // include user settings (language, include_actions) if present
   try {
     const raw = localStorage.getItem('minutes.settings')
@@ -27,7 +42,14 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
   fd.append('file', file)
   xhr.open('POST', `${BASE}/transcribe-upload-bg`)
 
-  try { const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id'); if (uid) xhr.setRequestHeader('X-User-Id', uid) } catch {}
+  try {
+    const auth = getAuthHeaders()
+    if (auth['Authorization']) xhr.setRequestHeader('Authorization', auth['Authorization'])
+    else {
+      const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id')
+      if (uid) xhr.setRequestHeader('X-User-Id', uid)
+    }
+  } catch {}
 
   // include user settings (language, include_actions) if present
   try {
@@ -73,19 +95,19 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
 }
 
 export async function getBgStatus(taskId: string) {
-  const res = await fetchWithRetry(`${BASE}/bg/status/${taskId}`, { credentials: 'same-origin' }, { retries: 3, timeoutMs: 10000 })
+  const res = await fetchWithRetry(`${BASE}/bg/status/${taskId}`, { credentials: 'same-origin', headers: getAuthHeaders() }, { retries: 3, timeoutMs: 10000 })
   if (!res.ok) throw new Error('status fetch failed')
   return res.json()
 }
 
 export async function getBgResult(taskId: string) {
-  const res = await fetchWithRetry(`${BASE}/bg/result/${taskId}`, { credentials: 'same-origin' }, { retries: 3, timeoutMs: 10000 })
+  const res = await fetchWithRetry(`${BASE}/bg/result/${taskId}`, { credentials: 'same-origin', headers: getAuthHeaders() }, { retries: 3, timeoutMs: 10000 })
   if (!res.ok) throw new Error('result fetch failed')
   return res.json()
 }
 
 async function _downloadBlob(url: string) {
-  const res = await fetchWithRetry(url, { credentials: 'same-origin' }, { retries: 2, timeoutMs: 30000 })
+  const res = await fetchWithRetry(url, { credentials: 'same-origin', headers: getAuthHeaders() }, { retries: 2, timeoutMs: 30000 })
   if (!res.ok) throw new Error(`download failed: ${res.status}`)
   const blob = await res.blob()
   return { blob, headers: res.headers }
@@ -107,13 +129,13 @@ export async function fetchActionItemsDownload(taskId: string, format: string = 
 }
 
 export async function deleteTask(taskId: string) {
-  const res = await fetch(`${BASE}/bg/delete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin' })
+  const res = await fetch(`${BASE}/bg/delete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin', headers: getAuthHeaders() })
   if (!res.ok) throw new Error('delete failed')
   return res.json()
 }
 
 export async function forceDeleteTask(taskId: string) {
-  const res = await fetch(`${BASE}/bg/force-delete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin' })
+  const res = await fetch(`${BASE}/bg/force-delete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin', headers: getAuthHeaders() })
   if (!res.ok) throw new Error('force delete failed')
   return res.json()
 }
@@ -153,7 +175,7 @@ export async function logout() {
 }
 
 export async function getBuckets() {
-  const res = await fetch(`${BASE}/buckets`, { credentials: 'same-origin' })
+  const res = await fetch(`${BASE}/buckets`, { credentials: 'same-origin', headers: getAuthHeaders() })
   if (!res.ok) throw new Error('failed to fetch buckets')
   return res.json()
 }
@@ -162,15 +184,38 @@ export async function createBucket(name: string) {
   const res = await fetch(`${BASE}/buckets`, {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ name }),
   })
   if (!res.ok) throw new Error('failed to create bucket')
   return res.json()
 }
 
+export async function listServiceTokens() {
+  const res = await fetch(`${BASE}/service-tokens`, { credentials: 'same-origin', headers: getAuthHeaders() })
+  if (!res.ok) throw new Error('failed to fetch service tokens')
+  return res.json()
+}
+
+export async function createServiceToken(name?: string, user_id?: string) {
+  const res = await fetch(`${BASE}/service-tokens`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ name, user_id }),
+  })
+  if (!res.ok) throw new Error('failed to create service token')
+  return res.json()
+}
+
+export async function revokeServiceToken(id: string) {
+  const res = await fetch(`${BASE}/service-tokens/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin', headers: getAuthHeaders() })
+  if (!res.ok) throw new Error('failed to revoke token')
+  return res.json()
+}
+
 export async function undeleteTask(taskId: string) {
-  const res = await fetch(`${BASE}/bg/undelete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin' })
+  const res = await fetch(`${BASE}/bg/undelete/${encodeURIComponent(taskId)}`, { method: 'POST', credentials: 'same-origin', headers: getAuthHeaders() })
   if (!res.ok) throw new Error('undelete failed')
   return res.json()
 }

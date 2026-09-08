@@ -7,6 +7,7 @@ import UpdateToast from './components/UpdateToast'
 import Toasts from './components/Toasts'
 import { HistoryView, SettingsView } from './components/WorkspaceViews'
 import BucketsAdmin from './components/BucketsAdmin'
+import ServiceTokensAdmin from './components/ServiceTokensAdmin'
 import { getUserFeatures } from './api/client'
 
 export default function App() {
@@ -80,7 +81,14 @@ export default function App() {
             )}
             {activeView === 'history' && <HistoryView onCreate={() => setActiveView('upload')} />}
             {activeView === 'settings' && <SettingsView />}
-            {activeView === 'admin' && isAdmin && <BucketsAdmin />}
+            {activeView === 'admin' && isAdmin && (
+              <>
+                <BucketsAdmin />
+                <div className="mt-8">
+                  <ServiceTokensAdmin />
+                </div>
+              </>
+            )}
           </div>
         </main>
       </div>
