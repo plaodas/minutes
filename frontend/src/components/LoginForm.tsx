@@ -44,10 +44,10 @@ export default function LoginForm() {
           <p className="mt-1 text-xs text-[var(--muted)]">Sign in to access admin features and manage buckets.</p>
         </div>
       </div>
-      <form onSubmit={doLogin} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <input aria-label="username" placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} className="rounded border px-3 py-2 text-sm" />
-        <input aria-label="password" placeholder="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="rounded border px-3 py-2 text-sm" />
-        <div className="flex items-center gap-2">
+      <form onSubmit={doLogin} className="mt-3 flex flex-col gap-2">
+        <input aria-label="username" placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
+        <input aria-label="password" placeholder="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
+        <div className="flex items-center gap-2 justify-end">
           <button type="submit" disabled={loading} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Sign in</button>
           <button type="button" onClick={doLogout} disabled={loading} className="rounded bg-slate-100 px-3 py-2 text-sm">Sign out</button>
         </div>

@@ -121,7 +121,7 @@ services:
       - "80:80"
     volumes:
       - ./deploy/nginx_test.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./deploy/frontend_html:/var/www/html:ro
+      - ./deploy/frontend_html:/usr/share/nginx/html:ro
     depends_on:
       - minutes
       - redis
