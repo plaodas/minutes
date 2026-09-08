@@ -49,7 +49,6 @@ export default function LoginForm() {
         <input aria-label="password" placeholder="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
         <div className="flex items-center gap-2 justify-end">
           <button type="submit" disabled={loading} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white">Sign in</button>
-          <button type="button" onClick={doLogout} disabled={loading} className="rounded bg-slate-100 px-3 py-2 text-sm">Sign out</button>
         </div>
       </form>
     </div>

@@ -1,5 +1,7 @@
 import React from 'react'
-import { Archive, ChevronLeft, ChevronRight, Menu, Settings, Upload, X } from 'lucide-react'
+import { Archive, ChevronLeft, ChevronRight, Menu, Settings, Upload, X, LogOut } from 'lucide-react'
+import { logout } from '../api/client'
+import { useToast } from './ToastProvider'
 import useLocalStorage from '../hooks/useLocalStorage'
 
 export type NavigationView = 'upload' | 'history' | 'settings' | 'admin'
@@ -21,6 +23,8 @@ const adminItem = { view: 'admin' as NavigationView, label: 'Buckets', icon: <Ar
 export default function Sidebar({ activeView, onNavigate, showAdmin = false }: Props) {
   const [expanded, setExpanded] = useLocalStorage('sidebar-expanded', true)
   const [mobileOpen, setMobileOpen] = React.useState(false)
+  const [loadingLogout, setLoadingLogout] = React.useState(false)
+  const { addToast } = useToast()
 
   const navigate = (view: NavigationView) => {
     onNavigate(view)
@@ -88,6 +92,29 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
           <button type="button" aria-label="Close menu" onClick={() => setMobileOpen(false)} className="rounded p-1 hover:bg-[var(--bg-default)]"><X size={20} /></button>
         </div>
         {navigation(true)}
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={async () => {
+              setLoadingLogout(true)
+              try {
+                await logout()
+                addToast('Logged out', { level: 'success' })
+                try { window.dispatchEvent(new CustomEvent('auth-changed')) } catch (e) {}
+                setMobileOpen(false)
+              } catch (err: any) {
+                addToast(err?.message || 'Logout failed', { level: 'error' })
+              } finally {
+                setLoadingLogout(false)
+              }
+            }}
+            disabled={loadingLogout}
+            className="flex w-full items-center rounded-md p-3 text-left hover:bg-[var(--bg-default)]"
+          >
+            <span className="shrink-0"><LogOut size={18} /></span>
+            <span className="ml-3 text-sm font-medium">Sign out</span>
+          </button>
+        </div>
         <footer className="mt-4 text-xs text-[var(--muted)]">v0.1 · Offline ready</footer>
       </aside>
 
@@ -108,6 +135,28 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
           </button>
         </div>
         {navigation(expanded)}
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={async () => {
+              setLoadingLogout(true)
+              try {
+                await logout()
+                addToast('Logged out', { level: 'success' })
+                try { window.dispatchEvent(new CustomEvent('auth-changed')) } catch (e) {}
+              } catch (err: any) {
+                addToast(err?.message || 'Logout failed', { level: 'error' })
+              } finally {
+                setLoadingLogout(false)
+              }
+            }}
+            disabled={loadingLogout}
+            className={`flex w-full items-center rounded-md p-3 text-left transition-colors hover:bg-[var(--bg-default)] ${expanded ? 'gap-3' : 'justify-center'}`}
+          >
+            <span className="shrink-0"><LogOut size={18} /></span>
+            {expanded && <span className="text-sm font-medium">Sign out</span>}
+          </button>
+        </div>
         {expanded && <footer className="mt-4 text-xs text-[var(--muted)]">v0.1 · Offline ready</footer>}
       </aside>
     </>

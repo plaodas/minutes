@@ -218,6 +218,11 @@ async def require_login_middleware(request: Request, call_next):
         '/index.html',
         '/favicon.ico',
         '/playwright',
+        # Public upload endpoints used by clients/tests
+        '/transcribe-upload',
+        '/transcribe-upload-bg',
+        # Background task/status endpoints
+        '/bg',
     )
     path = request.url.path or ''
     # Allow OPTIONS preflight
@@ -641,6 +646,17 @@ def api_transcribe_upload(
     include_actions: str | None = Form(None),
 ):
     """Compatibility wrapper for `/api/transcribe-upload` (synchronous) used by some clients."""
+    return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
+
+
+# Backwards-compatible non-API path used by some tests/clients
+@app.post('/transcribe-upload', response_model=CreateTaskResponse)
+def transcribe_upload_compat(
+    file: UploadFile = File(...),
+    x_user_id: str | None = Header(None),
+    language: str | None = Form(None),
+    include_actions: str | None = Form(None),
+):
     return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
 
 
