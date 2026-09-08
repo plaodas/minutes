@@ -59,3 +59,13 @@ class Bucket(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     deleted_at = Column(DateTime, nullable=True)
+
+
+class ServiceToken(Base):
+    __tablename__ = 'service_tokens'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=True)
+    token_hash = Column(String, unique=True, nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)
+    revoked = Column(Boolean, nullable=False, server_default='false')
+    created_at = Column(DateTime, server_default=func.now())

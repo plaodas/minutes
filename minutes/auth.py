@@ -10,6 +10,8 @@ from fastapi import Depends
 
 from minutes.db import SessionLocal
 from minutes.models import User
+from minutes.models import ServiceToken
+import hashlib
 
 
 # Configuration
@@ -77,3 +79,51 @@ def require_current_user(minutes_session: Optional[str] = Cookie(None)) -> User:
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return user
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def create_service_token(name: str | None = None, user_id: str | None = None):
+    """Create a new service token, store its hash in DB, return plaintext token and model id."""
+    token = uuid.uuid4().hex + uuid.uuid4().hex
+    token_hash = _hash_token(token)
+    db = SessionLocal()
+    try:
+        st = ServiceToken(name=name, token_hash=token_hash)
+        if user_id:
+            try:
+                st.user_id = uuid.UUID(user_id)
+            except Exception:
+                pass
+        db.add(st)
+        db.commit()
+        db.refresh(st)
+        return token, str(st.id)
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+
+def verify_service_token(token: str):
+    """Verify provided token string; return associated user_id UUID or None."""
+    if not token:
+        return None
+    # accept Bearer tokens
+    if token.lower().startswith('bearer '):
+        token = token.split(' ', 1)[1]
+    token_hash = _hash_token(token)
+    db = SessionLocal()
+    try:
+        st = db.query(ServiceToken).filter(ServiceToken.token_hash == token_hash, ServiceToken.revoked == False).one_or_none()
+        if not st:
+            return None
+        return st.user_id
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass

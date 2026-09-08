@@ -460,6 +460,8 @@ def api_admin_delete_bucket(name: str, force: bool = False, _=Depends(require_ad
 def transcribe_upload(
     file: UploadFile = File(...),
     x_user_id: str | None = Header(None),
+    x_service_token: str | None = Header(None),
+    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -502,7 +504,11 @@ def transcribe_upload(
                     meta["include_actions"] = bool(int(include_actions))
                 except Exception:
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            create_task(task.id, metadata=meta, user_id=x_user_id)
+            # Resolve user id from X-User-Id or service token headers
+            user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
+            if isinstance(user_uuid, uuid.UUID):
+                user_uuid = str(user_uuid)
+            create_task(task.id, metadata=meta, user_id=user_uuid)
         except TypeError:
             # older create_task signature
             try:
@@ -569,6 +575,8 @@ def transcribe_upload_bg(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     x_user_id: str | None = Header(None),
+    x_service_token: str | None = Header(None),
+    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -613,7 +621,10 @@ def transcribe_upload_bg(
                     meta["include_actions"] = bool(int(include_actions))
                 except Exception:
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            create_task(task_id, metadata=meta, user_id=x_user_id)
+            user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
+            if isinstance(user_uuid, uuid.UUID):
+                user_uuid = str(user_uuid)
+            create_task(task_id, metadata=meta, user_id=user_uuid)
         except TypeError:
             # backward-compat: if create_task signature hasn't been updated,
             # call without metadata
@@ -1569,6 +1580,52 @@ def api_auth_logout(response: Response):
     return auth_logout(response)
 
 
+class CreateServiceTokenReq(BaseModel):
+    name: str | None = None
+    user_id: str | None = None
+
+
+@app.post('/api/service-tokens')
+def api_create_service_token(payload: CreateServiceTokenReq, _=Depends(require_admin)):
+    """Create a new service token (admin only). Returns plaintext token and id."""
+    from minutes.auth import create_service_token
+
+    token, token_id = create_service_token(name=payload.name, user_id=payload.user_id)
+    return {"token": token, "id": token_id}
+
+
+@app.get('/api/service-tokens')
+def api_list_service_tokens(_=Depends(require_admin)):
+    db = SessionLocal()
+    try:
+        rows = db.query(ServiceToken).all()
+        out = []
+        for r in rows:
+            out.append({"id": str(r.id), "name": r.name, "user_id": str(r.user_id) if r.user_id else None, "revoked": bool(r.revoked), "created_at": r.created_at.isoformat() if r.created_at else None})
+        return {"tokens": out}
+    finally:
+        db.close()
+
+
+@app.delete('/api/service-tokens/{token_id}')
+def api_revoke_service_token(token_id: str, _=Depends(require_admin)):
+    db = SessionLocal()
+    try:
+        try:
+            key = uuid.UUID(token_id)
+        except Exception:
+            return JSONResponse({"error": "invalid token id"}, status_code=400)
+        st = db.get(ServiceToken, key)
+        if not st:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        st.revoked = True
+        db.add(st)
+        db.commit()
+        return {"revoked": True}
+    finally:
+        db.close()
+
+
 def _is_request_admin(x_admin: str | None) -> bool:
     try:
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
@@ -1583,18 +1640,37 @@ class CreateBucketReq(BaseModel):
     public: bool | None = False
 
 
-def _get_user_id_from_header(x_user_id: str | None):
-    """Parse X-User-Id header if present; return UUID or None."""
-    if not x_user_id:
-        return None
+def _get_user_id_from_header(x_user_id: str | None, x_service_token: str | None = None, authorization: str | None = None):
+    """Parse X-User-Id header if present; fallback to service token (X-Service-Token or Authorization Bearer).
+    Return UUID or None.
+    """
+    # direct X-User-Id takes precedence
+    if x_user_id:
+        try:
+            return uuid.UUID(x_user_id)
+        except Exception:
+            return None
+
+    # otherwise check service token headers
     try:
-        return uuid.UUID(x_user_id)
+        from minutes.auth import verify_service_token
+
+        token = None
+        if x_service_token:
+            token = x_service_token
+        elif authorization:
+            token = authorization
+        if token:
+            user_id = verify_service_token(token)
+            if user_id:
+                return user_id
     except Exception:
-        return None
+        pass
+    return None
 
 
 @app.post('/api/buckets')
-def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
+def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(None), x_user_id: str | None = Header(None), x_service_token: str | None = Header(None), authorization: str | None = Header(None)):
     """Create a MinIO bucket and record it in the `buckets` table.
 
     Simple auth/ownership (temporary):
@@ -1602,7 +1678,7 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
     - Admins (via `X-Admin`) can create buckets as well. Non-admins must supply `X-User-Id`.
     """
     is_admin = _is_request_admin(x_admin)
-    user_uuid = _get_user_id_from_header(x_user_id)
+    user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
     if not is_admin and not user_uuid:
         return JSONResponse({"error": "unauthorized: missing X-User-Id"}, status_code=401)
 
@@ -1637,10 +1713,10 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
 
 
 @app.get('/api/buckets')
-def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
+def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None = Header(None), x_service_token: str | None = Header(None), authorization: str | None = Header(None)):
     """List buckets. Admins see all; non-admins see only their own buckets."""
     is_admin = _is_request_admin(x_admin)
-    user_uuid = _get_user_id_from_header(x_user_id)
+    user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
     db = SessionLocal()
     try:
         q = db.query(Bucket)
