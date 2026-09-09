@@ -13,7 +13,7 @@ import logging
 
 logger = logging.getLogger('minutes.bg_store')
 from .models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID, User
-from sqlalchemy.exc import NoResultFound, IntegrityError
+from sqlalchemy.exc import NoResultFound, IntegrityError, OperationalError
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 except Exception:
@@ -149,11 +149,15 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
 
 def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[str] = None, db=None):
     with _lock:
-        close = False
-        if db is None:
-            db = SessionLocal()
-            close = True
+        # Always use an independent short-lived session for creating tasks so
+        # callers' sessions are not left in a transaction. If a session is
+        # provided we intentionally ignore it to avoid leaving it in an open
+        # transaction that spans other work.
+        if db is not None:
+            logger.debug('create_task: ignoring provided db session and using independent session for %s', task_id)
+        local_db = SessionLocal()
         try:
+            logger.debug('create_task start: task_id=%s db_provided=%s session_id=%s engine=%s', task_id, (db is not None), id(local_db) if local_db is not None else None, getattr(engine, 'url', None))
             key = _parse_key(task_id)
             # If caller provided a UUID-like id, use it. Otherwise generate an internal UUID
             if isinstance(key, uuid.UUID):
@@ -227,25 +231,40 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
                         fail_count=0,
                         user_id=owner_val,
                     ).on_conflict_do_nothing(index_elements=["id"])
-                    db.execute(stmt)
-                    db.commit()
+                    try:
+                        local_db.execute(stmt)
+                        local_db.commit()
+                    except OperationalError:
+                        logger.exception('OperationalError during pg_insert upsert for %s; retrying with new session', task_id)
+                        try:
+                            local_db.rollback()
+                        except Exception:
+                            pass
+                        # attempt with a fresh session
+                        try:
+                            local_db.close()
+                        except Exception:
+                            pass
+                        local_db = SessionLocal()
+                        local_db.execute(stmt)
+                        local_db.commit()
                 except Exception as e:
                     logger.exception('pg_insert upsert failed for %s', task_id)
                     # fallback to safe insert pattern below
                     try:
-                        db.rollback()
+                        local_db.rollback()
                     except Exception:
                         logger.exception('rollback after pg_insert failed for %s', task_id)
-                    t = db.get(Task, id_val)
+                    t = local_db.get(Task, id_val)
                     if not t:
                         t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0, user_id=owner_val)
-                        db.add(t)
+                        local_db.add(t)
                         try:
-                            db.commit()
+                            local_db.commit()
                         except IntegrityError:
                             logger.exception('commit failed on fallback insert for %s', task_id)
-                            db.rollback()
-                            t = db.get(Task, id_val)
+                            local_db.rollback()
+                            t = local_db.get(Task, id_val)
                     else:
                         updated = False
                         if metadata:
@@ -257,20 +276,20 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
                             updated = True
                         if updated:
                             try:
-                                db.commit()
+                                local_db.commit()
                             except IntegrityError:
                                 logger.exception('commit failed updating metadata for %s', task_id)
-                                db.rollback()
+                                local_db.rollback()
             else:
-                t = db.get(Task, id_val)
+                t = local_db.get(Task, id_val)
                 if not t:
                     t = Task(id=id_val, status="pending", progress=None, result=metadata or None, fail_count=0, user_id=owner_val)
-                    db.add(t)
+                    local_db.add(t)
                     try:
-                        db.commit()
+                        local_db.commit()
                     except IntegrityError:
-                        db.rollback()
-                        t = db.get(Task, id_val)
+                        local_db.rollback()
+                        t = local_db.get(Task, id_val)
                 else:
                     updated = False
                     if metadata:
@@ -281,16 +300,19 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
                         updated = True
                     if updated:
                         try:
-                            db.commit()
+                            local_db.commit()
                         except IntegrityError:
-                            db.rollback()
+                            local_db.rollback()
             try:
-                record_history(task_id, "created", {"status": "pending"}, db=db)
+                record_history(task_id, "created", {"status": "pending"}, db=local_db)
             except Exception:
                 logger.exception('record_history("created") failed for %s', task_id)
+            logger.debug('create_task finished: task_id=%s', task_id)
         finally:
-            if close:
-                db.close()
+            try:
+                local_db.close()
+            except Exception:
+                pass
 
 
 def update_task_success(task_id: str, result: Any, db=None):
@@ -452,32 +474,59 @@ def update_task_cancelled(task_id: str, db=None):
 
 
 def update_task_status(task_id: str, status: str, db=None):
+    # Use a fresh short-lived session for status updates to avoid leaving a
+    # caller-provided session in an open transaction. Treat the provided `db`
+    # as advisory only; we will perform the update in an independent session
+    # that is committed and closed immediately.
     with _lock:
-        close = False
-        if db is None:
-            db = SessionLocal()
-            close = True
+        local_db = SessionLocal()
         try:
             key = _parse_key(task_id)
-            t = db.get(Task, key)
-            if not t:
+            logger.debug('update_task_status start (isolated): task_id=%s status=%s session_id=%s', task_id, status, id(local_db) if local_db is not None else None)
+            try:
+                t = local_db.get(Task, key)
                 try:
-                    create_task(task_id, metadata=None, db=db)
+                    in_tx = bool(local_db.in_transaction()) if hasattr(local_db, 'in_transaction') else None
+                except Exception:
+                    in_tx = None
+                logger.debug('update_task_status (isolated): db.get returned for %s present=%s in_transaction=%s', task_id, bool(t), in_tx)
+            except OperationalError:
+                logger.exception('OperationalError on local_db.get in update_task_status for %s; retrying with fresh session', task_id)
+                try:
+                    local_db.close()
                 except Exception:
                     pass
-                t = db.get(Task, key)
+                local_db = SessionLocal()
+                t = local_db.get(Task, key)
+                try:
+                    in_tx = bool(local_db.in_transaction()) if hasattr(local_db, 'in_transaction') else None
+                except Exception:
+                    in_tx = None
+                logger.debug('update_task_status (isolated) retry: db.get returned for %s present=%s in_transaction=%s', task_id, bool(t), in_tx)
+            if not t:
+                try:
+                    # create_task now always uses its own session; don't pass local_db
+                    create_task(task_id, metadata=None)
+                except Exception:
+                    logger.exception('create_task failed inside update_task_status for %s', task_id)
+                # re-fetch after create to get ORM object in this session
+                t = local_db.get(Task, key)
             t.status = status
             try:
-                db.commit()
+                local_db.commit()
+                logger.debug('update_task_status commit ok: task_id=%s status=%s', task_id, status)
             except IntegrityError:
-                db.rollback()
+                local_db.rollback()
+                logger.exception('IntegrityError committing update_task_status for %s', task_id)
             try:
-                record_history(task_id, "status", {"status": status}, db=db)
+                record_history(task_id, "status", {"status": status}, db=local_db)
             except Exception:
                 logger.exception('record_history("status") failed for %s', task_id)
         finally:
-            if close:
-                db.close()
+            try:
+                local_db.close()
+            except Exception:
+                pass
 
 
 def update_task_progress(task_id: str, progress: float, db=None):

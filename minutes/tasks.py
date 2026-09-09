@@ -170,9 +170,65 @@ def process_audio(self, input_path: str):
             db = None
     try:
         # mark preprocessing stage
+        logger = logging.getLogger("minutes.tasks")
         if task_id:
+            try:
+                logger.debug("process_audio: setting task status 'preprocess' for %s", task_id)
+            except Exception:
+                pass
             update_task_status(task_id, "preprocess", db=db)
-        mono, norm, clean = preprocess(input_path)
+            try:
+                logger.debug("process_audio: update_task_status returned for %s", task_id)
+            except Exception:
+                pass
+
+        # Log input file presence and size before calling preprocess
+        try:
+            inp_exists = os.path.exists(input_path)
+            inp_size = os.path.getsize(input_path) if inp_exists else None
+        except Exception:
+            inp_exists = False
+            inp_size = None
+        try:
+            logger.info("process_audio: preprocess start input=%s exists=%s size=%s cwd=%s", input_path, inp_exists, inp_size, os.getcwd())
+        except Exception:
+            pass
+
+        # Call preprocess with timing and robust exception logging
+        import time as _time
+        _start = _time.time()
+        try:
+            mono, norm, clean = preprocess(input_path)
+        except Exception as e:
+            try:
+                logger.exception("process_audio: preprocess failed for %s: %s", input_path, e)
+            except Exception:
+                pass
+            # Record failure in task store if possible, then re-raise
+            if task_id:
+                try:
+                    update_task_failure(task_id, f"preprocess failed: {e}", db=db)
+                except Exception:
+                    try:
+                        logger.exception("process_audio: failed to record preprocess failure for %s", task_id)
+                    except Exception:
+                        pass
+            raise
+        _dur = _time.time() - _start
+        try:
+            logger.info("process_audio: preprocess completed in %.2fs -> mono=%s norm=%s clean=%s", _dur, mono, norm, clean)
+        except Exception:
+            pass
+        # log sizes of produced files
+        for p in (mono, norm, clean):
+            try:
+                s = os.path.getsize(p) if (p and os.path.exists(p)) else None
+                logger.debug("process_audio: preprocess output %s exists=%s size=%s", p, (p and os.path.exists(p)), s)
+            except Exception:
+                try:
+                    logger.debug("process_audio: preprocess output %s check failed", p)
+                except Exception:
+                    pass
 
         # Validate cleaned WAV exists and appears valid before continuing.
         try:
@@ -237,6 +293,11 @@ def process_audio(self, input_path: str):
             raw_text = ""
             segments = []
             files = {"file": (os.path.basename(clean), open(clean, "rb"), "audio/wav")}
+            try:
+                size = os.path.getsize(clean) if os.path.exists(clean) else None
+            except Exception:
+                size = None
+            logger.info("inference: calling %s file=%s size=%s", inference_url, os.path.basename(clean), size)
             try_stream = True
             attempts = 0
             max_attempts = 3
@@ -245,14 +306,21 @@ def process_audio(self, input_path: str):
                 attempts += 1
                 try:
                     resp = requests.post(inference_url, files=files, stream=True, timeout=(5, 360), headers={"Connection": "keep-alive"})
+                    logger.info("inference: http POST sent (attempt=%s) -> status=%s", attempts, getattr(resp, 'status_code', None))
+                    try:
+                        logger.debug("inference response headers: %s", dict(resp.headers))
+                    except Exception:
+                        pass
                     resp.raise_for_status()
                     # parse NDJSON stream
                     for line in resp.iter_lines(decode_unicode=True, chunk_size=1024):
                         if not line:
                             continue
+                        logger.debug("inference: ndjson raw line: %s", (line[:200] if isinstance(line, str) else str(line)[:200]))
                         try:
                             obj = json.loads(line)
                         except Exception:
+                            logger.debug("inference: failed to parse ndjson line: %r", (line[:200] if isinstance(line, str) else str(line)[:200]))
                             continue
                         typ = obj.get("type")
                         if typ == "heartbeat":
@@ -277,15 +345,19 @@ def process_audio(self, input_path: str):
                             if task_id:
                                 update_task_progress(task_id, 100.0, db=db)
                                 logger.debug("Marking progress 100%% for %s (final)", task_id)
+                            try:
+                                logger.info("inference: final received (len=%s)", len(raw_text) if raw_text is not None else 0)
+                            except Exception:
+                                pass
                         elif typ == "error":
                             raise RuntimeError(obj.get("error"))
                     # if we completed without exception, break
                     break
                 except ChunkedEncodingError as e:
-                    logger.warning("ChunkedEncodingError from inference (attempt %s): %s", attempts, e)
+                    logger.exception("ChunkedEncodingError from inference (attempt %s): %s", attempts, e)
                     try_stream = False
                 except RequestException as e:
-                    logger.warning("RequestException from inference (attempt %s): %s", attempts, e)
+                    logger.exception("RequestException from inference (attempt %s): %s", attempts, e)
                     try_stream = False
 
                 # fallback: non-streaming request to get whole response body
@@ -296,8 +368,11 @@ def process_audio(self, input_path: str):
                         with open(clean, "rb") as fh2:
                             files2 = {"file": (os.path.basename(clean), fh2, "audio/wav")}
                             resp2 = requests.post(inference_url, files=files2, timeout=(5, 300), headers={"Connection": "keep-alive"})
-                        resp2.raise_for_status()
-                        body = resp2.text
+                        logger.info("inference fallback response status=%s", getattr(resp2, 'status_code', None))
+                        try:
+                            body = resp2.text
+                        except Exception:
+                            body = None
                         for line in body.splitlines():
                             if not line:
                                 continue

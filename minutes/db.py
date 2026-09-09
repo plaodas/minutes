@@ -14,24 +14,12 @@ if not DATABASE_URL:
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Note: do not auto-create tables here. Schema migrations must be applied explicitly via Alembic
-# to avoid accidental schema drift or silent creation in production environments.
-
-# Ensure `name` column exists in `tasks` table for running against Postgres
-# or older SQLite DBs. Try to add the column if it's missing; ignore errors.
-try:
-    with engine.connect() as conn:
-        # Postgres supports IF NOT EXISTS; SQLite may not, so fall back to plain ALTER
-        try:
-            conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS name VARCHAR"))
-        except Exception:
-            try:
-                conn.execute(text("ALTER TABLE tasks ADD COLUMN name VARCHAR"))
-            except Exception:
-                # best-effort: ignore if column already exists or not supported
-                pass
-except Exception:
-    pass
+# Note: do not auto-create or modify schema here. Use Alembic migrations instead.
+#
+# Configure the engine to pre-ping connections so SQLAlchemy can detect and
+# transparently reconnect dropped/stale connections (helps workers recover
+# when backends are restarted or individual connections are terminated).

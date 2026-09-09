@@ -47,7 +47,7 @@ services:
       args:
         INSTALL_FULL: "false"
     # Wait for Redis and Postgres to be reachable before starting the worker
-    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh redis 6379 db 5432 -- celery -A minutes.tasks worker -Q minutes --loglevel=info"]
+    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh redis 6379 db 5432 -- celery -A minutes.tasks worker -Q minutes --loglevel=debug"]
     volumes:
       - ./:/app
       - ./data/uploads:/app/uploads
