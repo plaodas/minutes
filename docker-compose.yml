@@ -36,10 +36,15 @@ services:
     # wait for DB and Redis to be reachable before starting the API
     command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh db 5432 redis 6379 -- uvicorn backend.app:app --host 0.0.0.0 --port 8000"]
     restart: unless-stopped
+    networks:
+      - minutes-net
+
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    networks:
+      - minutes-net
 
   worker:
     build:
@@ -70,6 +75,8 @@ services:
       - db
       - inference
     restart: unless-stopped
+    networks:
+      - minutes-net
 
   frontend:
     build:
@@ -82,6 +89,8 @@ services:
     depends_on:
       - minutes
     restart: unless-stopped
+    networks:
+      - minutes-net
 
   inference:
     build:
@@ -104,6 +113,8 @@ services:
     # wait for DB and Redis to be reachable before starting inference service
     command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh db 5432 redis 6379 -- uvicorn minutes.inference_app:app --host 0.0.0.0 --port 5001"]
     restart: unless-stopped
+    networks:
+      - minutes-net
   db:
     image: postgres:15
     environment:
@@ -115,6 +126,8 @@ services:
     ports:
       - "5432:5432"
     restart: unless-stopped
+    networks:
+      - minutes-net
 
   nginx:
     image: nginx:1.25-alpine
@@ -127,8 +140,14 @@ services:
       - minutes
       - redis
     restart: unless-stopped
+    networks:
+      - minutes-net
 
 volumes:
   pgdata:
     driver: local
 
+
+networks:
+  minutes-net:
+    name: minutes-net

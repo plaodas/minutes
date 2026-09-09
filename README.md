@@ -1,6 +1,15 @@
-# Minutes — 音声から議事録を自動生成するサービス
+# Minutes — 音声から議事録を自動生成するサービス（更新中のドキュメントです）
 
 このリポジトリは、音声ファイルを前処理して文字起こし（Whisper系）し、LLM（Ollama 等）で読みやすい議事録に整形するパイプラインとそれを提供するAPI・ワーカー群を含みます。
+
+```bash
+# 2. アプリ側 compose を起動
+docker compose -f docker-compose.yml -f docker-compose.minio.yml up --build
+
+# 1. Ollama 専用 compose を起動しモデルを自動ダウンロード
+bash setup_ollama.sh
+
+```
 
 ## 主な機能
 - 音声前処理（モノラル化、正規化、WAV 出力）

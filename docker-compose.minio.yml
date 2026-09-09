@@ -15,3 +15,9 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       retries: 5
+    networks:
+      - minutes-net
+
+networks:
+  minutes-net:
+    name: minutes-net

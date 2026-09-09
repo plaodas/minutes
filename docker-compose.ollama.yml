@@ -1,0 +1,16 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-container
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+networks:
+  minutes-net:
+    external: true
+
+volumes:
+  ollama_data:
