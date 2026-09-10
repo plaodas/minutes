@@ -44,19 +44,24 @@ def migrate():
             ls = item.get("last_success_ts")
             try:
                 if lf:
-                    t.last_failure_ts = datetime.fromisoformat(lf.replace("Z", ""))
-            except Exception:
+                    # Treat trailing Z as UTC offset
+                    t.last_failure_ts = datetime.fromisoformat(
+                        lf.replace("Z", "+00:00")
+                    )
+            except ValueError:
                 pass
             try:
                 if ls:
-                    t.last_success_ts = datetime.fromisoformat(ls.replace("Z", ""))
-            except Exception:
+                    t.last_success_ts = datetime.fromisoformat(
+                        ls.replace("Z", "+00:00")
+                    )
+            except ValueError:
                 pass
             prog = item.get("progress")
             if prog is not None:
                 try:
                     t.progress = float(prog)
-                except Exception:
+                except (ValueError, TypeError):
                     t.progress = None
     print("migration complete")
 

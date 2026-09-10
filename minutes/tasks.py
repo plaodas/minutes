@@ -231,7 +231,7 @@ def process_audio(self, input_path: str):
         _start = _time.time()
         try:
             mono, norm, clean = preprocess(input_path)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError, TypeError) as e:
             logger.exception("process_audio: preprocess failed for %s", input_path)
             # Record failure in task store if possible, then re-raise
             if task_id:
@@ -710,7 +710,7 @@ def process_audio(self, input_path: str):
                         logging.getLogger("minutes.tasks").exception(
                             "MinIO upload failed for task %s", task_id
                         )
-                except Exception:
+                except (ImportError, S3Error, ValueError, OSError):
                     logging.getLogger("minutes.tasks").exception(
                         "Failed initializing MinIO client for task %s", task_id
                     )
@@ -756,13 +756,23 @@ def process_audio(self, input_path: str):
                         logger.exception(
                             "Failed to remove intermediate %s for task %s", p, task_id
                         )
-        except Exception:
+        except (OSError, ValueError):
             logging.getLogger("minutes.tasks").exception(
                 "Error while cleaning intermediates"
             )
 
         return {"status": "success", "result": structured}
-    except Exception as e:
+    except (
+        RuntimeError,
+        ValueError,
+        TypeError,
+        OSError,
+        RequestException,
+        S3Error,
+        SQLAlchemyError,
+        json.JSONDecodeError,
+        ChunkedEncodingError,
+    ) as e:
         # Record failure in shared store if possible
         if task_id:
             try:

@@ -357,7 +357,7 @@ def create_task(
                         )
                         with session_scope() as s:
                             s.execute(stmt)
-                except Exception:
+                except (SQLAlchemyError, OperationalError, AttributeError, TypeError):
                     logger.exception(
                         "pg_insert upsert failed for %s; falling back to safe insert",
                         task_id,
@@ -537,7 +537,7 @@ def update_task_success(task_id: str, result: Any, db=None):
                                 bucket_name,
                                 task_id,
                             )
-                except Exception:
+                except (SQLAlchemyError, OperationalError, OSError):
                     logger.exception("bucket persistence check failed for %s", task_id)
                 try:
                     record_history(task_id, "success", {"result": result}, db=s)

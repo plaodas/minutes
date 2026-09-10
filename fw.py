@@ -9,7 +9,7 @@ def main():
         sys.exit(1)
 
     audio = sys.argv[1]
-    raw_text, segments = transcribe(audio, model_size="medium", prompt=None)
+    _raw_text, segments = transcribe(audio, model_size="medium", prompt=None)
 
     for seg in segments:
         print(seg.text)

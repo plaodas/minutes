@@ -12,16 +12,16 @@ def main():
         sys.exit(1)
 
     audio = sys.argv[1]
-    OUTPUT_DATE = datetime.datetime.now().strftime("%Y%m%d")
+    OUTPUT_DATE = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d")
     RAW_FILE = f"raw_{OUTPUT_DATE}.txt"
     FINAL_FILE = f"minutes_{OUTPUT_DATE}.txt"
 
     print("=== Step 1: preprocess audio ===")
-    mono, norm, clean = preprocess(audio)
+    _mono, _norm, clean = preprocess(audio)
 
     print("=== Step 2: transcribe ===")
     prompt = ()
-    raw_text, segments = transcribe(
+    raw_text, _segments = transcribe(
         clean, model_size="medium", prompt=prompt, raw_out=RAW_FILE
     )
     print(f"raw transcript saved → {RAW_FILE}")

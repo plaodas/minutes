@@ -46,7 +46,6 @@ def test_upload_sets_user_id(monkeypatch):
     assert r.status_code == 200
     data = r.json()
     assert "task_id" in data
-    task_id = data["task_id"]
 
     # Instead of querying DB (SQLite UUID handling differs), assert that
     # create_task was called with the expected user_id by monkeypatching it.

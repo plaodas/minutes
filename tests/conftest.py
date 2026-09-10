@@ -12,6 +12,6 @@ try:
     from minutes.models import Base
 
     Base.metadata.create_all(bind=engine)
-except Exception:
+except (ImportError, OSError):
     # If anything fails (missing deps), tests that require DB will skip at runtime.
     pass

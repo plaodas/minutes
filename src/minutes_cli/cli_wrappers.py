@@ -7,13 +7,13 @@ from minutes.transcribe import transcribe
 
 
 def run_minute_pipeline(audio: str) -> str:
-    output_date = datetime.datetime.now().strftime("%Y%m%d")
+    output_date = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d")
     raw_file = f"raw_{output_date}.txt"
     final_file = f"minutes_{output_date}.txt"
 
-    mono, norm, clean = preprocess(audio)
+    _mono, _norm, clean = preprocess(audio)
     prompt = ()
-    raw_text, segments = transcribe(
+    raw_text, _segments = transcribe(
         clean, model_size="medium", prompt=prompt, raw_out=raw_file
     )
     final_minutes = format_minutes_from_raw(raw_text)
@@ -23,14 +23,14 @@ def run_minute_pipeline(audio: str) -> str:
 
 
 def auto_minutes_ollama(audio: str, prompt: str | None = None) -> str:
-    output_date = datetime.datetime.now().strftime("%Y%m%d")
+    output_date = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d")
     raw_file = f"raw_{output_date}.txt"
     final_file = f"minutes_{output_date}.txt"
 
-    mono, norm, clean = preprocess(audio)
+    _mono, _norm, clean = preprocess(audio)
     if prompt is None:
         prompt = ""
-    raw_text, segments = transcribe(
+    raw_text, _segments = transcribe(
         clean, model_size="medium", prompt=prompt, raw_out=raw_file
     )
     final_minutes = format_minutes_from_raw(raw_text)

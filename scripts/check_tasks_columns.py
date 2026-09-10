@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 
 from sqlalchemy import create_engine, text
 
@@ -29,8 +30,8 @@ def main():
                 encoding="utf-8",
             ) as f:
                 f.write("\n".join(out_lines) + "\n")
-        except Exception:
-            pass
+        except OSError as e:
+            print("Failed to write alembic_tasks_columns.txt:", e, file=sys.stderr)
 
 
 if __name__ == "__main__":

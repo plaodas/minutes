@@ -11,7 +11,7 @@ def main():
     # Ensure alembic package is importable
     try:
         import alembic  # noqa: F401
-    except Exception as e:
+    except ImportError as e:
         print("alembic import failed:", e)
         sys.exit(2)
 

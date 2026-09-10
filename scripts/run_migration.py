@@ -18,7 +18,8 @@ from sqlalchemy import create_engine, text
 def run_sql_file(url: str, path: str):
     engine = create_engine(url)
     with engine.begin() as conn:
-        sql = open(path, "r", encoding="utf-8").read()
+        with open(path, "r", encoding="utf-8") as fh:
+            sql = fh.read()
         conn.execute(text(sql))
 
 

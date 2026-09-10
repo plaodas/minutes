@@ -4,6 +4,9 @@ import os
 import sys
 import traceback
 
+from minio.error import S3Error
+from sqlalchemy.exc import SQLAlchemyError
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from minutes.bg_store import update_task_success
 from minutes.minio_client import make_minio_client
@@ -30,24 +33,24 @@ try:
     # ensure bucket
     try:
         out["bucket_exists_before"] = client.bucket_exists(bucket)
-    except Exception as e:
+    except (S3Error, OSError) as e:
         out["bucket_exists_before_error"] = repr(e)
     try:
         client.make_bucket(bucket)
         out["make_bucket"] = "ok"
-    except Exception as e:
+    except (S3Error, OSError) as e:
         out["make_bucket_error"] = repr(e)
     # upload
     try:
         client.fput_object(bucket, object_name, local_path)
         out["fput_object"] = "ok"
-    except Exception:
+    except (S3Error, OSError):
         out["fput_object_error"] = traceback.format_exc()
     # stat
     try:
         info = client.stat_object(bucket, object_name)
         out["stat"] = {"size": info.size, "etag": info.etag}
-    except Exception:
+    except (S3Error, OSError):
         out["stat_error"] = traceback.format_exc()
     # list some objects
     try:
@@ -55,7 +58,7 @@ try:
             client.list_objects(bucket, prefix=f"minutes/{TASK_ID}/", recursive=True)
         )
         out["listed"] = [o.object_name for o in objs]
-    except Exception:
+    except (S3Error, OSError):
         out["list_error"] = traceback.format_exc()
     # update DB
     try:
@@ -65,9 +68,9 @@ try:
         }
         update_task_success(TASK_ID, merged)
         out["db_update"] = "ok"
-    except Exception:
+    except (SQLAlchemyError, S3Error, OSError):
         out["db_update_error"] = traceback.format_exc()
-except Exception:
+except (S3Error, OSError, ValueError, TypeError, RuntimeError):
     out["error"] = traceback.format_exc()
 
 print(json.dumps(out, indent=2, ensure_ascii=False))

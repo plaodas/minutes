@@ -10,7 +10,7 @@ def main():
         sys.exit(1)
 
     RAW_FILE = sys.argv[1]
-    OUTPUT_DATE = datetime.datetime.now().strftime("%Y%m%d")
+    OUTPUT_DATE = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d")
     FINAL_FILE = f"minutes_{OUTPUT_DATE}.txt"
 
     print("=== Step 1: raw_transcript.txt を読み込み中 ===")

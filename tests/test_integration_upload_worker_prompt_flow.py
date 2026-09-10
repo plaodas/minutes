@@ -2,6 +2,7 @@ import io
 import uuid
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app import app
 from minutes import tasks
@@ -67,7 +68,7 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
                         t.result = metadata
                         session.add(t)
                 session.commit()
-            except Exception:
+            except SQLAlchemyError:
                 session.rollback()
                 raise
 

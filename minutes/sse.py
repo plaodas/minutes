@@ -73,6 +73,7 @@ def publish_event(event: dict[str, Any]):
             return
         global _redis_pub
         if _redis_pub is None:
+            # Lazy import so environments without redis won't fail at module import
             import redis
             from redis.exceptions import RedisError
 
@@ -93,12 +94,14 @@ def publish_event(event: dict[str, Any]):
                 except (RedisError, OSError):
                     logger.exception("failed to close redis publisher")
                 _redis_pub = None
-    except Exception:
+    except (ImportError, RuntimeError, TypeError):
+        # Narrowed top-level exceptions to common, recoverable errors
         logger.exception("publish_event top-level failure")
 
 
 async def _redis_listener(redis_url: str):
     import redis.asyncio as aioredis
+    from redis.exceptions import RedisError
 
     backoff_base = 0.5
     max_backoff = 30.0
@@ -130,7 +133,7 @@ async def _redis_listener(redis_url: str):
             except asyncio.CancelledError:
                 logger.info("Redis listener cancelled during subscribe/read")
                 raise
-            except Exception:
+            except (RedisError, OSError, RuntimeError):
                 logger.exception(
                     "Redis listener connection/read failed; will retry with backoff"
                 )
@@ -138,12 +141,12 @@ async def _redis_listener(redis_url: str):
                 try:
                     if pubsub is not None:
                         await pubsub.close()
-                except Exception:
+                except (RedisError, OSError):
                     logger.exception("failed to close pubsub")
                 try:
                     if client is not None:
                         await client.close()
-                except Exception:
+                except (RedisError, OSError):
                     logger.exception("failed to close redis client")
                 # exponential backoff with jitter
                 await asyncio.sleep(
@@ -156,12 +159,12 @@ async def _redis_listener(redis_url: str):
         try:
             if pubsub is not None:
                 await pubsub.close()
-        except Exception:
+        except (RedisError, OSError):
             logger.exception("failed to close pubsub on shutdown")
         try:
             if client is not None:
                 await client.close()
-        except Exception:
+        except (RedisError, OSError):
             logger.exception("failed to close redis client on shutdown")
 
 

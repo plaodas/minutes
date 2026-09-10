@@ -19,7 +19,8 @@ import argparse
 import sys
 import uuid
 
-from sqlalchemy.exc import IntegrityError
+from minio.error import S3Error
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from minutes.db import session_scope
 from minutes.minio_client import MinioService
@@ -48,7 +49,7 @@ def main():
     if args.owner:
         try:
             owner = uuid.UUID(args.owner)
-        except Exception:
+        except (ValueError, AttributeError):
             print(f"Invalid owner UUID: {args.owner}", file=sys.stderr)
             return 2
     else:
@@ -57,7 +58,7 @@ def main():
     svc = MinioService()
     try:
         buckets = svc.list_buckets()
-    except Exception as exc:
+    except (S3Error, OSError) as exc:
         print("Failed to list buckets from MinIO:", exc, file=sys.stderr)
         return 3
 
@@ -103,7 +104,7 @@ def main():
                 print(f"Inserted: {name} -> id={b.id}")
         except IntegrityError:
             print(f"IntegrityError inserting {name} (skipping)")
-        except Exception as exc:
+        except (SQLAlchemyError, OSError) as exc:
             print(f"Error inserting {name}: {exc}", file=sys.stderr)
 
     print(f"Created {created} buckets")

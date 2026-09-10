@@ -10,6 +10,8 @@ Environment: set DATABASE_URL to point to the Postgres DB (or use default sqlite
 import os
 from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from minutes.db import session_scope
 from minutes.models import Task
 from minutes.summary import summarize_local
@@ -62,7 +64,7 @@ def backfill(limit=None):
                 session.flush()
                 updated += 1
                 print(f"updated {t.id} -> {short}")
-        except Exception as exc:
+        except (OSError, SQLAlchemyError, ValueError, TypeError) as exc:
             print(f"error processing {tid}: {exc}")
 
     print(f"done: updated {updated} tasks")

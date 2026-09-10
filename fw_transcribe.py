@@ -12,7 +12,7 @@ def main():
 
     prompt = ()
 
-    raw_text, segments = transcribe(
+    _raw_text, _segments = transcribe(
         audio, model_size="medium", prompt=prompt, raw_out="raw_transcript.txt"
     )
 
