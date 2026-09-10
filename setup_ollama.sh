@@ -10,6 +10,7 @@ sleep 5
 # ダウンロードしたいモデルをここに並べる
 MODELS=(
 "gemma4:e4b"
+"qwen3.5:4b"
 )
 
 for model in "${MODELS[@]}"; do

@@ -15,6 +15,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:e4b}
+      - OLLAMA_FALLBACK_MODELS=${OLLAMA_FALLBACK_MODELS:-qwen3.5:4b}
       - INFERENCE_URL=http://inference:5001/transcribe
       - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
       - REDIS_URL=redis://redis:6379/0
@@ -61,6 +63,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama-container:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:e4b}
+      - OLLAMA_FALLBACK_MODELS=${OLLAMA_FALLBACK_MODELS:-qwen3.5:4b}
       - INFERENCE_URL=http://inference:5001/transcribe
       - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
       - REDIS_URL=redis://redis:6379/0

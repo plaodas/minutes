@@ -1,8 +1,11 @@
+import logging
 import os
 
 import requests
 
 from minutes.summary import summarize_local
+
+logger = logging.getLogger("minutes.ollama")
 
 DEFAULT_SYSTEM_PROMPT = """
 あなたは議事録整形・要約・アクション抽出の専門家です。
@@ -58,11 +61,16 @@ def format_minutes_from_raw(
     primary_model = model or os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
     fallback_models = [
         m.strip()
-        for m in os.environ.get("OLLAMA_FALLBACK_MODELS", "gemma4-mini,gemma3").split(
-            ","
-        )
+        for m in os.environ.get("OLLAMA_FALLBACK_MODELS", "qwen3.5:4b").split(",")
         if m.strip()
     ]
+    # Log chosen host/model for easier debugging in containerized environments
+    logger.info(
+        "OLLAMA host=%s chosen model=%s fallback_models=%s",
+        host,
+        primary_model,
+        fallback_models,
+    )
 
     def _call_model(model_name: str):
         payload = {
