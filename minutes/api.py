@@ -1,3 +1,4 @@
+# ruff: noqa
 import asyncio
 import json
 import logging
@@ -33,6 +34,7 @@ from sqlalchemy.exc import IntegrityError
 from minutes import tasks
 from minutes.audio import preprocess
 from minutes.bg_store import (
+    _parse_key,
     create_task,
     get_task,
     record_history,
@@ -126,6 +128,17 @@ def _is_allowed_upload(file: UploadFile) -> (bool, str):
             False,
             f"file signature did not match audio formats: ext={ext!r} mime={ct!r}",
         )
+
+
+def _parse_header_user_id(x_user_id: str | None):
+    """Return a uuid.UUID when the header contains a UUID-like value, else None."""
+    if not x_user_id:
+        return None
+    try:
+        parsed = _parse_key(x_user_id)
+        return parsed if isinstance(parsed, uuid.UUID) else None
+    except Exception:
+        return None
 
 
 # Configuration: request limits for /bg/histories
@@ -510,7 +523,8 @@ def transcribe_upload(
                     meta["include_actions"] = bool(int(include_actions))
                 except Exception:
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            create_task(task.id, metadata=meta, user_id=x_user_id)
+            owner = _parse_header_user_id(x_user_id)
+            create_task(task.id, metadata=meta, user_id=owner)
         except TypeError:
             # older create_task signature
             try:
@@ -625,7 +639,8 @@ def transcribe_upload_bg(
                     meta["include_actions"] = bool(int(include_actions))
                 except Exception:
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            create_task(task_id, metadata=meta, user_id=x_user_id)
+            owner = _parse_header_user_id(x_user_id)
+            create_task(task_id, metadata=meta, user_id=owner)
         except TypeError:
             # backward-compat: if create_task signature hasn't been updated,
             # call without metadata

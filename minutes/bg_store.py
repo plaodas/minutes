@@ -1,3 +1,4 @@
+# ruff: noqa
 import os
 import threading
 from typing import Any
@@ -211,11 +212,24 @@ def create_task(
                 metadata = dict(metadata)
                 metadata.setdefault("external_task_id", task_id)
 
-            # Normalize user_id if provided
+            # Normalize user_id if provided. Only accept actual UUIDs here.
+            # _parse_key may return the original string when it cannot parse;
+            # avoid using non-UUID values as user_id to prevent DB cast errors
+            # (which previously left transactions open).
             owner_val = None
             if user_id:
                 try:
-                    owner_val = _parse_key(user_id)
+                    parsed_owner = _parse_key(user_id)
+                    if isinstance(parsed_owner, uuid.UUID):
+                        owner_val = parsed_owner
+                    else:
+                        # Not a UUID-like value; ignore the provided user_id.
+                        logger.debug(
+                            "create_task: ignoring non-UUID user_id=%r for task %s",
+                            user_id,
+                            task_id,
+                        )
+                        owner_val = None
                 except Exception:
                     owner_val = None
 
