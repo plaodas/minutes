@@ -1,4 +1,3 @@
-# ruff: noqa
 import asyncio
 import json
 import logging
@@ -226,11 +225,12 @@ def _run_pipeline_background(input_path: str, task_id: str):
                         url = svc.presigned_get(
                             bucket, object_name, expires=expires_sec
                         )
-                        from datetime import datetime, timedelta
+                        from datetime import datetime, timedelta, timezone
 
                         expires_at = (
-                            datetime.utcnow() + timedelta(seconds=expires_sec)
-                        ).isoformat() + "Z"
+                            datetime.now(tz=timezone.utc)
+                            + timedelta(seconds=expires_sec)
+                        ).isoformat()
                     except (ValueError, OSError):
                         url = None
                         expires_sec = None
@@ -367,8 +367,8 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/api/admin/buckets")
-def admin_list_buckets(_=Depends(require_admin)):
+@app.get("/api/admin/buckets", dependencies=[Depends(require_admin)])
+def admin_list_buckets():
     try:
         svc = MinioService()
         # List DB-backed buckets first, then include any MinIO-only buckets
@@ -428,13 +428,13 @@ def admin_list_buckets(_=Depends(require_admin)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/admin/buckets")
-def api_admin_list_buckets(_=Depends(require_admin)):
-    return admin_list_buckets(_)
+@app.get("/api/admin/buckets", dependencies=[Depends(require_admin)])
+def api_admin_list_buckets():
+    return admin_list_buckets()
 
 
-@app.post("/api/admin/buckets")
-def admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_admin)):
+@app.post("/api/admin/buckets", dependencies=[Depends(require_admin)])
+def admin_create_bucket(payload: dict[str, typing.Any]):
     name = (payload or {}).get("name")
     if not name:
         return JSONResponse({"error": "missing name"}, status_code=400)
@@ -463,13 +463,13 @@ def admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_admin)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/admin/buckets")
-def api_admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_admin)):
-    return admin_create_bucket(payload, _=_)
+@app.post("/api/admin/buckets", dependencies=[Depends(require_admin)])
+def api_admin_create_bucket(payload: dict[str, typing.Any]):
+    return admin_create_bucket(payload)
 
 
-@app.delete("/api/admin/buckets/{name}")
-def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
+@app.delete("/api/admin/buckets/{name}", dependencies=[Depends(require_admin)])
+def admin_delete_bucket(name: str, force: bool = False):
     try:
         try:
             from minio.error import S3Error
@@ -489,14 +489,14 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.delete("/api/admin/buckets/{name}")
-def api_admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
-    return admin_delete_bucket(name, force=force, _=_)
+@app.delete("/api/admin/buckets/{name}", dependencies=[Depends(require_admin)])
+def api_admin_delete_bucket(name: str, force: bool = False):
+    return admin_delete_bucket(name, force=force)
 
 
 @app.post("/api/transcribe-upload", response_model=CreateTaskResponse)
 def transcribe_upload(
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     x_user_id: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
@@ -609,7 +609,7 @@ def api_task_result(task_id: str):
 
 @app.post("/transcribe-upload-bg", response_model=CreateTaskResponse)
 def transcribe_upload_bg(
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     background_tasks: BackgroundTasks = None,
     x_user_id: str | None = Header(None),
     language: str | None = Form(None),
@@ -674,18 +674,25 @@ def transcribe_upload_bg(
 
 @app.post("/api/transcribe-upload-bg", response_model=CreateTaskResponse)
 def api_transcribe_upload_bg(
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     background_tasks: BackgroundTasks = None,
     x_user_id: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
     """Compatibility wrapper for `/api/transcribe-upload-bg` used by the frontend."""
+    return transcribe_upload_bg(
+        file=file,
+        background_tasks=background_tasks,
+        x_user_id=x_user_id,
+        language=language,
+        include_actions=include_actions,
+    )
 
 
 @app.post("/transcribe-upload", response_model=CreateTaskResponse)
 def root_transcribe_upload(
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     x_user_id: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
@@ -697,18 +704,11 @@ def root_transcribe_upload(
         language=language,
         include_actions=include_actions,
     )
-    return transcribe_upload_bg(
-        file=file,
-        background_tasks=background_tasks,
-        x_user_id=x_user_id,
-        language=language,
-        include_actions=include_actions,
-    )
 
 
 @app.post("/api/transcribe-upload", response_model=CreateTaskResponse)
 def api_transcribe_upload(
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
     x_user_id: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
@@ -1234,10 +1234,11 @@ def bg_delete(task_id: str):
                 obj.status = "deleted"
                 # mark soft-delete flags
                 from datetime import datetime as _dt
+                from datetime import timezone as _tz
 
                 try:
                     obj.deleted = True
-                    obj.deleted_at = _dt.utcnow()
+                    obj.deleted_at = _dt.now(tz=_tz.utc)
                 except (AttributeError, SQLAlchemyError):
                     logging.getLogger("minutes.api").debug(
                         "failed to set deleted flags for %s", task_id, exc_info=True
