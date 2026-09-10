@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -103,11 +104,19 @@ def create_service_token(name: str | None = None, user_id: str | None = None):
 
 def verify_service_token(token: str):
     """Verify provided token string; return associated user_id UUID or None."""
+    logger = logging.getLogger("minutes.auth")
     if not token:
         return None
     # accept Bearer tokens
-    if token.lower().startswith("bearer "):
+    if isinstance(token, str) and token.lower().startswith("bearer "):
         token = token.split(" ", 1)[1]
+    try:
+        fp = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+    except (AttributeError, TypeError, UnicodeEncodeError):
+        fp = "<hash-error>"
+    logger.info("verify_service_token: attempt fingerprint=%s", fp)
+    uvicorn_logger = logging.getLogger("uvicorn.error")
+    uvicorn_logger.info("verify_service_token: attempt fingerprint=%s", fp)
     token_hash = _hash_token(token)
     with session_scope() as db:
         st = (
@@ -118,5 +127,21 @@ def verify_service_token(token: str):
             .one_or_none()
         )
         if not st:
+            logger.debug("verify_service_token: not found fingerprint=%s", fp)
+            uvicorn_logger = logging.getLogger("uvicorn.error")
+            uvicorn_logger.debug("verify_service_token: not found fingerprint=%s", fp)
             return None
+        logger.info(
+            "verify_service_token: matched token_id=%s user_id=%s fingerprint=%s",
+            str(st.id),
+            str(st.user_id),
+            fp,
+        )
+        uvicorn_logger = logging.getLogger("uvicorn.error")
+        uvicorn_logger.info(
+            "verify_service_token: matched token_id=%s user_id=%s fingerprint=%s",
+            str(st.id),
+            str(st.user_id),
+            fp,
+        )
         return st.user_id

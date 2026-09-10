@@ -12,6 +12,7 @@ from celery.exceptions import CeleryError
 from celery.result import AsyncResult
 from fastapi import (
     BackgroundTasks,
+    Cookie,
     Depends,
     FastAPI,
     File,
@@ -130,15 +131,67 @@ def _is_allowed_upload(file: UploadFile) -> (bool, str):
         )
 
 
-def _parse_header_user_id(x_user_id: str | None):
-    """Return a uuid.UUID when the header contains a UUID-like value, else None."""
-    if not x_user_id:
-        return None
-    try:
-        parsed = _parse_key(x_user_id)
-        return parsed if isinstance(parsed, uuid.UUID) else None
-    except (ValueError, TypeError, AttributeError):
-        return None
+def _parse_header_user_id(x_user_id: str | None, authorization: str | None = None):
+    """Return a uuid.UUID when the header contains a UUID-like value, else None.
+
+    If `x_user_id` is not provided, attempt to resolve an Authorization
+    Bearer service token to a user id via `minutes.auth.verify_service_token`.
+    """
+    logger = logging.getLogger("minutes.api")
+    if x_user_id:
+        try:
+            parsed = _parse_key(x_user_id)
+            return parsed if isinstance(parsed, uuid.UUID) else None
+        except (ValueError, TypeError, AttributeError):
+            return None
+
+    if authorization:
+        try:
+            import hashlib
+
+            from minutes.auth import verify_service_token
+
+            token = authorization
+            if isinstance(token, str) and token.lower().startswith("bearer "):
+                token = token.split(" ", 1)[1]
+            # fingerprint for auditing (never log raw token)
+            try:
+                fp = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+            except (AttributeError, TypeError, UnicodeEncodeError):
+                fp = "<hash-error>"
+            logger.info(
+                "Authorization header received; resolving service token fingerprint=%s",
+                fp,
+            )
+            uvicorn_logger = logging.getLogger("uvicorn.error")
+            uvicorn_logger.info(
+                "Authorization header received; resolving service token fingerprint=%s",
+                fp,
+            )
+            user_id = verify_service_token(token)
+            if user_id:
+                logger.info(
+                    "Service token resolved to user=%s fingerprint=%s",
+                    str(user_id),
+                    fp,
+                )
+                uvicorn_logger = logging.getLogger("uvicorn.error")
+                uvicorn_logger.info(
+                    "Service token resolved to user=%s fingerprint=%s",
+                    str(user_id),
+                    fp,
+                )
+                try:
+                    return uuid.UUID(str(user_id))
+                except (ValueError, TypeError):
+                    return None
+            logger.debug("Service token not recognized fingerprint=%s", fp)
+            uvicorn_logger = logging.getLogger("uvicorn.error")
+            uvicorn_logger.debug("Service token not recognized fingerprint=%s", fp)
+        except (ImportError, SQLAlchemyError, TypeError, ValueError):
+            logger.exception("Error resolving service token from Authorization header")
+            return None
+    return None
 
 
 # Configuration: request limits for /bg/histories
@@ -498,6 +551,7 @@ def api_admin_delete_bucket(name: str, force: bool = False):
 def transcribe_upload(
     file: UploadFile = File(...),  # noqa: B008
     x_user_id: str | None = Header(None),
+    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -542,8 +596,15 @@ def transcribe_upload(
                     meta["include_actions"] = bool(int(include_actions))
                 except (ValueError, TypeError):
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            owner = _parse_header_user_id(x_user_id)
-            create_task(task.id, metadata=meta, user_id=owner)
+            owner = _parse_header_user_id(x_user_id, authorization)
+            # Normalize user_id to string when a UUID is returned so callers
+            # (and tests that monkeypatch create_task) receive a predictable
+            # string value rather than a uuid.UUID object.
+            create_task(
+                task.id,
+                metadata=meta,
+                user_id=(str(owner) if isinstance(owner, uuid.UUID) else owner),
+            )
         except TypeError:
             # older create_task signature
             try:
@@ -612,6 +673,7 @@ def transcribe_upload_bg(
     file: UploadFile = File(...),  # noqa: B008
     background_tasks: BackgroundTasks = None,
     x_user_id: str | None = Header(None),
+    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -658,8 +720,14 @@ def transcribe_upload_bg(
                     meta["include_actions"] = bool(int(include_actions))
                 except (ValueError, TypeError):
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            owner = _parse_header_user_id(x_user_id)
-            create_task(task_id, metadata=meta, user_id=owner)
+            owner = _parse_header_user_id(x_user_id, authorization)
+            # Ensure we pass a string user id to `create_task` for downstream
+            # consumers and tests that expect string values.
+            create_task(
+                task_id,
+                metadata=meta,
+                user_id=(str(owner) if isinstance(owner, uuid.UUID) else owner),
+            )
         except TypeError:
             # backward-compat: if create_task signature hasn't been updated,
             # call without metadata
@@ -677,6 +745,7 @@ def api_transcribe_upload_bg(
     file: UploadFile = File(...),  # noqa: B008
     background_tasks: BackgroundTasks = None,
     x_user_id: str | None = Header(None),
+    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -685,6 +754,7 @@ def api_transcribe_upload_bg(
         file=file,
         background_tasks=background_tasks,
         x_user_id=x_user_id,
+        authorization=authorization,
         language=language,
         include_actions=include_actions,
     )
@@ -694,6 +764,7 @@ def api_transcribe_upload_bg(
 def root_transcribe_upload(
     file: UploadFile = File(...),  # noqa: B008
     x_user_id: str | None = Header(None),
+    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -701,6 +772,7 @@ def root_transcribe_upload(
     return transcribe_upload(
         file=file,
         x_user_id=x_user_id,
+        authorization=authorization,
         language=language,
         include_actions=include_actions,
     )
@@ -710,6 +782,7 @@ def root_transcribe_upload(
 def api_transcribe_upload(
     file: UploadFile = File(...),  # noqa: B008
     x_user_id: str | None = Header(None),
+    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -717,6 +790,7 @@ def api_transcribe_upload(
     return transcribe_upload(
         file=file,
         x_user_id=x_user_id,
+        authorization=authorization,
         language=language,
         include_actions=include_actions,
     )
@@ -1652,30 +1726,179 @@ def api_bg_minutes(task_id: str):
 
 
 @app.get("/auth/features")
-def auth_features(x_admin: str | None = Header(None)):
+def auth_features(
+    x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)
+):
     """Return feature flags for the current user.
 
-    This is a lightweight endpoint used by the frontend to decide which
-    UI controls to show (e.g., admin-only buttons). Authentication is not
-    implemented yet; for development this will return admin when the
-    request contains header `X-Admin: 1` or when environment variable
-    `FORCE_ADMIN` is set to 'true'.
+    Include an `authenticated` boolean based on the `minutes_session` cookie
+    so the frontend can update UI immediately after login/logout. Preserve
+    the legacy `X-Admin` header and `FORCE_ADMIN` env override for dev usage.
     """
     try:
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
         header_admin = x_admin == "1" or (
             isinstance(x_admin, str) and x_admin.lower() == "true"
         )
-        is_admin = force or header_admin
-        return {"is_admin": bool(is_admin)}
+        # Determine if a valid session cookie maps to a user
+        try:
+            from minutes.auth import get_current_user_from_cookie
+
+            user = get_current_user_from_cookie(minutes_session)
+        except (ImportError, HTTPException, ValueError, TypeError):
+            user = None
+
+        is_admin = bool(
+            force
+            or header_admin
+            or (user is not None and getattr(user, "is_admin", False))
+        )
+        authenticated = user is not None
+        return {"is_admin": bool(is_admin), "authenticated": bool(authenticated)}
     except (ValueError, AttributeError, TypeError):
-        return {"is_admin": False}
+        return {"is_admin": False, "authenticated": False}
 
 
 @app.get("/api/auth/features")
-def api_auth_features(x_admin: str | None = Header(None)):
+def api_auth_features(
+    x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)
+):
     """Compatibility wrapper for `/api/auth/features` used by the frontend."""
-    return auth_features(x_admin)
+    return auth_features(x_admin, minutes_session)
+
+
+class LoginReq(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/login")
+def auth_login(payload: LoginReq, response: Response):
+    """Login endpoint: sets HttpOnly cookie `minutes_session` on success."""
+    from minutes.auth import create_access_token, verify_password
+    from minutes.models import User
+
+    logger = logging.getLogger("minutes.api")
+    logger.debug("Login attempt for username=%s", payload.username)
+
+    with session_scope() as db:
+        try:
+            from sqlalchemy.exc import SQLAlchemyError
+
+            user = (
+                db.query(User).filter(User.username == payload.username).one_or_none()
+            )
+        except SQLAlchemyError:
+            user = None
+
+        if not user:
+            logger.warning("Failed login: unknown user %s", payload.username)
+            return JSONResponse({"error": "invalid credentials"}, status_code=401)
+
+        try:
+            stored_hash = getattr(user, "password_hash", None)
+            if not stored_hash or not verify_password(payload.password, stored_hash):
+                logger.warning(
+                    "Failed login: bad password for user %s", payload.username
+                )
+                return JSONResponse({"error": "invalid credentials"}, status_code=401)
+        except (ValueError, TypeError):
+            logger.exception(
+                "Failed login: exception verifying password for %s", payload.username
+            )
+            return JSONResponse({"error": "invalid credentials"}, status_code=401)
+
+        token = create_access_token(str(user.id))
+        secure = os.environ.get("ENV", "").lower() == "production" or os.environ.get(
+            "FORCE_HTTPS", "false"
+        ).lower() in ("1", "true")
+        resp = JSONResponse(
+            {"id": str(user.id), "is_admin": bool(getattr(user, "is_admin", False))}
+        )
+        max_age = int(os.environ.get("JWT_EXPIRE_HOURS", "8")) * 3600
+        resp.set_cookie(
+            "minutes_session",
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=secure,
+            max_age=max_age,
+        )
+        logger.info("User logged in: username=%s id=%s", payload.username, str(user.id))
+        return resp
+
+
+@app.post("/auth/logout")
+def auth_logout(response: Response):
+    logger = logging.getLogger("minutes.api")
+    logger.info("Logout requested")
+    resp = JSONResponse({"logged_out": True})
+    resp.delete_cookie("minutes_session")
+    return resp
+
+
+@app.post("/api/auth/login")
+def api_auth_login(payload: LoginReq, response: Response):
+    """Compatibility wrapper so frontend using `/api` prefix can login."""
+    return auth_login(payload, response)
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout(response: Response):
+    """Compatibility wrapper so frontend using `/api` prefix can logout."""
+    return auth_logout(response)
+
+
+class CreateServiceTokenReq(BaseModel):
+    name: str | None = None
+    user_id: str | None = None
+
+
+@app.post("/api/service-tokens", dependencies=[Depends(require_admin)])
+def api_create_service_token(payload: CreateServiceTokenReq):
+    """Create a new service token (admin only). Returns plaintext token and id."""
+    from minutes.auth import create_service_token
+
+    token, token_id = create_service_token(name=payload.name, user_id=payload.user_id)
+    return {"token": token, "id": token_id}
+
+
+@app.get("/api/service-tokens", dependencies=[Depends(require_admin)])
+def api_list_service_tokens():
+    from minutes.models import ServiceToken
+
+    out = []
+    with session_scope() as db:
+        rows = db.query(ServiceToken).all()
+        for r in rows:
+            out.append(
+                {
+                    "id": str(r.id),
+                    "name": r.name,
+                    "user_id": str(r.user_id) if r.user_id else None,
+                    "revoked": bool(r.revoked),
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+            )
+    return {"tokens": out}
+
+
+@app.delete("/api/service-tokens/{token_id}", dependencies=[Depends(require_admin)])
+def api_revoke_service_token(token_id: str):
+    from minutes.models import ServiceToken
+
+    try:
+        key = uuid.UUID(token_id)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "invalid token id"}, status_code=400)
+    with session_scope() as db:
+        st = db.get(ServiceToken, key)
+        if not st:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        st.revoked = True
+        db.add(st)
+        db.commit()
+        return {"revoked": True}
 
 
 def _is_request_admin(x_admin: str | None) -> bool:
@@ -1694,14 +1917,49 @@ class CreateBucketReq(BaseModel):
     public: bool | None = False
 
 
-def _get_user_id_from_header(x_user_id: str | None):
-    """Parse X-User-Id header if present; return UUID or None."""
-    if not x_user_id:
-        return None
-    try:
-        return uuid.UUID(x_user_id)
-    except (ValueError, TypeError):
-        return None
+def _get_user_id_from_header(x_user_id: str | None, authorization: str | None = None):
+    """Parse X-User-Id header if present; return UUID or None.
+
+    If `x_user_id` is missing, attempt to resolve an Authorization Bearer
+    service token to a user id via `minutes.auth.verify_service_token`.
+    """
+    logger = logging.getLogger("minutes.api")
+    if x_user_id:
+        try:
+            return uuid.UUID(x_user_id)
+        except (ValueError, TypeError):
+            return None
+    if authorization:
+        try:
+            import hashlib
+
+            from minutes.auth import verify_service_token
+
+            token = authorization
+            if isinstance(token, str) and token.lower().startswith("bearer "):
+                token = token.split(" ", 1)[1]
+            try:
+                fp = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+            except (AttributeError, TypeError, UnicodeEncodeError):
+                fp = "<hash-error>"
+            logger.info(
+                "Authorization header received; resolving service token fingerprint=%s",
+                fp,
+            )
+            user_id = verify_service_token(token)
+            if user_id:
+                logger.info(
+                    "Service token resolved to user=%s fingerprint=%s", str(user_id), fp
+                )
+                try:
+                    return uuid.UUID(str(user_id))
+                except (ValueError, TypeError):
+                    return None
+            logger.debug("Service token not recognized fingerprint=%s", fp)
+        except (ImportError, SQLAlchemyError, TypeError, ValueError):
+            logger.exception("Error resolving service token from Authorization header")
+            return None
+    return None
 
 
 @app.post("/api/buckets")
@@ -1709,6 +1967,7 @@ def api_create_bucket(
     payload: CreateBucketReq,
     x_admin: str | None = Header(None),
     x_user_id: str | None = Header(None),
+    authorization: str | None = Header(None),
 ):
     """Create a MinIO bucket and record it in the `buckets` table.
 
@@ -1717,7 +1976,7 @@ def api_create_bucket(
     - Admins (via `X-Admin`) can create buckets as well. Non-admins must supply `X-User-Id`.
     """
     is_admin = _is_request_admin(x_admin)
-    user_uuid = _get_user_id_from_header(x_user_id)
+    user_uuid = _get_user_id_from_header(x_user_id, authorization)
     if not is_admin and not user_uuid:
         return JSONResponse(
             {"error": "unauthorized: missing X-User-Id"}, status_code=401
@@ -1773,11 +2032,13 @@ def api_create_bucket(
 
 @app.get("/api/buckets")
 def api_list_buckets(
-    x_admin: str | None = Header(None), x_user_id: str | None = Header(None)
+    x_admin: str | None = Header(None),
+    x_user_id: str | None = Header(None),
+    authorization: str | None = Header(None),
 ):
     """List buckets. Admins see all; non-admins see only their own buckets."""
     is_admin = _is_request_admin(x_admin)
-    user_uuid = _get_user_id_from_header(x_user_id)
+    user_uuid = _get_user_id_from_header(x_user_id, authorization)
     with session_scope() as db:
         q = db.query(Bucket)
         if not is_admin:

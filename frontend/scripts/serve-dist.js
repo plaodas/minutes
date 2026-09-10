@@ -17,6 +17,27 @@ const mime = {
 
 const server = http.createServer((req, res) => {
   let urlPath = req.url.split('?')[0]
+  // Provide a tiny test-only stub for auth feature checks so static server
+  // can be used for Playwright e2e without a backend running.
+  if (urlPath.startsWith('/api/auth/features')) {
+    const body = JSON.stringify({ authenticated: true, is_admin: false })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(body)
+    return
+  }
+  // Serve a minimal no-op service worker and register script to avoid the
+  // service worker intercepting fetch requests during Playwright tests.
+  if (urlPath === '/sw.js') {
+    const sw = `self.addEventListener('install', (e) => self.skipWaiting()); self.addEventListener('activate', (e) => self.clients.claim());`
+    res.writeHead(200, { 'Content-Type': 'application/javascript' })
+    res.end(sw)
+    return
+  }
+  if (urlPath === '/registerSW.js') {
+    res.writeHead(200, { 'Content-Type': 'application/javascript' })
+    res.end('// registerSW disabled for e2e')
+    return
+  }
   if (urlPath === '/') urlPath = '/index.html'
   const filePath = path.join(root, decodeURIComponent(urlPath))
   fs.stat(filePath, (err, stats) => {
