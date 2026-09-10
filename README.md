@@ -51,6 +51,19 @@
 
 ## クイックスタート（ローカル開発 / テスト）
 
+0. Docker / docker-compose を使う場合:
+```bash
+# アプリ用 compose（例: Postgres, Redis, MinIO と連携した compose ファイルを参照）
+docker compose -f docker-compose.yml -f docker-compose.minio.yml up --build
+
+# フロントエンドをデプロイ
+./scripts/deploy_frontend.sh
+
+# Ollama のセットアップスクリプトを実行
+bash setup_ollama.sh
+```
+
+
 1. 仮想環境を作成して依存をインストール:
 
 ```bash
@@ -93,18 +106,6 @@ celery -A minutes.celery_app.celery worker --loglevel=info
 
 `minutes.celery_app` はワーカー起動時に SQLAlchemy エンジンの破棄を試みるため、prefork の子プロセスで親からソケットが継承されることによる `idle in transaction` の問題が軽減されます。
 
-5. Docker / docker-compose を使う場合:
-
-```bash
-# アプリ用 compose（例: Postgres, Redis, MinIO と連携した compose ファイルを参照）
-docker compose -f docker-compose.yml -f docker-compose.minio.yml up --build
-
-# フロントエンドをデプロイ
-./scripts/deploy_frontend.sh
-
-# Ollama のセットアップスクリプトを実行
-bash setup_ollama.sh
-```
 
 ## テスト実行時の注意
 - テスト実行時は `DATABASE_URL` を必ず指定してください（例: `sqlite:///./.pytest_sqlite.db`）。
