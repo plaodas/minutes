@@ -40,13 +40,11 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
     This task is retryable by Celery if MinIO deletion fails.
     """
     logger = logging.getLogger('minutes.tasks')
-    from minutes.db import SessionLocal
+    from minutes.db import session_scope
     from minutes.minio_client import MinioService
     from minutes.models import Task, TaskHistory, Bucket
     from datetime import datetime
-
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         # normalize key
         try:
             from minutes.bg_store import _parse_key
@@ -78,8 +76,7 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
                         svc.delete_objects_with_prefix(bucket, prefix, ignore_missing=True)
         except Exception as exc:
             logger.exception('hard_delete_task: MinIO deletion failed for %s: %s', task_id, exc)
-            db.close()
-            # raise to allow Celery to retry
+            # raise to allow Celery to retry; session_scope will rollback
             raise
 
         # remove output file if present locally
@@ -98,11 +95,8 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
             db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
             # attempt to delete Task row
             db.delete(t)
-            db.commit()
         except Exception:
-            db.rollback()
             logger.exception('hard_delete_task: failed DB delete for %s', task_id)
-            db.close()
             raise
 
         # attempt to delete Bucket row if no other task references it
@@ -115,7 +109,6 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
                     b = db.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
                     if b:
                         db.delete(b)
-                        db.commit()
         except Exception:
             # non-fatal
             logger.exception('hard_delete_task: failed to cleanup bucket row for %s', task_id)
@@ -127,11 +120,7 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
             record_history(task_id, 'deleted_hard', {'requester': requester or None, 'deleted_at': datetime.utcnow().isoformat()})
         except Exception:
             logger.exception('hard_delete_task: failed to record deletion history for %s', task_id)
-    finally:
-        try:
-            db.close()
-        except Exception:
-            pass
+    # session_scope will commit/close automatically
     logger.info('hard_delete_task completed for %s', task_id)
     return {'deleted': True}
 

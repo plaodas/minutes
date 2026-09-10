@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from backend.app import app
 
 import minutes.tasks as tasks
-from minutes.db import SessionLocal
+from minutes.db import session_scope
 from minutes.models import Task
 
 
@@ -40,22 +40,33 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
     import minutes.api as api_mod
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
-        session = db or SessionLocal()
-        try:
-            key = uuid.UUID(str(task_id)) if isinstance(task_id, str) else task_id
-            t = session.get(Task, key)
-            if not t:
-                t = Task(id=key, status='pending', result=metadata or None)
-                session.add(t)
-                session.commit()
-            else:
-                if metadata:
-                    t.result = metadata
+        if db is None:
+            with session_scope() as session:
+                key = uuid.UUID(str(task_id)) if isinstance(task_id, str) else task_id
+                t = session.get(Task, key)
+                if not t:
+                    t = Task(id=key, status='pending', result=metadata or None)
                     session.add(t)
-                    session.commit()
-        finally:
-            if db is None:
-                session.close()
+                else:
+                    if metadata:
+                        t.result = metadata
+                        session.add(t)
+        else:
+            session = db
+            try:
+                key = uuid.UUID(str(task_id)) if isinstance(task_id, str) else task_id
+                t = session.get(Task, key)
+                if not t:
+                    t = Task(id=key, status='pending', result=metadata or None)
+                    session.add(t)
+                else:
+                    if metadata:
+                        t.result = metadata
+                        session.add(t)
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
 
     monkeypatch.setattr(bg_store, 'create_task', fake_create)
     monkeypatch.setattr(api_mod, 'create_task', fake_create)
@@ -78,13 +89,10 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
     assert resp.get('task_id')
 
     # fetch Task row from DB and get metadata
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         t = session.get(Task, fake_id)
         assert t is not None
         meta = t.result or {}
-    finally:
-        session.close()
 
     # build prompt and call the (monkeypatched) formatter to simulate worker using it
     prompt = tasks.build_system_prompt(meta)

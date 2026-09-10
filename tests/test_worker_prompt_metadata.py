@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from minutes.db import SessionLocal
+from minutes.db import session_scope
 from minutes.models import Task
 
 
@@ -31,13 +31,14 @@ def test_worker_injects_language_and_actions(monkeypatch, tmp_path):
     monkeypatch.setattr(tasks, 'format_minutes_from_raw', fake_format)
 
     # create DB task with metadata
-    session = SessionLocal()
-    meta = {'language': 'Japanese', 'include_actions': False}
-    t = make_task(session, meta)
+    with session_scope() as session:
+        meta = {'language': 'Japanese', 'include_actions': False}
+        t = make_task(session, meta)
+        t_id = t.id
 
     # run worker synchronously: provide a dummy self with request.id
     class Dummy:
-        request = SimpleNamespace(id=str(t.id))
+        request = SimpleNamespace(id=str(t_id))
 
     # call the prompt builder directly for deterministic testing
     prompt = tasks.build_system_prompt(meta)

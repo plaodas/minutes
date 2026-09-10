@@ -7,10 +7,9 @@ def reconcile_once(outputs_dir="data/outputs"):
     # Load tasks from the DB only. Do not fall back to a file-based store.
     tasks = {}
     try:
-        from minutes.db import SessionLocal
+        from minutes.db import session_scope
         from minutes.models import Task
-        session = SessionLocal()
-        try:
+        with session_scope() as session:
             for t in session.query(Task).all():
                 tasks[str(t.id)] = {
                     "status": t.status,
@@ -19,11 +18,6 @@ def reconcile_once(outputs_dir="data/outputs"):
                     "last_failure_ts": t.last_failure_ts.isoformat() + "Z" if t.last_failure_ts else None,
                     "last_success_ts": t.last_success_ts.isoformat() + "Z" if t.last_success_ts else None,
                 }
-        finally:
-            try:
-                session.close()
-            except Exception:
-                pass
     except Exception:
         tasks = {}
 

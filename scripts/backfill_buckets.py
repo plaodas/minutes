@@ -17,7 +17,7 @@ docker compose exec -T minutes env PYTHONPATH=/app python3 /app/scripts/backfill
 import argparse
 import sys
 from minutes.minio_client import MinioService
-from minutes.db import SessionLocal
+from minutes.db import session_scope
 from minutes.models import Bucket, DUMMY_OWNER_ID
 from sqlalchemy.exc import IntegrityError
 import uuid
@@ -50,9 +50,9 @@ def main():
         print('Failed to list buckets from MinIO:', exc, file=sys.stderr)
         return 3
 
-    db = SessionLocal()
     to_create = []
-    try:
+    # gather existing buckets in a short-lived session
+    with session_scope() as db:
         for b in buckets:
             # `list_buckets()` yields Bucket objects with attribute `name`
             name = getattr(b, 'name', None) or str(b)
@@ -63,38 +63,35 @@ def main():
                 print(f'Missing: {name}')
                 to_create.append(name)
 
-        if not to_create:
-            print('No missing buckets to insert')
-            return 0
+    if not to_create:
+        print('No missing buckets to insert')
+        return 0
 
-        print('\nSummary:')
-        print(f'  buckets found: {len(buckets)}')
-        print(f'  missing to insert: {len(to_create)}')
+    print('\nSummary:')
+    print(f'  buckets found: {len(buckets)}')
+    print(f'  missing to insert: {len(to_create)}')
 
-        if not args.commit:
-            print('\nDry-run mode: no changes made. Use --commit to insert missing rows.')
-            return 0
+    if not args.commit:
+        print('\nDry-run mode: no changes made. Use --commit to insert missing rows.')
+        return 0
 
-        # commit mode
-        created = 0
-        for name in to_create:
-            try:
+    # commit mode: insert each bucket in its own short-lived transaction
+    created = 0
+    for name in to_create:
+        try:
+            with session_scope() as db:
                 b = Bucket(name=name, owner_id=owner, public=bool(args.public), bucket_metadata={})
                 db.add(b)
-                db.commit()
+                db.flush()
                 created += 1
                 print(f'Inserted: {name} -> id={b.id}')
-            except IntegrityError:
-                db.rollback()
-                print(f'IntegrityError inserting {name} (skipping)')
-            except Exception as exc:
-                db.rollback()
-                print(f'Error inserting {name}: {exc}', file=sys.stderr)
+        except IntegrityError:
+            print(f'IntegrityError inserting {name} (skipping)')
+        except Exception as exc:
+            print(f'Error inserting {name}: {exc}', file=sys.stderr)
 
-        print(f'Created {created} buckets')
-        return 0
-    finally:
-        db.close()
+    print(f'Created {created} buckets')
+    return 0
 
 
 if __name__ == '__main__':

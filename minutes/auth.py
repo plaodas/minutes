@@ -8,7 +8,7 @@ from fastapi import Cookie, HTTPException, status
 from passlib.hash import pbkdf2_sha256
 from fastapi import Depends
 
-from minutes.db import SessionLocal
+from minutes.db import session_scope
 from minutes.models import User
 from minutes.models import ServiceToken
 import hashlib
@@ -47,17 +47,11 @@ def decode_access_token(token: str) -> dict:
 
 def get_user_by_id(user_id: str) -> Optional[User]:
     try:
-        db = SessionLocal()
-        try:
-            uid = uuid.UUID(user_id)
-        except Exception:
-            return None
+        uid = uuid.UUID(user_id)
+    except Exception:
+        return None
+    with session_scope() as db:
         return db.get(User, uid)
-    finally:
-        try:
-            db.close()
-        except Exception:
-            pass
 
 
 def get_current_user_from_cookie(token: Optional[str]) -> Optional[User]:
@@ -89,8 +83,7 @@ def create_service_token(name: str | None = None, user_id: str | None = None):
     """Create a new service token, store its hash in DB, return plaintext token and model id."""
     token = uuid.uuid4().hex + uuid.uuid4().hex
     token_hash = _hash_token(token)
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         st = ServiceToken(name=name, token_hash=token_hash)
         if user_id:
             try:
@@ -98,14 +91,8 @@ def create_service_token(name: str | None = None, user_id: str | None = None):
             except Exception:
                 pass
         db.add(st)
-        db.commit()
-        db.refresh(st)
+        db.flush()
         return token, str(st.id)
-    finally:
-        try:
-            db.close()
-        except Exception:
-            pass
 
 
 def verify_service_token(token: str):
@@ -116,14 +103,8 @@ def verify_service_token(token: str):
     if token.lower().startswith('bearer '):
         token = token.split(' ', 1)[1]
     token_hash = _hash_token(token)
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         st = db.query(ServiceToken).filter(ServiceToken.token_hash == token_hash, ServiceToken.revoked == False).one_or_none()
         if not st:
             return None
         return st.user_id
-    finally:
-        try:
-            db.close()
-        except Exception:
-            pass

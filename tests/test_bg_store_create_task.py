@@ -1,6 +1,6 @@
 import uuid
 from minutes.bg_store import create_task
-from minutes.db import SessionLocal
+from minutes.db import session_scope
 from minutes.models import Task
 
 
@@ -9,15 +9,12 @@ def test_create_task_with_user_id():
     task_id = uuid.uuid4()
     # create task with explicit UUIDs
     create_task(str(task_id), metadata={"foo": "bar"}, user_id=str(owner))
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         t = db.get(Task, task_id)
         assert t is not None
         assert t.user_id == owner
         assert isinstance(t.result, dict)
         assert t.result.get("foo") == "bar"
-    finally:
-        db.close()
 
 
 def test_create_task_with_external_id_and_owner():

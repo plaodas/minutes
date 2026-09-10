@@ -15,7 +15,7 @@ ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from minutes.db import SessionLocal
+from minutes.db import session_scope
 from minutes.models import User
 from minutes.auth import get_password_hash
 
@@ -30,8 +30,7 @@ def main():
         print('Provide --username and --password (or set ADMIN_USER/ADMIN_PASS)')
         return
 
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         existing = db.query(User).filter(User.username == args.username).one_or_none()
         if existing:
             print('User already exists:', existing.username)
@@ -39,13 +38,8 @@ def main():
 
         u = User(username=args.username, password_hash=get_password_hash(args.password), is_admin=True)
         db.add(u)
-        db.commit()
+        db.flush()
         print('Created admin user:', args.username)
-    finally:
-        try:
-            db.close()
-        except Exception:
-            pass
 
 
 if __name__ == '__main__':

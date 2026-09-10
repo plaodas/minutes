@@ -8,7 +8,7 @@ import os
 import json
 import uuid
 from sqlalchemy.orm import Session
-from minutes.db import engine, SessionLocal
+from minutes.db import engine, session_scope
 from minutes.models import Task
 from datetime import datetime
 
@@ -27,8 +27,7 @@ def migrate():
     if not data:
         print('no tasks found')
         return
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         for tid, item in data.items():
             print('migrating', tid)
             # create or update existing
@@ -58,10 +57,7 @@ def migrate():
                     t.progress = float(prog)
                 except Exception:
                     t.progress = None
-        session.commit()
-        print('migration complete')
-    finally:
-        session.close()
+    print('migration complete')
 
 
 if __name__ == '__main__':
