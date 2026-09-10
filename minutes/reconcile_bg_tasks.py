@@ -1,7 +1,6 @@
-import json
 import os
 
-from minutes.bg_store import DB_PATH, get_task, update_task_failure, update_task_success
+from minutes.bg_store import update_task_success
 
 
 def reconcile_once(outputs_dir="data/outputs"):

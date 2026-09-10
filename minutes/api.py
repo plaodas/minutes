@@ -3,11 +3,10 @@ import json
 import logging
 import os
 import shutil
-import tempfile
 import time
 import typing
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
 from celery.result import AsyncResult
 from fastapi import (
@@ -25,14 +24,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
-    PlainTextResponse,
     Response,
     StreamingResponse,
 )
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-import minutes.tasks as tasks
+from minutes import tasks
 from minutes.audio import preprocess
 from minutes.bg_store import (
     create_task,
@@ -53,7 +51,6 @@ from minutes.schemas import (
     CreateTaskResponse,
     FormatRawRequest,
     FormatRawResponse,
-    ResultSuccess,
     StatusResponse,
 )
 from minutes.sse import register_queue, unregister_queue
@@ -413,7 +410,7 @@ def api_admin_list_buckets(_=Depends(require_admin)):
 
 
 @app.post("/api/admin/buckets")
-def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
+def admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_admin)):
     name = (payload or {}).get("name")
     if not name:
         return JSONResponse({"error": "missing name"}, status_code=400)
@@ -439,7 +436,7 @@ def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)
 
 
 @app.post("/api/admin/buckets")
-def api_admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
+def api_admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_admin)):
     return admin_create_bucket(payload, _=_)
 
 
@@ -769,7 +766,7 @@ def api_bg_tasks(limit: int = 50, offset: int = 0):
 
 
 @app.post("/api/bg/task/{task_id}/rename")
-def api_bg_task_rename(task_id: str, payload: Dict[str, str]):
+def api_bg_task_rename(task_id: str, payload: dict[str, str]):
     """Compatibility wrapper for `/api/bg/task/{task_id}/rename`."""
     return bg_task_rename(task_id, payload)
 
@@ -787,7 +784,7 @@ def api_bg_task_events(task_id: str):
 
 
 @app.post("/api/bg/task/{task_id}/rename")
-def bg_task_rename(task_id: str, payload: Dict[str, str]):
+def bg_task_rename(task_id: str, payload: dict[str, str]):
     """Rename a task display `name`.
 
     Body: { "name": "New title" }
@@ -864,7 +861,6 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     """
     # Support cursor-based keyset pagination for infinite scroll.
     # Cursor format: "<updated_at_iso>|<id>" (optional). If not provided, fall back to offset paging.
-    from datetime import datetime
 
     with session_scope() as session:
         cursor = None
@@ -1005,12 +1001,12 @@ def bg_task_events(task_id: str):
 
 
 class IdList(BaseModel):
-    ids: List[str]
+    ids: list[str]
     limit: int | None = 1
     # backward-compatible: single numeric offset (applies to all ids when provided)
     offset: int | None = 0
     # optional per-id offsets map: { "<id>": <offset>, ... }
-    offsets: Dict[str, int] | None = None
+    offsets: dict[str, int] | None = None
 
 
 @app.post("/api/bg/histories")
@@ -1025,7 +1021,7 @@ def bg_histories(payload: IdList):
     ids = payload.ids or []
     limit = int(payload.limit or 1)
     # build offsets map: prefer payload.offsets (per-id), fall back to single offset if provided
-    offsets_map: Dict[str, int] = {}
+    offsets_map: dict[str, int] = {}
     if getattr(payload, "offsets", None):
         try:
             offsets_map = {str(k): int(v) for k, v in (payload.offsets or {}).items()}
@@ -1047,13 +1043,13 @@ def bg_histories(payload: IdList):
         )
 
     # Warning for large requests; we'll still process but in batches
-    warnings: List[str] = []
+    warnings: list[str] = []
     if n_ids > MAX_IDS_PER_REQUEST:
         warnings.append(
             f"request contains {n_ids} ids; processing in internal batches of {BG_HISTORIES_BATCH_SIZE}"
         )
 
-    out: Dict[str, List[Dict[str, Any]]] = {}
+    out: dict[str, list[dict[str, Any]]] = {}
 
     # DB-backed path only: reuse a single session and process ids in chunks
     with session_scope() as session:
@@ -1068,7 +1064,7 @@ def bg_histories(payload: IdList):
             chunk = ids[start : start + BG_HISTORIES_BATCH_SIZE]
 
             # build mapping of valid UUIDs in this chunk
-            valid_map: Dict[uuid.UUID, str] = {}
+            valid_map: dict[uuid.UUID, str] = {}
             for i in chunk:
                 # skip obviously-invalid short strings to avoid accidental coercion
                 if not isinstance(i, str) or len(i) not in (32, 36):
@@ -1317,7 +1313,6 @@ def bg_force_delete(task_id: str):
                     except Exception:
                         pass
         except Exception:
-            pass
 
             # delete history and task rows
             try:
@@ -1521,7 +1516,7 @@ def _stream_minio_object(
         obj = svc.client.get_object(bucket, object_name)
     except Exception as exc:
         return JSONResponse(
-            {"error": f"failed to fetch object from MinIO: {str(exc)}"}, status_code=502
+            {"error": f"failed to fetch object from MinIO: {exc!s}"}, status_code=502
         )
 
     def iterfile(chunk_size: int = 32 * 1024):
@@ -1632,9 +1627,7 @@ def api_create_bucket(
         if not svc.client.bucket_exists(payload.name):
             svc.client.make_bucket(payload.name)
     except Exception as exc:
-        return JSONResponse(
-            {"error": f"minio create failed: {str(exc)}"}, status_code=502
-        )
+        return JSONResponse({"error": f"minio create failed: {exc!s}"}, status_code=502)
 
     with session_scope() as db:
         existing = db.query(Bucket).filter(Bucket.name == payload.name).one_or_none()
@@ -2008,7 +2001,7 @@ def bg_action_items(task_id: str, format: str = "json"):
             # fallback: look for lines starting with 'Action:' or 'TODO' anywhere
             lines = [l.strip() for l in text.splitlines() if l.strip()]
             for l in lines:
-                if re.search(r"\b(Action|TODO|Action Item)[:\-]", l, re.I):
+                if re.search(r"\b(Action|TODO|Action Item)[:\-]", l, re.IGNORECASE):
                     items.append({"text": l})
 
         if section:

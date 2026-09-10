@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 import requests
 
@@ -42,8 +41,8 @@ DEFAULT_SYSTEM_PROMPT = """
 def format_minutes_from_raw(
     raw_text: str,
     model: str | None = None,
-    system_prompt: Optional[str] = None,
-    host: Optional[str] = None,
+    system_prompt: str | None = None,
+    host: str | None = None,
 ) -> str:
     """Format raw transcript text via Ollama.
 

@@ -9,9 +9,7 @@ import os
 import uuid
 from datetime import datetime
 
-from sqlalchemy.orm import Session
-
-from minutes.db import engine, session_scope
+from minutes.db import session_scope
 from minutes.models import Task
 
 DB_FILE = os.environ.get("BG_TASK_DB", "data/bg_tasks.json")

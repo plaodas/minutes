@@ -1,5 +1,4 @@
 import os
-import tempfile
 import time
 
 from fastapi.testclient import TestClient

@@ -3,18 +3,18 @@ import json
 import logging
 import os
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("minutes.sse")
 
 _lock = threading.Lock()
 # list of asyncio.Queue instances
-_queues: List[asyncio.Queue] = []
+_queues: list[asyncio.Queue] = []
 
 # Redis publish client (sync) lazily initialized when REDIS_URL is set
 _redis_pub = None
 # Asyncio task for redis subscriber
-_redis_task: Optional[asyncio.Task] = None
+_redis_task: asyncio.Task | None = None
 
 
 def register_queue() -> asyncio.Queue:
@@ -32,7 +32,7 @@ def unregister_queue(q: asyncio.Queue):
             pass
 
 
-def _push_to_local_queues(event: Dict[str, Any]):
+def _push_to_local_queues(event: dict[str, Any]):
     with _lock:
         queues = list(_queues)
     for q in queues:
@@ -52,7 +52,7 @@ def _push_to_local_queues(event: Dict[str, Any]):
                 logger.exception("failed to put event into queue without loop")
 
 
-def publish_event(event: Dict[str, Any]):
+def publish_event(event: dict[str, Any]):
     """Publish an event locally and to Redis if configured.
 
     This function is safe to call from synchronous code.

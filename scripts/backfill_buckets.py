@@ -48,7 +48,7 @@ def main():
     if args.owner:
         try:
             owner = uuid.UUID(args.owner)
-        except Exception as e:
+        except Exception:
             print(f"Invalid owner UUID: {args.owner}", file=sys.stderr)
             return 2
     else:

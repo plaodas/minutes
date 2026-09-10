@@ -5,7 +5,7 @@ import queue
 import threading
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from minutes.transcribe import transcribe
 

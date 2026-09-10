@@ -1,8 +1,5 @@
-import os
 import uuid
 from types import SimpleNamespace
-
-import pytest
 
 from minutes.db import session_scope
 from minutes.models import Task
@@ -17,7 +14,7 @@ def make_task(session, metadata: dict):
 
 def test_worker_injects_language_and_actions(monkeypatch, tmp_path):
     # stub preprocess and transcribe to avoid heavy deps
-    import minutes.tasks as tasks
+    from minutes import tasks
 
     monkeypatch.setattr(tasks, "preprocess", lambda p: p)
     monkeypatch.setattr(

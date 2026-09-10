@@ -2,7 +2,6 @@ import hashlib
 import os
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional
 
 import jwt
 from fastapi import Cookie, HTTPException, status
@@ -30,7 +29,7 @@ def get_password_hash(password: str) -> str:
     return pbkdf2_sha256.hash(password)
 
 
-def create_access_token(sub: str, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(sub: str, expires_delta: timedelta | None = None) -> str:
     to_encode = {"sub": str(sub)}
     expire = datetime.utcnow() + (
         expires_delta or timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
@@ -50,7 +49,7 @@ def decode_access_token(token: str) -> dict:
         )
 
 
-def get_user_by_id(user_id: str) -> Optional[User]:
+def get_user_by_id(user_id: str) -> User | None:
     try:
         uid = uuid.UUID(user_id)
     except Exception:
@@ -59,7 +58,7 @@ def get_user_by_id(user_id: str) -> Optional[User]:
         return db.get(User, uid)
 
 
-def get_current_user_from_cookie(token: Optional[str]) -> Optional[User]:
+def get_current_user_from_cookie(token: str | None) -> User | None:
     if not token:
         return None
     payload = decode_access_token(token)
@@ -69,7 +68,7 @@ def get_current_user_from_cookie(token: Optional[str]) -> Optional[User]:
     return get_user_by_id(sub)
 
 
-def require_current_user(minutes_session: Optional[str] = Cookie(None)) -> User:
+def require_current_user(minutes_session: str | None = Cookie(None)) -> User:
     """FastAPI dependency to require a logged-in user via the `minutes_session` cookie.
 
     Raises HTTP 401 if not authenticated.

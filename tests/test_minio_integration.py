@@ -1,8 +1,6 @@
 import os
 import time
 
-import requests
-
 from minutes.minio_client import MinioService
 
 

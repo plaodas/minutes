@@ -4,3 +4,4 @@ httpx==0.27.2
 ruff
 black
 isort
+pre-commit

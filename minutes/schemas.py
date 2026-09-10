@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -14,12 +14,12 @@ class CreateTaskResponse(BaseModel):
 class StatusResponse(BaseModel):
     task_id: str
     status: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ResultSuccess(BaseModel):
     status: str
-    result: Dict[str, Any]
+    result: dict[str, Any]
 
 
 class FormatRawRequest(BaseModel):

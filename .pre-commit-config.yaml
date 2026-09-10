@@ -1,0 +1,16 @@
+default_stages: [commit, push]
+exclude: |
+  (^\.venv/|^frontend/|^frontend/node_modules/|^frontend/dist/|^deploy/frontend_html/|^\.git/)
+
+repos:
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: https://github.com/psf/black
+    rev: 26.5.1
+    hooks:
+      - id: black
+        language_version: python3.12

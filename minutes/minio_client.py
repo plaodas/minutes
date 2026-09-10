@@ -2,7 +2,6 @@ import json
 import os
 
 from minio import Minio
-from minio.error import S3Error
 
 
 def make_minio_client():

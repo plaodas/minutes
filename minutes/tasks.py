@@ -196,7 +196,7 @@ def process_audio(self, input_path: str):
         logger = logging.getLogger("minutes.tasks")
         logger.info("process_audio start: task_id=%r input=%s", task_id, input_path)
         # also print to stdout for immediate worker logs visibility
-        print(f"DEBUG process_audio start task_id={repr(task_id)} input={input_path}")
+        print(f"DEBUG process_audio start task_id={task_id!r} input={input_path}")
     except Exception:
         pass
     # Do NOT hold a long-lived DB session during preprocessing/transcription.
@@ -664,7 +664,9 @@ def process_audio(self, input_path: str):
             else:
                 # fallback: search for TODO/Action: patterns
                 for line in final_minutes.splitlines():
-                    if re.search(r"\b(Action|TODO|Action Item)[:\-]", line, re.I):
+                    if re.search(
+                        r"\b(Action|TODO|Action Item)[:\-]", line, re.IGNORECASE
+                    ):
                         items.append({"text": line.strip()})
         except Exception:
             items = []

@@ -1,6 +1,6 @@
 import os
 import threading
-from typing import Any, Dict, Optional
+from typing import Any
 
 _lock = threading.Lock()
 
@@ -15,9 +15,9 @@ from contextlib import contextmanager
 from .db import engine, session_scope
 
 logger = logging.getLogger("minutes.bg_store")
-from sqlalchemy.exc import IntegrityError, NoResultFound, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
-from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory, User
+from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
 
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -45,7 +45,7 @@ def _strip_markdown(text: str) -> str:
         return ""
     s = str(text)
     # remove fenced code blocks
-    s = re.sub(r"```.*?```", "", s, flags=re.S)
+    s = re.sub(r"```.*?```", "", s, flags=re.DOTALL)
     # inline code
     s = re.sub(r"`([^`]+)`", r"\1", s)
     # bold/italic
@@ -57,7 +57,7 @@ def _strip_markdown(text: str) -> str:
     s = re.sub(r"!\[(.*?)\]\([^\)]*\)", r"\1", s)
     s = re.sub(r"\[(.*?)\]\([^\)]*\)", r"\1", s)
     # remove heading markers, blockquotes, list markers at line starts
-    s = re.sub(r"^[>#\-\+\*]+\s*", "", s, flags=re.M)
+    s = re.sub(r"^[>#\-\+\*]+\s*", "", s, flags=re.MULTILINE)
     # remove stray > characters
     s = re.sub(r">\s*", "", s)
     # collapse whitespace and newlines
@@ -184,7 +184,7 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
 
 
 def create_task(
-    task_id: str, metadata: dict | None = None, user_id: Optional[str] = None, db=None
+    task_id: str, metadata: dict | None = None, user_id: str | None = None, db=None
 ):
     with _lock:
         try:
@@ -527,59 +527,55 @@ def update_task_success(task_id: str, result: Any, db=None):
 
 
 def update_task_failure(task_id: str, error_msg: str, db=None):
-    with _lock:
-        with maybe_session(db) as (s, created):
-            try:
-                key = _parse_key(task_id)
-                t = s.get(Task, key)
-                if not t:
-                    try:
-                        create_task(task_id, metadata=None)
-                    except Exception:
-                        pass
-                    t = s.get(Task, key)
-                t.status = "failed"
-                t.result = None
-                t.fail_count = (t.fail_count or 0) + 1
-                t.last_failure_ts = datetime.utcnow()
+    with _lock, maybe_session(db) as (s, created):
+        try:
+            key = _parse_key(task_id)
+            t = s.get(Task, key)
+            if not t:
                 try:
-                    s.commit()
-                except IntegrityError:
-                    s.rollback()
-                try:
-                    record_history(task_id, "failure", {"error": error_msg}, db=s)
+                    create_task(task_id, metadata=None)
                 except Exception:
-                    logger.exception('record_history("failure") failed for %s', task_id)
+                    pass
+                t = s.get(Task, key)
+            t.status = "failed"
+            t.result = None
+            t.fail_count = (t.fail_count or 0) + 1
+            t.last_failure_ts = datetime.utcnow()
+            try:
+                s.commit()
+            except IntegrityError:
+                s.rollback()
+            try:
+                record_history(task_id, "failure", {"error": error_msg}, db=s)
             except Exception:
-                logger.exception("update_task_failure failed for %s", task_id)
+                logger.exception('record_history("failure") failed for %s', task_id)
+        except Exception:
+            logger.exception("update_task_failure failed for %s", task_id)
 
 
 def update_task_cancelled(task_id: str, db=None):
-    with _lock:
-        with maybe_session(db) as (s, created):
-            try:
-                key = _parse_key(task_id)
-                t = s.get(Task, key)
-                if not t:
-                    try:
-                        create_task(task_id, metadata=None)
-                    except Exception:
-                        pass
-                    t = s.get(Task, key)
-                t.status = "cancelled"
-                t.result = None
+    with _lock, maybe_session(db) as (s, created):
+        try:
+            key = _parse_key(task_id)
+            t = s.get(Task, key)
+            if not t:
                 try:
-                    s.commit()
-                except IntegrityError:
-                    s.rollback()
-                try:
-                    record_history(task_id, "cancelled", {}, db=s)
+                    create_task(task_id, metadata=None)
                 except Exception:
-                    logger.exception(
-                        'record_history("cancelled") failed for %s', task_id
-                    )
+                    pass
+                t = s.get(Task, key)
+            t.status = "cancelled"
+            t.result = None
+            try:
+                s.commit()
+            except IntegrityError:
+                s.rollback()
+            try:
+                record_history(task_id, "cancelled", {}, db=s)
             except Exception:
-                logger.exception("update_task_cancelled failed for %s", task_id)
+                logger.exception('record_history("cancelled") failed for %s', task_id)
+        except Exception:
+            logger.exception("update_task_cancelled failed for %s", task_id)
 
 
 def update_task_status(task_id: str, status: str, db=None):
@@ -638,107 +634,99 @@ def update_task_status(task_id: str, status: str, db=None):
 
 
 def update_task_progress(task_id: str, progress: float, db=None):
-    with _lock:
-        with maybe_session(db) as (s, created):
-            try:
-                key = _parse_key(task_id)
-                t = s.get(Task, key)
-                if not t:
-                    try:
-                        create_task(task_id, metadata=None)
-                    except Exception:
-                        pass
-                    t = s.get(Task, key)
-                # Always update the Task.progress column so reads get latest value
-                t.progress = float(progress)
+    with _lock, maybe_session(db) as (s, created):
+        try:
+            key = _parse_key(task_id)
+            t = s.get(Task, key)
+            if not t:
                 try:
-                    s.commit()
+                    create_task(task_id, metadata=None)
                 except Exception:
-                    s.rollback()
+                    pass
+                t = s.get(Task, key)
+            # Always update the Task.progress column so reads get latest value
+            t.progress = float(progress)
+            try:
+                s.commit()
+            except Exception:
+                s.rollback()
 
-                # Coalesce frequent progress updates to avoid inserting too many
-                # TaskHistory rows. Only record a new progress row when either:
-                # - delta >= 5.0 percentage points from the most recent progress row, or
-                # - the most recent progress row is older than 5 seconds.
-                try:
-                    last = (
-                        s.query(TaskHistory)
-                        .filter(
-                            TaskHistory.task_id == key,
-                            TaskHistory.event_type == "progress",
-                        )
-                        .order_by(TaskHistory.event_ts.desc())
-                        .limit(1)
-                        .one_or_none()
+            # Coalesce frequent progress updates to avoid inserting too many
+            # TaskHistory rows. Only record a new progress row when either:
+            # - delta >= 5.0 percentage points from the most recent progress row, or
+            # - the most recent progress row is older than 5 seconds.
+            try:
+                last = (
+                    s.query(TaskHistory)
+                    .filter(
+                        TaskHistory.task_id == key,
+                        TaskHistory.event_type == "progress",
                     )
-                    should_record = True
-                    if last and isinstance(last.payload, dict):
-                        try:
-                            last_progress = float(last.payload.get("progress", 0.0))
-                        except Exception:
-                            last_progress = None
-                        if last_progress is not None:
-                            delta = abs(float(progress) - last_progress)
-                            age = (
+                    .order_by(TaskHistory.event_ts.desc())
+                    .limit(1)
+                    .one_or_none()
+                )
+                should_record = True
+                if last and isinstance(last.payload, dict):
+                    try:
+                        last_progress = float(last.payload.get("progress", 0.0))
+                    except Exception:
+                        last_progress = None
+                    if last_progress is not None:
+                        delta = abs(float(progress) - last_progress)
+                        age = (
+                            datetime.utcnow() - (last.event_ts or datetime.utcnow())
+                        ).total_seconds()
+                        if delta < 5.0 and age < 5.0:
+                            should_record = False
+                if should_record:
+                    # If a recent progress row exists, update it in-place to avoid
+                    # accumulating many small progress INSERTs. Otherwise INSERT.
+                    try:
+                        recent_seconds = (
+                            24 * 3600
+                        )  # keep one day's worth of updates consolidated
+                        last_age = (
+                            (
                                 datetime.utcnow() - (last.event_ts or datetime.utcnow())
                             ).total_seconds()
-                            if delta < 5.0 and age < 5.0:
-                                should_record = False
-                    if should_record:
-                        # If a recent progress row exists, update it in-place to avoid
-                        # accumulating many small progress INSERTs. Otherwise INSERT.
-                        try:
-                            recent_seconds = (
-                                24 * 3600
-                            )  # keep one day's worth of updates consolidated
-                            last_age = (
-                                (
-                                    datetime.utcnow()
-                                    - (last.event_ts or datetime.utcnow())
-                                ).total_seconds()
-                                if last
-                                else None
-                            )
-                            if (
-                                last
-                                and last_age is not None
-                                and last_age < recent_seconds
-                            ):
-                                # update existing row
-                                try:
-                                    last.payload = {"progress": float(progress)}
-                                    last.event_ts = datetime.utcnow()
-                                    s.add(last)
-                                    s.commit()
-                                except Exception:
-                                    s.rollback()
-                                    # fallback to inserting a new row if update fails
-                                    record_history(
-                                        task_id,
-                                        "progress",
-                                        {"progress": float(progress)},
-                                        db=s,
-                                    )
-                            else:
+                            if last
+                            else None
+                        )
+                        if last and last_age is not None and last_age < recent_seconds:
+                            # update existing row
+                            try:
+                                last.payload = {"progress": float(progress)}
+                                last.event_ts = datetime.utcnow()
+                                s.add(last)
+                                s.commit()
+                            except Exception:
+                                s.rollback()
+                                # fallback to inserting a new row if update fails
                                 record_history(
                                     task_id,
                                     "progress",
                                     {"progress": float(progress)},
                                     db=s,
                                 )
-                        except Exception:
-                            logger.exception(
-                                "failed to upsert progress history for %s", task_id
+                        else:
+                            record_history(
+                                task_id,
+                                "progress",
+                                {"progress": float(progress)},
+                                db=s,
                             )
-                except Exception:
-                    logger.exception(
-                        'record_history("progress") failed for %s', task_id
-                    )
+                    except Exception:
+                        logger.exception(
+                            "failed to upsert progress history for %s", task_id
+                        )
             except Exception:
-                logger.exception("update_task_progress failed for %s", task_id)
+                logger.exception('record_history("progress") failed for %s', task_id)
+        except Exception:
+            logger.exception("update_task_progress failed for %s", task_id)
 
 
-def get_task(task_id: str) -> Optional[Dict[str, Any]]:
+def get_task(task_id: str) -> dict[str, Any] | None:
     with session_scope() as s:
         key = _parse_key(task_id)
         t = s.get(Task, key)

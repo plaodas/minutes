@@ -3,8 +3,8 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-import minutes.tasks as tasks
 from backend.app import app
+from minutes import tasks
 from minutes.db import session_scope
 from minutes.models import Task
 
@@ -40,7 +40,7 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
 
     # ensure create_task writes a DB Task row with metadata so worker can read it
     import minutes.api as api_mod
-    import minutes.bg_store as bg_store
+    from minutes import bg_store
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
         if db is None:

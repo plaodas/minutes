@@ -1,9 +1,7 @@
-import logging
 import os
-import tempfile
 import types
 
-import minutes.tasks as tasks
+from minutes import tasks
 
 
 class DummySelf:

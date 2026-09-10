@@ -3,13 +3,12 @@ import wave
 
 from fastapi.testclient import TestClient
 
-import minutes.tasks as tasks
 from backend.app import app
+from minutes import tasks
 
 
 def make_wav_bytes(duration_seconds: float = 0.02) -> bytes:
     import io
-    import wave
 
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:

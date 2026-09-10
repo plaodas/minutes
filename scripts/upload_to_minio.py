@@ -41,13 +41,13 @@ try:
     try:
         client.fput_object(bucket, object_name, local_path)
         out["fput_object"] = "ok"
-    except Exception as e:
+    except Exception:
         out["fput_object_error"] = traceback.format_exc()
     # stat
     try:
         info = client.stat_object(bucket, object_name)
         out["stat"] = {"size": info.size, "etag": info.etag}
-    except Exception as e:
+    except Exception:
         out["stat_error"] = traceback.format_exc()
     # list some objects
     try:
@@ -55,7 +55,7 @@ try:
             client.list_objects(bucket, prefix=f"minutes/{TASK_ID}/", recursive=True)
         )
         out["listed"] = [o.object_name for o in objs]
-    except Exception as e:
+    except Exception:
         out["list_error"] = traceback.format_exc()
     # update DB
     try:
@@ -65,9 +65,9 @@ try:
         }
         update_task_success(TASK_ID, merged)
         out["db_update"] = "ok"
-    except Exception as e:
+    except Exception:
         out["db_update_error"] = traceback.format_exc()
-except Exception as e:
+except Exception:
     out["error"] = traceback.format_exc()
 
 print(json.dumps(out, indent=2, ensure_ascii=False))

@@ -1,14 +1,11 @@
-from typing import Optional, Tuple
-
-
 def transcribe(
     audio_path: str,
     model_size: str = "medium",
-    prompt: Optional[str] = None,
+    prompt: str | None = None,
     device: str = "cpu",
-    raw_out: Optional[str] = None,
-    progress_callback: Optional[callable] = None,
-) -> Tuple[str, object]:
+    raw_out: str | None = None,
+    progress_callback: callable | None = None,
+) -> tuple[str, object]:
     """Transcribe audio using faster-whisper and optionally save raw transcript.
 
     Delays importing `faster_whisper` so the API can start without heavy
