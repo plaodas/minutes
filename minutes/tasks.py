@@ -610,3 +610,4 @@ def process_audio(self, input_path: str):
                 db.close()
         except Exception:
             pass
+
