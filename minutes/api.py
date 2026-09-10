@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, D
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
-import logging
 from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.responses import StreamingResponse, Response, FileResponse
 from typing import Dict, Any, List
@@ -21,7 +20,6 @@ import os
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw
-from minutes.tasks import process_audio
 import minutes.tasks as tasks
 from minutes.celery_app import celery
 from celery.result import AsyncResult
@@ -34,9 +32,9 @@ from minutes.bg_store import (
     record_history,
 )
 from minutes.bg_store import update_task_cancelled
-from minutes.bg_store import DB_PATH
 from minutes.sse import register_queue, unregister_queue
 import uuid
+import typing
 from minutes.db import session_scope
 from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
 from sqlalchemy.exc import IntegrityError
@@ -44,8 +42,6 @@ import uuid
 from minutes.reconcile_bg_tasks import reconcile_once
 import time
 from minutes.minio_client import MinioService
-import typing
-from fastapi.responses import StreamingResponse
 from fastapi import Header
 
 # Allowed upload file types

@@ -9,11 +9,8 @@ from minutes.celery_app import celery
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw, DEFAULT_SYSTEM_PROMPT
-import datetime
-import os
 from minutes.bg_store import get_task, update_task_success, update_task_failure, update_task_status, update_task_progress
 import requests
-from typing import Tuple, Any
 
 
 def build_system_prompt(meta_obj):

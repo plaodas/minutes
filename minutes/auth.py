@@ -6,7 +6,6 @@ from typing import Optional
 import jwt
 from fastapi import Cookie, HTTPException, status
 from passlib.hash import pbkdf2_sha256
-from fastapi import Depends
 
 from minutes.db import session_scope
 from minutes.models import User

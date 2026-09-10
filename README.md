@@ -1,47 +1,55 @@
-# Minutes — 音声から議事録を自動生成するサービス（更新中のドキュメントです）
+# Minutes — 音声から議事録を自動生成するサービス
 
-このリポジトリは、音声ファイルを前処理して文字起こし（Whisper系）し、LLM（Ollama 等）で読みやすい議事録に整形するパイプラインとそれを提供するAPI・ワーカー群を含みます。
+このリポジトリは、音声ファイルを前処理して文字起こし（ローカル Whisper 系や外部サービス）し、LLM（Ollama 等）で読みやすい議事録に整形するパイプラインとそれを提供する API・ワーカー群を含みます。
 
-```bash
-# 2. アプリ側 compose を起動
-docker compose -f docker-compose.yml -f docker-compose.minio.yml up --build
+この README はコードの現状に合わせて更新しています。運用や開発で重要な変更点は「DB 設定の必須化」「短命セッションの推奨」「Celery フォーク後のエンジン破棄」です。
 
-# 1. Ollama 専用 compose を起動しモデルを自動ダウンロード
-bash setup_ollama.sh
-
-```
+## 主要なポイント（現状）
+- 永続的なグローバル DB セッションは避け、`minutes.db.session_scope()` を使った短命セッション（トランザクション単位）を推奨しています。
+- Celery の prefork モデルでプロセスが分岐する際に、親プロセスからソケットが継承されないように `minutes.db.dispose_engine()` をワーカー初期化フックで呼び出すようになっています（`minutes.celery_app` が自動で処理します）。
+- DB への接続情報は環境変数 `DATABASE_URL`（または互換名 `BG_TASK_DB_URL`）で必須にしています。開発時は SQLite の DSN を指定してローカル実行／テストが可能です。
 
 ## 主な機能
 - 音声前処理（モノラル化、正規化、WAV 出力）
-- 文字起こし（`faster-whisper` を利用）
-- 議事録整形（Ollama に HTTP で問い合わせ、失敗時はローカル要約でフォールバック）
-- FastAPI によるアップロード API と推論用ストリーミングエンドポイント
+- 文字起こし（ローカルの `faster-whisper` 等を利用可能）
+- 議事録整形（Ollama へ HTTP問い合わせ。フォールバックとしてローカル要約を利用）
+- FastAPI によるアップロード API・管理 API・SSE（ライブ更新）
 - Celery ベースのバックグラウンドワークフロー
 - MinIO を使ったオブジェクト保存サポート（オプション）
 
 ## 重要なファイル
-- `run_minute_pipeline.py`, `auto_minutes_ollama.py` — ローカル実行用パイプライン
-- `ollama_minutes_from_raw.py` — 既存の文字起こしから Ollama で整形
-- `fw.py` — 文字起こし単体のテストスクリプト
-- `minutes/` — コアモジュール（`audio.py`, `transcribe.py`, `ollama.py`, `api.py`, `tasks.py` など）
-- `requirements.txt`, `requirements-api.txt` — 依存管理
+- `minutes/` — コアモジュール
+  - `minutes/audio.py` — 前処理
+  - `minutes/transcribe.py` — 文字起こしラッパ
+  - `minutes/ollama.py` — Ollama問い合わせとフォールバック整形
+  - `minutes/api.py` — FastAPI アプリ（エントリポイントは `backend/app.py` 経由でも起動可）
+  - `minutes/inference_app.py` — 推論専用の小さな FastAPI（ストリーミングなど）
+  - `minutes/tasks.py` — Celery タスク（パイプライン実装）
+  - `minutes/bg_store.py` — DB によるタスクストアと履歴
+  - `minutes/db.py` — SQLAlchemy エンジン、`SessionLocal`、`session_scope()`、`dispose_engine()`
+  - `minutes/celery_app.py` — Celery インスタンスとワーカーフック（`dispose_engine()` 呼び出し）
+- `backend/app.py` — `minutes.api:app` をラップする軽量モジュール（デプロイ/テストで使いやすい）
+- `alembic/` — DB マイグレーション定義（Alembic）
 
 ## 依存と前提
-- Python 3.10+ を推奨（`pyproject.toml` / `requirements*.txt` を参照）
+- Python 3.10+ を推奨（このリポジトリでは 3.12 でも動作確認しています）
 - `ffmpeg`（音声処理）
-- `faster-whisper`（ローカルで文字起こしする場合）
-- Ollama サーバー（ローカルまたはホストにデプロイして HTTP 経由で利用）
-- Celery とブローカー（Redis/RabbitMQ 等）を使う場合は別途セットアップ
+- DB: PostgreSQL 等の本番 DB（`DATABASE_URL` に DSN を指定）または開発用に SQLite（例: `sqlite:///./.pytest_sqlite.db`）
+- Celery を使う場合はブローカー（Redis 等）が必要。デフォルトは `REDIS_URL=redis://redis:6379/0`。
+- MinIO を使う場合は `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` 等を設定してください。
+- Alembic によるマイグレーション管理を想定しています。スキーマ変更は `alembic/` を通して適用してください。
 
-## 環境変数（主なもの）
-- `OLLAMA_HOST` — Ollama のホスト（例: `http://localhost:11434`）
-- `OLLAMA_MODEL` — デフォルトで使うモデル名（例: `gemma4:e4b`）
-- `OLLAMA_FALLBACK_MODELS` — カンマ区切りでフォールバックモデル
-- `OUTPUTS_DIR` — 生成された議事録の出力先（デフォルト: `outputs`）
-- `UPLOADS_DIR` — アップロード保存先（デフォルト: `uploads`）
-- `INFERENCE_URL` — 外部推論サービスを使う場合の URL
+## 主な環境変数（抜粋）
+- `DATABASE_URL` — DB 接続 DSN（例: `postgresql://user:pass@db:5432/minutes` または `sqlite:///./.pytest_sqlite.db`）※必須
+- `BG_TASK_DB_URL` — 互換名（`DATABASE_URL` と同様に扱われます）
+- `REDIS_URL` — Celery ブローカー／結果バックエンド（デフォルト: `redis://redis:6379/0`）
+- `OUTPUTS_DIR` — 生成された議事録の保存先（デフォルト: `outputs`）
+- `UPLOADS_DIR` — アップロード一時格納（デフォルト: `uploads`）
+- `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_DEFAULT_BUCKET` — MinIO 設定
+- `OLLAMA_HOST`, `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS` — Ollama 関連の設定
+- `ADMIN_API_TOKEN` — 管理 API 保護用のトークン（設定すると簡易認証が有効になります）
 
-## クイックスタート（ローカル）
+## クイックスタート（ローカル開発 / テスト）
 
 1. 仮想環境を作成して依存をインストール:
 
@@ -49,80 +57,74 @@ bash setup_ollama.sh
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -r requirements-api.txt  # API を使う場合
+pip install -r requirements-api.txt   # API周りの追加依存
+# 開発用のツール／テスト依存が必要なら:
+pip install -r requirements-dev.txt
 ```
 
-2. `ffmpeg` がシステムにインストールされていることを確認。
+2. DB 接続を指定（ローカルテスト用に SQLite を使う例）:
 
-3. 単発でローカル音声→議事録を試す:
+```bash
+export DATABASE_URL="sqlite:///./.pytest_sqlite.db"
+```
+
+3. 単体でパイプラインを実行してみる:
 
 ```bash
 python run_minute_pipeline.py path/to/audio.mp3
-# もしくは
+# または
 python auto_minutes_ollama.py path/to/audio.wav
 ```
 
-生成されたファイルは `outputs/`（または `OUTPUTS_DIR`）に保存されます。
+生成物は `outputs/`（または `OUTPUTS_DIR`）に保存されます。
 
-## API とワーカーの起動例
-
-1. FastAPI アプリを起動（開発用）:
+4. API とワーカーの起動例:
 
 ```bash
-# API サーバ
-uvicorn minutes.api:app --reload --port 8000
+# FastAPI アプリ（開発用）
+uvicorn backend.app:app --reload --port 8000
 
-# 推論ストリーミング（独立サービス）
+# 推論ストリーミング（必要に応じて）
 uvicorn minutes.inference_app:app --reload --port 9000
-```
 
-2. Celery ワーカーを起動（バックグラウンドジョブを処理する場合）:
-
-```bash
-# 環境変数で broker を設定してから実行
+# Celery ワーカー（Redis 等の broker を環境変数で指定）
 celery -A minutes.celery_app.celery worker --loglevel=info
 ```
 
-3. Docker / docker-compose を用意している場合は、リポジトリの `docker-compose*.yml` を参照して起動できます。
+`minutes.celery_app` はワーカー起動時に SQLAlchemy エンジンの破棄を試みるため、prefork の子プロセスで親からソケットが継承されることによる `idle in transaction` の問題が軽減されます。
+
+5. Docker / docker-compose を使う場合:
+
+```bash
+# アプリ用 compose（例: Postgres, Redis, MinIO と連携した compose ファイルを参照）
+docker compose -f docker-compose.yml -f docker-compose.minio.yml up --build
+
+# フロントエンドをデプロイ
+./scripts/deploy_frontend.sh
+
+# Ollama のセットアップスクリプトを実行
+bash setup_ollama.sh
+```
+
+## テスト実行時の注意
+- テスト実行時は `DATABASE_URL` を必ず指定してください（例: `sqlite:///./.pytest_sqlite.db`）。
+- テストコレクション／実行例:
+
+```bash
+export DATABASE_URL="sqlite:///./.pytest_sqlite.db"
+pytest -q
+```
+
+## デザインノート（短い説明）
+- DB は SQLAlchemy を用いており、セッションは `minutes.db.session_scope()` を利用してトランザクションの境界を明確にする設計です。
+- `minutes.bg_store` は DB を一次ソースとしたタスクストアで、履歴は `TaskHistory` として独立した行で記録します。`maybe_session()` のように外部セッションを受け取る関数は、呼び出し元セッションを保持せず独立した短命セッションで更新を行う実装になっています。
 
 ## Ollama とフォールバック
-`minutes/ollama.py` は Ollama に問い合わせて整形します。Ollama が利用できない場合はローカル要約器でフォールバックし、最低限の出力を返す設計になっています（可観測性のためログで警告します）。
+`minutes/ollama.py` は Ollama サーバへ HTTP で問い合わせます。Ollama が利用できない場合はローカルの簡易要約器にフォールバックして最小限の出力を返すように設計されています。Ollama 関連の設定は環境変数で指定してください（`OLLAMA_HOST` 等）。
 
-## Case Study
-このプロジェクトは、会議音声から人手の介在を減らして高速に議事録を生成することを目的としたPoC／プロダクトです。私はエンジニアリングを自らコーディングせず、プロダクトディレクションとAI活用設計を主導しました。主要な成果は以下です。
-
-- 要件定義から運用方針まで、AI活用により短期間でプロダクト化を実現。
-- `faster-whisper` を用いたローカル文字起こしと Ollama を用いた生成型整形を組み合わせ、精度と可用性のトレードオフを管理。
-- Ollama が利用できないケースに備えたローカルフォールバックと可観測性（ログ／警告）を実装方針に組み込み、安定稼働を担保。
-- API／ワーカーアーキテクチャ（FastAPI + Celery）を採用し、同期・非同期利用両方に対応。
-
-### 主なインパクト（例）
-- 手作業による議事録作成時間を想定で50%削減（導入先に応じて変動）
-- 自動化により議事録の即時検索・配布が可能になり、会議後のフォローアップ時間を短縮
+## マイグレーション
+- スキーマ変更は Alembic (`alembic/`) を使って管理してください。開発環境でスキーマを反映するには Alembic の `upgrade head` を実行します。
 
 ## ライセンス
-- リポジトリにライセンスファイルがある場合はそちらを参照してください。
-
-## CI / 本番デプロイ（フロントエンド）
-
-このリポジトリはフロントエンドのビルド成果物を `deploy/frontend_html/` に配置し、`nginx` がそれを配信する構成です。CI パイプラインでは以下のいずれかの方法で扱えます。
-
-- ローカル／手動デプロイ（ホスト上で実行）:
-
-```bash
-# ビルド → 配置 → nginx 再起動
-make deploy-frontend
-```
-
-- CI（アーティファクト生成）:
-
-```bash
-# CI イメージ上で実行（npm ci を使い決定論的に依存をインストール）
-make ci-frontend-artifact
-# 成果物は artifacts/frontend_html.tar.gz に作成されます。CI からはこのアーティファクトを取り出して本番サーバへ配布してください。
-```
-
-注意:
-- `deploy/frontend_html/` と `frontend/dist/` はビルド成果物のため `.gitignore` に登録されています。
-- 本番では CDN やオブジェクトストレージを使って静的ファイルを配信することを推奨します。
+- リポジトリのルートにある `LICENSE` を参照してください。
 
