@@ -271,8 +271,8 @@ def process_audio(self, input_path: str):
         # If an external inference service is configured, call it via HTTP.
         inference_url = os.environ.get("INFERENCE_URL")
         # mark transcribing stage before calling inference/local transcribe
-            if task_id:
-                update_task_status(task_id, "transcribing")
+        if task_id:
+            update_task_status(task_id, "transcribing")
 
         if inference_url:
             # Call inference endpoint and stream NDJSON lines for progress.

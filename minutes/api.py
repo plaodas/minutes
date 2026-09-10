@@ -21,27 +21,32 @@ import os
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw
-# Import `minutes.tasks` lazily inside handlers to avoid pulling in DB
-# configuration (and causing runtime errors) at module import time during
-# test collection.
+from minutes.tasks import process_audio
+import minutes.tasks as tasks
 from minutes.celery_app import celery
 from celery.result import AsyncResult
-# `minutes.bg_store` and DB session machinery are imported lazily inside
-# request handlers so test collection and simple imports don't require a
-# configured DATABASE_URL at module import time.
+from minutes.bg_store import (
+    create_task,
+    update_task_success,
+    update_task_failure,
+    get_task,
+    update_task_status,
+    record_history,
+)
+from minutes.bg_store import update_task_cancelled
+from minutes.bg_store import DB_PATH
 from minutes.sse import register_queue, unregister_queue
 import uuid
-from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID, ServiceToken
+from minutes.db import SessionLocal, session_scope
+from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
 from sqlalchemy.exc import IntegrityError
 import uuid
-# Reconciliation helper imported lazily inside startup handler to avoid
-# importing bg_store/db at module import time.
+from minutes.reconcile_bg_tasks import reconcile_once
 import time
 from minutes.minio_client import MinioService
 import typing
 from fastapi.responses import StreamingResponse
-from fastapi import Header, Cookie, Response
-# Auth helpers imported lazily inside handlers to avoid importing DB at module import time
+from fastapi import Header
 
 # Allowed upload file types
 ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
@@ -110,44 +115,6 @@ MAX_IDS_PER_REQUEST = int(os.environ.get("MAX_BG_HISTORIES_IDS", "500"))
 HARD_IDS_LIMIT = int(os.environ.get("MAX_BG_HISTORIES_HARD_LIMIT", "5000"))
 # Internal batch size used to split large id lists into smaller DB IN(...) queries
 BG_HISTORIES_BATCH_SIZE = int(os.environ.get("BG_HISTORIES_BATCH_SIZE", "200"))
-
-
-def _bg_store():
-    import minutes.bg_store as bg
-
-    return bg
-
-
-# Module-level proxies for bg_store functions. These allow tests to monkeypatch
-# `minutes.api.create_task` etc. without importing the DB-backed store at module
-# import time.
-def create_task(*args, **kwargs):
-    return _bg_store().create_task(*args, **kwargs)
-
-
-def get_task(*args, **kwargs):
-    return _bg_store().get_task(*args, **kwargs)
-
-
-def update_task_status(*args, **kwargs):
-    return _bg_store().update_task_status(*args, **kwargs)
-
-
-def update_task_success(*args, **kwargs):
-    return _bg_store().update_task_success(*args, **kwargs)
-
-
-def update_task_failure(*args, **kwargs):
-    return _bg_store().update_task_failure(*args, **kwargs)
-
-
-def update_task_cancelled(*args, **kwargs):
-    return _bg_store().update_task_cancelled(*args, **kwargs)
-
-
-def record_history(*args, **kwargs):
-    return _bg_store().record_history(*args, **kwargs)
-
 
 
 def _run_pipeline_background(input_path: str, task_id: str):
@@ -235,60 +202,6 @@ def _run_pipeline_background(input_path: str, task_id: str):
 
 app = FastAPI(title="Minutes Service (prototype)")
 
-
-# Authentication middleware: require login for most API routes, allow explicit exemptions
-@app.middleware("http")
-async def require_login_middleware(request: Request, call_next):
-    # Paths that should remain public
-    exempt_prefixes = (
-        '/auth',
-        '/api/auth',
-        '/api/health',
-        '/api/public',
-        '/admin',
-        '/api/admin',
-        '/static',
-        '/assets',
-        '/',
-        '/index.html',
-        '/favicon.ico',
-        '/playwright',
-        # Public upload endpoints used by clients/tests
-        '/transcribe-upload',
-        '/transcribe-upload-bg',
-        '/api/bg',
-        # Background task/status endpoints
-        '/bg',
-    )
-    path = request.url.path or ''
-    # Allow OPTIONS preflight
-    if request.method == 'OPTIONS':
-        return await call_next(request)
-    for p in exempt_prefixes:
-        # match exact prefix or prefix followed by '/' to avoid accidental
-        # matching of unrelated paths (avoid matching '/' for all requests)
-        if path == p or path.startswith(p + '/'):
-            return await call_next(request)
-
-    # attempt to validate session cookie
-    try:
-        from minutes.auth import get_current_user_from_cookie
-        cookie = request.cookies.get('minutes_session')
-        user = None
-        if cookie:
-            try:
-                user = get_current_user_from_cookie(cookie)
-            except Exception:
-                user = None
-        if not user:
-            return JSONResponse({'error': 'unauthenticated'}, status_code=401)
-        # attach user to request state for handlers that want it
-        request.state.user = user
-    except Exception:
-        return JSONResponse({'error': 'unauthenticated'}, status_code=401)
-
-    return await call_next(request)
-
 # Admin token for simple admin API protection (optional)
 ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
 
@@ -304,42 +217,12 @@ def _get_admin_token_from_request(req: Request | None):
 
 
 def require_admin(req: Request = None):
-    """Require an admin caller.
-
-    Resolution order:
-    1. If the request has an authenticated user attached to `request.state.user` and
-       that user has `is_admin`, allow.
-    2. Otherwise, if `ADMIN_API_TOKEN` is configured, require the token via
-       `X-Admin-Token` or `Authorization: Bearer <token>`.
-    3. Otherwise deny.
-    """
-    # 1) cookie / session-based admin (middleware attaches request.state.user)
-    try:
-        if req is not None:
-            user = getattr(req.state, 'user', None)
-            if user and getattr(user, 'is_admin', False):
-                return True
-    except Exception:
-        # ignore and fallthrough to token check
-        pass
-
-    # 2) admin API token fallback
     token = _get_admin_token_from_request(req)
-    if ADMIN_API_TOKEN:
-        if token == ADMIN_API_TOKEN:
-            # If the admin token is used, attach a pseudo-user to request.state.user
-            try:
-                from types import SimpleNamespace
-                if req is not None:
-                    req.state.user = SimpleNamespace(id='admin-token', is_admin=True, username='admin-token')
-            except Exception:
-                pass
-            return True
-        # admin token configured but not provided / mismatch
+    if not ADMIN_API_TOKEN:
+        raise HTTPException(status_code=403, detail="admin API not enabled")
+    if token != ADMIN_API_TOKEN:
         raise HTTPException(status_code=403, detail="forbidden")
-
-    # 3) no admin mechanism available
-    raise HTTPException(status_code=403, detail="admin API not enabled")
+    return True
 
 # CORS: allow local dev origins used by the frontend and Playwright
 app.add_middleware(
@@ -359,8 +242,6 @@ async def startup_reconciler():
     """
     logger = logging.getLogger("minutes.api")
     try:
-        # import lazily to avoid importing DB-backed modules at import time
-        from minutes.reconcile_bg_tasks import reconcile_once
         # run once immediately in a thread to avoid blocking the event loop
         await asyncio.to_thread(reconcile_once)
         logger.info("Initial bg task reconciliation completed")
@@ -373,7 +254,6 @@ async def startup_reconciler():
         while True:
             try:
                 await asyncio.sleep(interval)
-                from minutes.reconcile_bg_tasks import reconcile_once
                 await asyncio.to_thread(reconcile_once)
                 logger.info("Periodic bg task reconciliation completed")
             except asyncio.CancelledError:
@@ -427,12 +307,8 @@ def admin_list_buckets(_=Depends(require_admin)):
     try:
         svc = MinioService()
         # List DB-backed buckets first, then include any MinIO-only buckets
-        from minutes.db import SessionLocal
-        session = SessionLocal()
-        try:
+        with session_scope() as session:
             db_buckets = {b.name: b for b in session.query(Bucket).all()}
-        finally:
-            session.close()
 
         out = []
         try:
@@ -486,16 +362,15 @@ def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)
         svc = MinioService()
         svc.create_bucket(name, public=public)
         # create DB record if not exists
-        from minutes.db import SessionLocal
-        session = SessionLocal()
-        try:
+        with session_scope() as session:
             existing = session.query(Bucket).filter(Bucket.name == name).one_or_none()
             if not existing:
                 b = Bucket(name=name, public=public)
                 session.add(b)
-                session.commit()
-        finally:
-            session.close()
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
         return {"name": name}
     except ValueError:
         return JSONResponse({"error": "already exists"}, status_code=409)
@@ -514,13 +389,12 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
         svc = MinioService()
         svc.delete_bucket(name, force=force)
         # remove DB record if present
-        from minutes.db import SessionLocal
-        session = SessionLocal()
-        try:
+        with session_scope() as session:
             session.query(Bucket).filter(Bucket.name == name).delete()
-            session.commit()
-        finally:
-            session.close()
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
         return {"deleted": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -535,8 +409,6 @@ def api_admin_delete_bucket(name: str, force: bool = False, _=Depends(require_ad
 def transcribe_upload(
     file: UploadFile = File(...),
     x_user_id: str | None = Header(None),
-    x_service_token: str | None = Header(None),
-    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -561,9 +433,7 @@ def transcribe_upload(
         with open(dest_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
 
-        # Enqueue Celery task (import minutes.tasks lazily so test imports
-        # don't require DB configuration at module import time)
-        import minutes.tasks as tasks
+        # Enqueue Celery task (use minutes.tasks so tests can monkeypatch it)
         proc = tasks.process_audio
         if hasattr(proc, "delay"):
             task = proc.delay(dest_path)
@@ -581,11 +451,7 @@ def transcribe_upload(
                     meta["include_actions"] = bool(int(include_actions))
                 except Exception:
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            # Resolve user id from X-User-Id or service token headers
-            user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
-            if isinstance(user_uuid, uuid.UUID):
-                user_uuid = str(user_uuid)
-            create_task(task.id, metadata=meta, user_id=user_uuid)
+            create_task(task.id, metadata=meta, user_id=x_user_id)
         except TypeError:
             # older create_task signature
             try:
@@ -652,8 +518,6 @@ def transcribe_upload_bg(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     x_user_id: str | None = Header(None),
-    x_service_token: str | None = Header(None),
-    authorization: str | None = Header(None),
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
@@ -680,7 +544,6 @@ def transcribe_upload_bg(
 
     # Enqueue as a Celery task so we can support revoke/terminate later.
     try:
-        import minutes.tasks as tasks
         proc = tasks.process_audio
         if hasattr(proc, "delay"):
             task = proc.delay(dest_path)
@@ -699,10 +562,7 @@ def transcribe_upload_bg(
                     meta["include_actions"] = bool(int(include_actions))
                 except Exception:
                     meta["include_actions"] = include_actions in ("1", "true", "True")
-            user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
-            if isinstance(user_uuid, uuid.UUID):
-                user_uuid = str(user_uuid)
-            create_task(task_id, metadata=meta, user_id=user_uuid)
+            create_task(task_id, metadata=meta, user_id=x_user_id)
         except TypeError:
             # backward-compat: if create_task signature hasn't been updated,
             # call without metadata
@@ -735,17 +595,6 @@ def api_transcribe_upload(
     include_actions: str | None = Form(None),
 ):
     """Compatibility wrapper for `/api/transcribe-upload` (synchronous) used by some clients."""
-    return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
-
-
-# Backwards-compatible non-API path used by some tests/clients
-@app.post('/transcribe-upload', response_model=CreateTaskResponse)
-def transcribe_upload_compat(
-    file: UploadFile = File(...),
-    x_user_id: str | None = Header(None),
-    language: str | None = Form(None),
-    include_actions: str | None = Form(None),
-):
     return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
 
 
@@ -783,9 +632,7 @@ def api_bg_result(task_id: str):
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return task history events. Works with DB-backed store or file-backed fallback."""
     # DB-backed only: query TaskHistory rows for the given task id.
-    from minutes.db import SessionLocal
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
         except Exception:
@@ -806,8 +653,6 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
                 "payload": r.payload,
             })
         return {"task_id": task_id, "history": out}
-    finally:
-        session.close()
 
 
 @app.get('/api/bg/history/{task_id}')
@@ -848,9 +693,7 @@ def bg_task_rename(task_id: str, payload: Dict[str, str]):
     name = (payload or {}).get("name")
     if not name:
         return JSONResponse({"error": "missing name"}, status_code=400)
-    from minutes.db import SessionLocal
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
         except Exception:
@@ -861,21 +704,17 @@ def bg_task_rename(task_id: str, payload: Dict[str, str]):
         t.name = name
         session.add(t)
         session.commit()
-        # record a small history entry
-        h = TaskHistory(task_id=key, event_type="rename", payload={"name": name})
-        session.add(h)
-        session.commit()
+        try:
+            record_history(task_id, "rename", {"name": name}, db=session)
+        except Exception:
+            pass
         return {"task_id": task_id, "name": name}
-    finally:
-        session.close()
 
 
 @app.post('/api/bg/task/{task_id}/regenerate-name')
 def bg_task_regenerate_name(task_id: str):
     """Regenerate the task display `name` from the output file using the local summarizer."""
-    from minutes.db import SessionLocal
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
         except Exception:
@@ -901,17 +740,15 @@ def bg_task_regenerate_name(task_id: str):
             t.name = short
             session.add(t)
             session.commit()
-            # record history
-            h = TaskHistory(task_id=key, event_type='rename', payload={'name': short})
-            session.add(h)
-            session.commit()
+            try:
+                record_history(task_id, 'rename', {'name': short}, db=session)
+            except Exception:
+                pass
             return {"task_id": task_id, "name": short}
         except FileNotFoundError:
             return JSONResponse({"error": "output file not found"}, status_code=404)
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
-    finally:
-        session.close()
 
 
 @app.get('/api/bg/tasks')
@@ -924,9 +761,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     # Cursor format: "<updated_at_iso>|<id>" (optional). If not provided, fall back to offset paging.
     from datetime import datetime
 
-    from minutes.db import SessionLocal
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         cursor = None
         # try to read from query param 'cursor' passed via request (FastAPI maps unknown params automatically)
         # If caller provided an offset, keep backward compatibility.
@@ -976,8 +811,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                 "event_count": int(total),
             })
         return {"tasks": out}
-    finally:
-        session.close()
+
 
 
 @app.get('/api/bg/tasks')
@@ -1026,9 +860,7 @@ def bg_task_events(task_id: str):
 
     Returns: { task_id, events: [ { event_ts, event_type, payload }, ... ] }
     """
-    from minutes.db import SessionLocal
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
         except Exception:
@@ -1047,8 +879,6 @@ def bg_task_events(task_id: str):
                 "payload": r.payload,
             })
         return {"task_id": task_id, "events": out}
-    finally:
-        session.close()
 
 
 class IdList(BaseModel):
@@ -1098,9 +928,7 @@ def bg_histories(payload: IdList):
     out: Dict[str, List[Dict[str, Any]]] = {}
 
     # DB-backed path only: reuse a single session and process ids in chunks
-    from minutes.db import SessionLocal
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         # pre-fill keys with empty lists so missing ids return []
         for i in ids:
             out[str(i)] = []
@@ -1167,8 +995,6 @@ def bg_histories(payload: IdList):
         if warnings:
             resp["warnings"] = warnings
         return resp
-    finally:
-        session.close()
 
 
 @app.post("/api/bg/histories")
@@ -1216,34 +1042,33 @@ def bg_delete(task_id: str):
     try:
         try:
             # prefer DB-backed update
-            from .db import SessionLocal
-            # ensure we use the same key parsing as the DB-backed store
             try:
                 from minutes.bg_store import _parse_key
             except Exception:
                 _parse_key = None
-            db = SessionLocal()
-            key = _parse_key(task_id) if _parse_key else task_id
-            obj = db.get(Task, key)
-            if not obj:
-                db.close()
-                return JSONResponse({"error": "unknown task"}, status_code=404)
-            prev = obj.status
-            obj.status = "deleted"
-            # mark soft-delete flags
-            from datetime import datetime as _dt
-            try:
-                obj.deleted = True
-                obj.deleted_at = _dt.utcnow()
-            except Exception:
-                pass
-            db.add(obj)
-            db.commit()
-            try:
-                record_history(task_id, "deleted", {"previous": prev}, db=db)
-            except Exception:
-                pass
-            db.close()
+            with session_scope() as db:
+                key = _parse_key(task_id) if _parse_key else task_id
+                obj = db.get(Task, key)
+                if not obj:
+                    return JSONResponse({"error": "unknown task"}, status_code=404)
+                prev = obj.status
+                obj.status = "deleted"
+                # mark soft-delete flags
+                from datetime import datetime as _dt
+                try:
+                    obj.deleted = True
+                    obj.deleted_at = _dt.utcnow()
+                except Exception:
+                    pass
+                db.add(obj)
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                try:
+                    record_history(task_id, "deleted", {"previous": prev}, db=db)
+                except Exception:
+                    pass
         except Exception:
             # fallback: best-effort using existing update helpers
             try:
@@ -1301,8 +1126,6 @@ def bg_force_delete(task_id: str):
         if ADMIN_API_TOKEN and not _get_admin_token_from_request(None):
             # if Authorization header absent the require_admin helper will reject
             pass
-        from .db import SessionLocal
-        db = SessionLocal()
         # parse key using bg_store helper if available
         try:
             from minutes.bg_store import _parse_key
@@ -1320,10 +1143,10 @@ def bg_force_delete(task_id: str):
             except Exception:
                 key = task_id
 
-        obj = db.get(Task, key)
-        if not obj:
-            db.close()
-            return JSONResponse({"error": "unknown task"}, status_code=404)
+        with session_scope() as db:
+            obj = db.get(Task, key)
+            if not obj:
+                return JSONResponse({"error": "unknown task"}, status_code=404)
 
         # attempt to remove any MinIO cached object referenced in result
         try:
@@ -1350,19 +1173,17 @@ def bg_force_delete(task_id: str):
         except Exception:
             pass
 
-        # delete history and task rows
-        try:
-            db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
-        except Exception:
-            pass
-        try:
-            db.delete(obj)
-            db.commit()
-        except Exception:
-            db.rollback()
-            db.close()
-            return JSONResponse({"error": "failed to delete task"}, status_code=500)
-        db.close()
+            # delete history and task rows
+            try:
+                db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
+            except Exception:
+                pass
+            try:
+                db.delete(obj)
+                db.commit()
+            except Exception:
+                db.rollback()
+                return JSONResponse({"error": "failed to delete task"}, status_code=500)
         return {"task_id": task_id, "deleted": True}
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -1381,27 +1202,24 @@ def bg_undelete(task_id: str):
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
     try:
-        from .db import SessionLocal
         # use bg_store's _parse_key to normalize incoming task ids
         try:
             from minutes.bg_store import _parse_key
         except Exception:
             _parse_key = None
-        db = SessionLocal()
-        key = _parse_key(task_id) if _parse_key else task_id
-        obj = db.get(Task, key)
-        if not obj:
-            db.close()
-            return JSONResponse({"error": "unknown task"}, status_code=404)
-        prev = obj.status
-        obj.status = "success" if obj.result else "pending"
-        db.add(obj)
-        db.commit()
-        try:
-            record_history(task_id, "undeleted", {"previous": prev}, db=db)
-        except Exception:
-            pass
-        db.close()
+        with session_scope() as db:
+            key = _parse_key(task_id) if _parse_key else task_id
+            obj = db.get(Task, key)
+            if not obj:
+                return JSONResponse({"error": "unknown task"}, status_code=404)
+            prev = obj.status
+            obj.status = "success" if obj.result else "pending"
+            db.add(obj)
+            db.commit()
+            try:
+                record_history(task_id, "undeleted", {"previous": prev}, db=db)
+            except Exception:
+                pass
         return {"task_id": task_id, "undeleted": True}
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -1560,7 +1378,7 @@ def api_bg_minutes(task_id: str):
 
 
 @app.get("/auth/features")
-def auth_features(x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)):
+def auth_features(x_admin: str | None = Header(None)):
     """Return feature flags for the current user.
 
     This is a lightweight endpoint used by the frontend to decide which
@@ -1572,147 +1390,16 @@ def auth_features(x_admin: str | None = Header(None), minutes_session: str | Non
     try:
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
         header_admin = (x_admin == "1" or (isinstance(x_admin, str) and x_admin.lower() == "true"))
-        # attempt cookie-based user detection
-        user = None
-        try:
-            from minutes.auth import get_current_user_from_cookie
-            if minutes_session:
-                user = get_current_user_from_cookie(minutes_session)
-        except Exception:
-            user = None
-
-        user_id = str(user.id) if user else None
-        user_is_admin = bool(getattr(user, 'is_admin', False)) if user else False
-        is_admin = force or header_admin or user_is_admin
-
-        return {"is_admin": bool(is_admin), "authenticated": bool(user), "user_id": user_id}
+        is_admin = force or header_admin
+        return {"is_admin": bool(is_admin)}
     except Exception:
-        return {"is_admin": False, "authenticated": False, "user_id": None}
+        return {"is_admin": False}
 
 
 @app.get('/api/auth/features')
-def api_auth_features(x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)):
+def api_auth_features(x_admin: str | None = Header(None)):
     """Compatibility wrapper for `/api/auth/features` used by the frontend."""
-    return auth_features(x_admin, minutes_session)
-
-
-class LoginReq(BaseModel):
-    username: str
-    password: str
-
-
-@app.post('/auth/login')
-def auth_login(payload: LoginReq, response: Response):
-    """Login endpoint: sets HttpOnly cookie `minutes_session` on success."""
-    from minutes.db import SessionLocal
-    from minutes.auth import verify_password
-    db = SessionLocal()
-    try:
-        user = db.query(Task.__table__.metadata.bind.mapper.class_).filter_by(username=payload.username).one_or_none()
-    except Exception:
-        # fallback: query User model directly
-        try:
-            user = db.query(__import__('minutes').models.User).filter_by(username=payload.username).one_or_none()
-        except Exception:
-            user = None
-    try:
-        # attempt direct import of User model to be robust
-        from minutes.models import User as _User
-    except Exception:
-        _User = None
-
-    # prefer proper User instance if available
-    if _User is not None:
-        try:
-            user = db.query(_User).filter(_User.username == payload.username).one_or_none()
-        except Exception:
-            user = user
-
-    if not user:
-        return JSONResponse({"error": "invalid credentials"}, status_code=401)
-
-    try:
-        stored_hash = getattr(user, 'password_hash', None)
-        if not stored_hash or not verify_password(payload.password, stored_hash):
-            return JSONResponse({"error": "invalid credentials"}, status_code=401)
-    except Exception:
-        return JSONResponse({"error": "invalid credentials"}, status_code=401)
-
-    # create token and set cookie
-    from minutes.auth import create_access_token as _create_token
-    token = _create_token(str(user.id))
-    secure = os.environ.get('ENV', '').lower() == 'production' or os.environ.get('FORCE_HTTPS', 'false').lower() in ('1', 'true')
-    resp = JSONResponse({"id": str(user.id), "is_admin": bool(getattr(user, 'is_admin', False))})
-    max_age = int(os.environ.get('JWT_EXPIRE_HOURS', '8')) * 3600
-    resp.set_cookie('minutes_session', token, httponly=True, samesite='lax', secure=secure, max_age=max_age)
-    return resp
-
-
-@app.post('/auth/logout')
-def auth_logout(response: Response):
-    resp = JSONResponse({"logged_out": True})
-    resp.delete_cookie('minutes_session')
-    return resp
-
-
-@app.post('/api/auth/login')
-def api_auth_login(payload: LoginReq, response: Response):
-    """Compatibility wrapper so frontend using `/api` prefix can login."""
-    return auth_login(payload, response)
-
-
-@app.post('/api/auth/logout')
-def api_auth_logout(response: Response):
-    """Compatibility wrapper so frontend using `/api` prefix can logout."""
-    return auth_logout(response)
-
-
-class CreateServiceTokenReq(BaseModel):
-    name: str | None = None
-    user_id: str | None = None
-
-
-@app.post('/api/service-tokens')
-def api_create_service_token(payload: CreateServiceTokenReq, _=Depends(require_admin)):
-    """Create a new service token (admin only). Returns plaintext token and id."""
-    from minutes.auth import create_service_token
-
-    token, token_id = create_service_token(name=payload.name, user_id=payload.user_id)
-    return {"token": token, "id": token_id}
-
-
-@app.get('/api/service-tokens')
-def api_list_service_tokens(_=Depends(require_admin)):
-    from minutes.db import SessionLocal
-    db = SessionLocal()
-    try:
-        rows = db.query(ServiceToken).all()
-        out = []
-        for r in rows:
-            out.append({"id": str(r.id), "name": r.name, "user_id": str(r.user_id) if r.user_id else None, "revoked": bool(r.revoked), "created_at": r.created_at.isoformat() if r.created_at else None})
-        return {"tokens": out}
-    finally:
-        db.close()
-
-
-@app.delete('/api/service-tokens/{token_id}')
-def api_revoke_service_token(token_id: str, _=Depends(require_admin)):
-    from minutes.db import SessionLocal
-    db = SessionLocal()
-    try:
-        try:
-            key = uuid.UUID(token_id)
-        except Exception:
-            return JSONResponse({"error": "invalid token id"}, status_code=400)
-        st = db.get(ServiceToken, key)
-        if not st:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        st.revoked = True
-        db.add(st)
-        db.commit()
-        return {"revoked": True}
-    finally:
-        db.close()
+    return auth_features(x_admin)
 
 
 def _is_request_admin(x_admin: str | None) -> bool:
@@ -1729,37 +1416,18 @@ class CreateBucketReq(BaseModel):
     public: bool | None = False
 
 
-def _get_user_id_from_header(x_user_id: str | None, x_service_token: str | None = None, authorization: str | None = None):
-    """Parse X-User-Id header if present; fallback to service token (X-Service-Token or Authorization Bearer).
-    Return UUID or None.
-    """
-    # direct X-User-Id takes precedence
-    if x_user_id:
-        try:
-            return uuid.UUID(x_user_id)
-        except Exception:
-            return None
-
-    # otherwise check service token headers
+def _get_user_id_from_header(x_user_id: str | None):
+    """Parse X-User-Id header if present; return UUID or None."""
+    if not x_user_id:
+        return None
     try:
-        from minutes.auth import verify_service_token
-
-        token = None
-        if x_service_token:
-            token = x_service_token
-        elif authorization:
-            token = authorization
-        if token:
-            user_id = verify_service_token(token)
-            if user_id:
-                return user_id
+        return uuid.UUID(x_user_id)
     except Exception:
-        pass
-    return None
+        return None
 
 
 @app.post('/api/buckets')
-def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(None), x_user_id: str | None = Header(None), x_service_token: str | None = Header(None), authorization: str | None = Header(None)):
+def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
     """Create a MinIO bucket and record it in the `buckets` table.
 
     Simple auth/ownership (temporary):
@@ -1767,7 +1435,7 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
     - Admins (via `X-Admin`) can create buckets as well. Non-admins must supply `X-User-Id`.
     """
     is_admin = _is_request_admin(x_admin)
-    user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
+    user_uuid = _get_user_id_from_header(x_user_id)
     if not is_admin and not user_uuid:
         return JSONResponse({"error": "unauthorized: missing X-User-Id"}, status_code=401)
 
@@ -1778,9 +1446,7 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
     except Exception as exc:
         return JSONResponse({"error": f"minio create failed: {str(exc)}"}, status_code=502)
 
-    from minutes.db import SessionLocal
-    db = SessionLocal()
-    try:
+    with session_scope() as db:
         existing = db.query(Bucket).filter(Bucket.name == payload.name).one_or_none()
         if existing:
             return {"id": str(existing.id), "name": existing.name, "owner_id": str(existing.owner_id), "public": bool(existing.public)}
@@ -1798,18 +1464,14 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
                 pass
             return JSONResponse({"error": "db insert failed"}, status_code=500)
         return {"id": str(b.id), "name": b.name, "owner_id": str(b.owner_id), "public": bool(b.public)}
-    finally:
-        db.close()
 
 
 @app.get('/api/buckets')
-def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None = Header(None), x_service_token: str | None = Header(None), authorization: str | None = Header(None)):
+def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
     """List buckets. Admins see all; non-admins see only their own buckets."""
     is_admin = _is_request_admin(x_admin)
-    user_uuid = _get_user_id_from_header(x_user_id, x_service_token=x_service_token, authorization=authorization)
-    from minutes.db import SessionLocal
-    db = SessionLocal()
-    try:
+    user_uuid = _get_user_id_from_header(x_user_id)
+    with session_scope() as db:
         q = db.query(Bucket)
         if not is_admin:
             if user_uuid:
@@ -1820,8 +1482,6 @@ def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None =
         for b in q.order_by(Bucket.created_at.desc()).all():
             out.append({"id": str(b.id), "name": b.name, "owner_id": str(b.owner_id), "public": bool(b.public), "created_at": b.created_at.isoformat() if b.created_at else None})
         return {"buckets": out}
-    finally:
-        db.close()
 
 
 @app.get("/admin/uploads/cleanup")
