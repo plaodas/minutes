@@ -37,7 +37,7 @@ from minutes.bg_store import update_task_cancelled
 from minutes.bg_store import DB_PATH
 from minutes.sse import register_queue, unregister_queue
 import uuid
-from minutes.db import SessionLocal, session_scope
+from minutes.db import session_scope
 from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
 from sqlalchemy.exc import IntegrityError
 import uuid
@@ -584,6 +584,17 @@ def api_transcribe_upload_bg(
     include_actions: str | None = Form(None),
 ):
     """Compatibility wrapper for `/api/transcribe-upload-bg` used by the frontend."""
+
+
+@app.post('/transcribe-upload', response_model=CreateTaskResponse)
+def root_transcribe_upload(
+    file: UploadFile = File(...),
+    x_user_id: str | None = Header(None),
+    language: str | None = Form(None),
+    include_actions: str | None = Form(None),
+):
+    """Root-path compatibility wrapper for older clients/tests."""
+    return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
     return transcribe_upload_bg(file=file, background_tasks=background_tasks, x_user_id=x_user_id, language=language, include_actions=include_actions)
 
 
