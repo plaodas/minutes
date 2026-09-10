@@ -8,7 +8,8 @@ _lock = threading.Lock()
 # local sqlite file when `DATABASE_URL` is not set, so drop the file
 # JSON fallback to avoid split-brain between file and DB stores.
 import uuid
-from .db import SessionLocal, engine
+from .db import SessionLocal, engine, session_scope
+from contextlib import contextmanager
 import logging
 
 logger = logging.getLogger('minutes.bg_store')
@@ -109,11 +110,23 @@ def _parse_key(maybe_id):
 def get_session():
     """Return a new DB session (caller should close it)."""
     return SessionLocal()
-def record_history(task_id: str, event_type: str, payload: dict | None = None, db=None):
-    close = False
+@contextmanager
+def maybe_session(db=None):
+    """Context manager that yields (session, created_flag).
+
+    If `db` is None, a new session is created via `session_scope()` and
+    `created_flag` is True. If `db` is provided, it is yielded and
+    `created_flag` is False (caller-managed session).
+    """
     if db is None:
-        db = SessionLocal()
-        close = True
+        with session_scope() as s:
+            yield s, True
+    else:
+        try:
+            yield db, False
+        finally:
+            pass
+def record_history(task_id: str, event_type: str, payload: dict | None = None, db=None):
     try:
         logger.debug('record_history start: task_id=%s event=%s engine=%s', task_id, event_type, getattr(engine, 'url', None))
         key = _parse_key(task_id)
@@ -123,28 +136,29 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
             # fallback: do not create history row tied to a non-UUID id
             logger.debug('record_history skipping non-UUID task_id=%s', task_id)
             return
-        h = TaskHistory(task_id=key, event_type=event_type, payload=payload or {})
-        db.add(h)
-        try:
-            db.commit()
-        except Exception:
-            logger.exception('record_history commit failed for %s', task_id)
-            db.rollback()
-        # publish SSE event for live updates (non-blocking)
-        try:
-            publish_event({
-                "type": "task.event",
-                "task_id": str(key) if isinstance(key, uuid.UUID) else str(task_id),
-                "event_type": event_type,
-                "payload": payload or {},
-            })
-        except Exception:
-            logger.exception('publish_event failed for %s', task_id)
+        with maybe_session(db) as (s, created):
+            h = TaskHistory(task_id=key, event_type=event_type, payload=payload or {})
+            s.add(h)
+            try:
+                s.commit()
+            except Exception:
+                logger.exception('record_history commit failed for %s', task_id)
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+            # publish SSE event for live updates (non-blocking)
+            try:
+                publish_event({
+                    "type": "task.event",
+                    "task_id": str(key) if isinstance(key, uuid.UUID) else str(task_id),
+                    "event_type": event_type,
+                    "payload": payload or {},
+                })
+            except Exception:
+                logger.exception('publish_event failed for %s', task_id)
     except Exception:
         logger.exception('record_history failed for %s', task_id)
-    finally:
-        if close:
-            db.close()
 
 
 def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[str] = None, db=None):
@@ -180,7 +194,7 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
             if owner_val is not None:
                 try:
                     from sqlalchemy import text, inspect as sa_inspect
-                    engine_bind = db.get_bind()
+                    engine_bind = local_db.get_bind()
                     try:
                         dialect_name = getattr(engine_bind, 'dialect', None) and getattr(engine_bind.dialect, 'name', '').lower()
                     except Exception:
@@ -196,7 +210,7 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
                             has_users_table = False
                         if has_users_table:
                             try:
-                                res = db.execute(text("SELECT 1 FROM users WHERE id = :id LIMIT 1"), {"id": str(owner_val)})
+                                res = local_db.execute(text("SELECT 1 FROM users WHERE id = :id LIMIT 1"), {"id": str(owner_val)})
                                 row = res.first() if hasattr(res, 'first') else None
                                 if not row:
                                     logger.warning('create_task: provided user_id %s not found; clearing owner for task %s', owner_val, task_id)
@@ -317,160 +331,148 @@ def create_task(task_id: str, metadata: dict | None = None, user_id: Optional[st
 
 def update_task_success(task_id: str, result: Any, db=None):
     with _lock:
-        close = False
-        if db is None:
-            db = SessionLocal()
-            close = True
-        try:
-            key = _parse_key(task_id)
-            t = db.get(Task, key)
-            if not t:
-                # ensure task row exists atomically
-                try:
-                    create_task(task_id, metadata=None, db=db)
-                except Exception:
-                    pass
-                t = db.get(Task, key)
-            t.status = "success"
-            t.result = result
-            t.progress = 100.0
-            t.fail_count = 0
-            t.last_success_ts = datetime.utcnow()
-
-            if (not getattr(t, 'name', None)) and isinstance(result, dict):
-                output_file = result.get('output_file') or (result.get('result') or {}).get('output_file')
-                if output_file:
-                    outputs_dir = os.environ.get('OUTPUTS_DIR', 'outputs')
-                    fname = os.path.basename(output_file)
-                    candidate = os.path.join(outputs_dir, fname)
+        with maybe_session(db) as (s, created):
+            try:
+                key = _parse_key(task_id)
+                t = s.get(Task, key)
+                if not t:
+                    # ensure task row exists atomically
                     try:
-                        with open(candidate, 'r', encoding='utf-8') as rf:
-                            text = rf.read()
-                            short = summarize_local(text, max_sentences=1).strip()
-                            if short:
-                                # produce a markdown-stripped short title (~20 chars)
-                                title = _make_task_title(short, max_chars=20)
-                                if title:
-                                    t.name = title
+                        create_task(task_id, metadata=None)
                     except Exception:
                         pass
+                    t = s.get(Task, key)
+                t.status = "success"
+                t.result = result
+                t.progress = 100.0
+                t.fail_count = 0
+                t.last_success_ts = datetime.utcnow()
 
-            try:
-                db.commit()
-            except IntegrityError:
-                db.rollback()
-            # If the result references a MinIO cached object, ensure the bucket is recorded
-            try:
-                logger.debug('update_task_success checking for minio info for task %s', task_id)
-                minio_info = None
-                if isinstance(result, dict):
-                    minio_info = result.get('minio') or (result.get('result') or {}).get('minio')
-                if isinstance(minio_info, dict) and minio_info.get('bucket'):
-                    bucket_name = str(minio_info.get('bucket'))
-                    logger.info('update_task_success detected minio info for task %s: bucket=%s', task_id, bucket_name)
-                    try:
-                        existing = db.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
-                        if existing:
-                            logger.info('Bucket row already exists for %s (task %s)', bucket_name, task_id)
-                        else:
-                            logger.info('Inserting Bucket row for %s (task %s)', bucket_name, task_id)
-                            # Prefer task.user_id as owner if available, otherwise use DUMMY_OWNER_ID
-                            try:
-                                owner = getattr(t, 'user_id', None) or DUMMY_OWNER_ID
-                            except Exception:
-                                owner = DUMMY_OWNER_ID
-                            b = Bucket(name=bucket_name, owner_id=owner, bucket_metadata=minio_info.get('metadata') or {})
-                            db.add(b)
-                            try:
-                                db.commit()
-                                logger.info('Bucket row committed for %s (task %s)', bucket_name, task_id)
-                            except IntegrityError:
-                                logger.exception('IntegrityError committing bucket row for %s (task %s)', bucket_name, task_id)
-                                db.rollback()
-                    except Exception:
-                        logger.exception('failed to ensure bucket row for %s (task %s)', bucket_name, task_id)
+                if (not getattr(t, 'name', None)) and isinstance(result, dict):
+                    output_file = result.get('output_file') or (result.get('result') or {}).get('output_file')
+                    if output_file:
+                        outputs_dir = os.environ.get('OUTPUTS_DIR', 'outputs')
+                        fname = os.path.basename(output_file)
+                        candidate = os.path.join(outputs_dir, fname)
+                        try:
+                            with open(candidate, 'r', encoding='utf-8') as rf:
+                                text = rf.read()
+                                short = summarize_local(text, max_sentences=1).strip()
+                                if short:
+                                    # produce a markdown-stripped short title (~20 chars)
+                                    title = _make_task_title(short, max_chars=20)
+                                    if title:
+                                        t.name = title
+                        except Exception:
+                            pass
+
+                try:
+                    s.commit()
+                except IntegrityError:
+                    s.rollback()
+                # If the result references a MinIO cached object, ensure the bucket is recorded
+                try:
+                    logger.debug('update_task_success checking for minio info for task %s', task_id)
+                    minio_info = None
+                    if isinstance(result, dict):
+                        minio_info = result.get('minio') or (result.get('result') or {}).get('minio')
+                    if isinstance(minio_info, dict) and minio_info.get('bucket'):
+                        bucket_name = str(minio_info.get('bucket'))
+                        logger.info('update_task_success detected minio info for task %s: bucket=%s', task_id, bucket_name)
+                        try:
+                            existing = s.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
+                            if existing:
+                                logger.info('Bucket row already exists for %s (task %s)', bucket_name, task_id)
+                            else:
+                                logger.info('Inserting Bucket row for %s (task %s)', bucket_name, task_id)
+                                # Prefer task.user_id as owner if available, otherwise use DUMMY_OWNER_ID
+                                try:
+                                    owner = getattr(t, 'user_id', None) or DUMMY_OWNER_ID
+                                except Exception:
+                                    owner = DUMMY_OWNER_ID
+                                b = Bucket(name=bucket_name, owner_id=owner, bucket_metadata=minio_info.get('metadata') or {})
+                                s.add(b)
+                                try:
+                                    s.commit()
+                                    logger.info('Bucket row committed for %s (task %s)', bucket_name, task_id)
+                                except IntegrityError:
+                                    logger.exception('IntegrityError committing bucket row for %s (task %s)', bucket_name, task_id)
+                                    s.rollback()
+                        except Exception:
+                            logger.exception('failed to ensure bucket row for %s (task %s)', bucket_name, task_id)
+                except Exception:
+                    logger.exception('bucket persistence check failed for %s', task_id)
+                try:
+                    record_history(task_id, "success", {"result": result}, db=s)
+                except Exception:
+                    logger.exception('record_history("success") failed for %s', task_id)
+                # Publish an explicit status event for frontends to consume (helps UIs
+                # that listen for 'status' events to update task rows immediately).
+                try:
+                    publish_event({
+                        "type": "task.event",
+                        "task_id": str(key) if isinstance(key, uuid.UUID) else str(task_id),
+                        "event_type": "status",
+                        "payload": {"status": "success"},
+                    })
+                except Exception:
+                    logger.exception('publish_event failed for success status for %s', task_id)
             except Exception:
-                logger.exception('bucket persistence check failed for %s', task_id)
-            try:
-                record_history(task_id, "success", {"result": result}, db=db)
-            except Exception:
-                logger.exception('record_history("success") failed for %s', task_id)
-            # Publish an explicit status event for frontends to consume (helps UIs
-            # that listen for 'status' events to update task rows immediately).
-            try:
-                publish_event({
-                    "type": "task.event",
-                    "task_id": str(key) if isinstance(key, uuid.UUID) else str(task_id),
-                    "event_type": "status",
-                    "payload": {"status": "success"},
-                })
-            except Exception:
-                logger.exception('publish_event failed for success status for %s', task_id)
-        finally:
-            if close:
-                db.close()
+                logger.exception('update_task_success failed for %s', task_id)
 
 
 def update_task_failure(task_id: str, error_msg: str, db=None):
     with _lock:
-        close = False
-        if db is None:
-            db = SessionLocal()
-            close = True
-        try:
-            key = _parse_key(task_id)
-            t = db.get(Task, key)
-            if not t:
+        with maybe_session(db) as (s, created):
+            try:
+                key = _parse_key(task_id)
+                t = s.get(Task, key)
+                if not t:
+                    try:
+                        create_task(task_id, metadata=None)
+                    except Exception:
+                        pass
+                    t = s.get(Task, key)
+                t.status = "failed"
+                t.result = None
+                t.fail_count = (t.fail_count or 0) + 1
+                t.last_failure_ts = datetime.utcnow()
                 try:
-                    create_task(task_id, metadata=None, db=db)
+                    s.commit()
+                except IntegrityError:
+                    s.rollback()
+                try:
+                    record_history(task_id, "failure", {"error": error_msg}, db=s)
                 except Exception:
-                    pass
-                t = db.get(Task, key)
-            t.status = "failed"
-            t.result = None
-            t.fail_count = (t.fail_count or 0) + 1
-            t.last_failure_ts = datetime.utcnow()
-            try:
-                db.commit()
-            except IntegrityError:
-                db.rollback()
-            try:
-                record_history(task_id, "failure", {"error": error_msg}, db=db)
+                    logger.exception('record_history("failure") failed for %s', task_id)
             except Exception:
-                logger.exception('record_history("failure") failed for %s', task_id)
-        finally:
-            if close:
-                db.close()
+                logger.exception('update_task_failure failed for %s', task_id)
 
 
 def update_task_cancelled(task_id: str, db=None):
     with _lock:
-        close = False
-        if db is None:
-            db = SessionLocal()
-            close = True
-        try:
-            key = _parse_key(task_id)
-            t = db.get(Task, key)
-            if not t:
+        with maybe_session(db) as (s, created):
+            try:
+                key = _parse_key(task_id)
+                t = s.get(Task, key)
+                if not t:
+                    try:
+                        create_task(task_id, metadata=None)
+                    except Exception:
+                        pass
+                    t = s.get(Task, key)
+                t.status = "cancelled"
+                t.result = None
                 try:
-                    create_task(task_id, metadata=None, db=db)
+                    s.commit()
+                except IntegrityError:
+                    s.rollback()
+                try:
+                    record_history(task_id, "cancelled", {}, db=s)
                 except Exception:
-                    pass
-                t = db.get(Task, key)
-            t.status = "cancelled"
-            t.result = None
-            try:
-                db.commit()
-            except IntegrityError:
-                db.rollback()
-            try:
-                record_history(task_id, "cancelled", {}, db=db)
+                    logger.exception('record_history("cancelled") failed for %s', task_id)
             except Exception:
-                logger.exception('record_history("cancelled") failed for %s', task_id)
-        finally:
-            if close:
-                db.close()
+                logger.exception('update_task_cancelled failed for %s', task_id)
 
 
 def update_task_status(task_id: str, status: str, db=None):
@@ -531,79 +533,74 @@ def update_task_status(task_id: str, status: str, db=None):
 
 def update_task_progress(task_id: str, progress: float, db=None):
     with _lock:
-        close = False
-        if db is None:
-            db = SessionLocal()
-            close = True
-        try:
-            key = _parse_key(task_id)
-            t = db.get(Task, key)
-            if not t:
+        with maybe_session(db) as (s, created):
+            try:
+                key = _parse_key(task_id)
+                t = s.get(Task, key)
+                if not t:
+                    try:
+                        create_task(task_id, metadata=None)
+                    except Exception:
+                        pass
+                    t = s.get(Task, key)
+                # Always update the Task.progress column so reads get latest value
+                t.progress = float(progress)
                 try:
-                    create_task(task_id, metadata=None, db=db)
+                    s.commit()
                 except Exception:
-                    pass
-                t = db.get(Task, key)
-            # Always update the Task.progress column so reads get latest value
-            t.progress = float(progress)
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
+                    s.rollback()
 
-            # Coalesce frequent progress updates to avoid inserting too many
-            # TaskHistory rows. Only record a new progress row when either:
-            # - delta >= 5.0 percentage points from the most recent progress row, or
-            # - the most recent progress row is older than 5 seconds.
-            try:
-                last = db.query(TaskHistory).filter(
-                    TaskHistory.task_id == key,
-                    TaskHistory.event_type == 'progress'
-                ).order_by(TaskHistory.event_ts.desc()).limit(1).one_or_none()
-                should_record = True
-                if last and isinstance(last.payload, dict):
-                    try:
-                        last_progress = float(last.payload.get('progress', 0.0))
-                    except Exception:
-                        last_progress = None
-                    if last_progress is not None:
-                        delta = abs(float(progress) - last_progress)
-                        age = (datetime.utcnow() - (last.event_ts or datetime.utcnow())).total_seconds()
-                        if delta < 5.0 and age < 5.0:
-                            should_record = False
-                if should_record:
-                    # If a recent progress row exists, update it in-place to avoid
-                    # accumulating many small progress INSERTs. Otherwise INSERT.
-                    try:
-                        recent_seconds = 24 * 3600  # keep one day's worth of updates consolidated
-                        last_age = (datetime.utcnow() - (last.event_ts or datetime.utcnow())).total_seconds() if last else None
-                        if last and last_age is not None and last_age < recent_seconds:
-                            # update existing row
-                            try:
-                                last.payload = {"progress": float(progress)}
-                                last.event_ts = datetime.utcnow()
-                                db.add(last)
-                                db.commit()
-                            except Exception:
-                                db.rollback()
-                                # fallback to inserting a new row if update fails
-                                record_history(task_id, "progress", {"progress": float(progress)}, db=db)
-                        else:
-                            record_history(task_id, "progress", {"progress": float(progress)}, db=db)
-                    except Exception:
-                        logger.exception('failed to upsert progress history for %s', task_id)
+                # Coalesce frequent progress updates to avoid inserting too many
+                # TaskHistory rows. Only record a new progress row when either:
+                # - delta >= 5.0 percentage points from the most recent progress row, or
+                # - the most recent progress row is older than 5 seconds.
+                try:
+                    last = s.query(TaskHistory).filter(
+                        TaskHistory.task_id == key,
+                        TaskHistory.event_type == 'progress'
+                    ).order_by(TaskHistory.event_ts.desc()).limit(1).one_or_none()
+                    should_record = True
+                    if last and isinstance(last.payload, dict):
+                        try:
+                            last_progress = float(last.payload.get('progress', 0.0))
+                        except Exception:
+                            last_progress = None
+                        if last_progress is not None:
+                            delta = abs(float(progress) - last_progress)
+                            age = (datetime.utcnow() - (last.event_ts or datetime.utcnow())).total_seconds()
+                            if delta < 5.0 and age < 5.0:
+                                should_record = False
+                    if should_record:
+                        # If a recent progress row exists, update it in-place to avoid
+                        # accumulating many small progress INSERTs. Otherwise INSERT.
+                        try:
+                            recent_seconds = 24 * 3600  # keep one day's worth of updates consolidated
+                            last_age = (datetime.utcnow() - (last.event_ts or datetime.utcnow())).total_seconds() if last else None
+                            if last and last_age is not None and last_age < recent_seconds:
+                                # update existing row
+                                try:
+                                    last.payload = {"progress": float(progress)}
+                                    last.event_ts = datetime.utcnow()
+                                    s.add(last)
+                                    s.commit()
+                                except Exception:
+                                    s.rollback()
+                                    # fallback to inserting a new row if update fails
+                                    record_history(task_id, "progress", {"progress": float(progress)}, db=s)
+                            else:
+                                record_history(task_id, "progress", {"progress": float(progress)}, db=s)
+                        except Exception:
+                            logger.exception('failed to upsert progress history for %s', task_id)
+                except Exception:
+                    logger.exception('record_history("progress") failed for %s', task_id)
             except Exception:
-                logger.exception('record_history("progress") failed for %s', task_id)
-        finally:
-            if close:
-                db.close()
+                logger.exception('update_task_progress failed for %s', task_id)
 
 
 def get_task(task_id: str) -> Optional[Dict[str, Any]]:
-    db = SessionLocal()
-    try:
+    with session_scope() as s:
         key = _parse_key(task_id)
-        t = db.get(Task, key)
+        t = s.get(Task, key)
         if not t:
             return None
         return {
@@ -618,5 +615,3 @@ def get_task(task_id: str) -> Optional[Dict[str, Any]]:
             "created_at": t.created_at.isoformat() + "Z" if getattr(t, 'created_at', None) else None,
             "name": t.name,
         }
-    finally:
-        db.close()

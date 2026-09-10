@@ -9,16 +9,9 @@ from minutes.celery_app import celery
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw, DEFAULT_SYSTEM_PROMPT
-from minutes.bg_store import _parse_key
-from minutes.models import Task
 import datetime
 import os
-from minutes.bg_store import update_task_success, update_task_failure
-from minutes.bg_store import update_task_status, update_task_progress
-try:
-    from minutes.bg_store import get_session
-except Exception:
-    get_session = None
+from minutes.bg_store import get_task, update_task_success, update_task_failure, update_task_status, update_task_progress
 import requests
 from typing import Tuple, Any
 
@@ -162,12 +155,8 @@ def process_audio(self, input_path: str):
         print(f"DEBUG process_audio start task_id={repr(task_id)} input={input_path}")
     except Exception:
         pass
-    db = None
-    if get_session:
-        try:
-            db = get_session()
-        except Exception:
-            db = None
+    # Do NOT hold a long-lived DB session during preprocessing/transcription.
+    # `update_task_*` helper functions manage their own short-lived sessions.
     try:
         # mark preprocessing stage
         logger = logging.getLogger("minutes.tasks")
@@ -176,7 +165,7 @@ def process_audio(self, input_path: str):
                 logger.debug("process_audio: setting task status 'preprocess' for %s", task_id)
             except Exception:
                 pass
-            update_task_status(task_id, "preprocess", db=db)
+            update_task_status(task_id, "preprocess")
             try:
                 logger.debug("process_audio: update_task_status returned for %s", task_id)
             except Exception:
@@ -207,7 +196,7 @@ def process_audio(self, input_path: str):
             # Record failure in task store if possible, then re-raise
             if task_id:
                 try:
-                    update_task_failure(task_id, f"preprocess failed: {e}", db=db)
+                    update_task_failure(task_id, f"preprocess failed: {e}")
                 except Exception:
                     try:
                         logger.exception("process_audio: failed to record preprocess failure for %s", task_id)
@@ -282,8 +271,8 @@ def process_audio(self, input_path: str):
         # If an external inference service is configured, call it via HTTP.
         inference_url = os.environ.get("INFERENCE_URL")
         # mark transcribing stage before calling inference/local transcribe
-        if task_id:
-            update_task_status(task_id, "transcribing", db=db)
+            if task_id:
+                update_task_status(task_id, "transcribing")
 
         if inference_url:
             # Call inference endpoint and stream NDJSON lines for progress.
@@ -330,11 +319,11 @@ def process_audio(self, input_path: str):
                             try:
                                 end = float(obj.get("end", 0.0) or 0.0)
                                 if task_id:
-                                    update_task_status(task_id, f"transcribing:{end:.1f}s", db=db)
+                                    update_task_status(task_id, f"transcribing:{end:.1f}s")
                                     if audio_duration and audio_duration > 0:
                                         pct = min(100.0, (end / audio_duration) * 100.0)
                                         logger.debug("Updating progress for %s: %.2f%% (end=%.2f)", task_id, pct, end)
-                                        update_task_progress(task_id, pct, db=db)
+                                        update_task_progress(task_id, pct)
                             except Exception:
                                 pass
                             segments.append(obj)
@@ -343,7 +332,7 @@ def process_audio(self, input_path: str):
                             if isinstance(obj.get("segments"), list):
                                 segments = obj.get("segments")
                             if task_id:
-                                update_task_progress(task_id, 100.0, db=db)
+                                update_task_progress(task_id, 100.0)
                                 logger.debug("Marking progress 100%% for %s (final)", task_id)
                             try:
                                 logger.info("inference: final received (len=%s)", len(raw_text) if raw_text is not None else 0)
@@ -400,7 +389,7 @@ def process_audio(self, input_path: str):
                                 if isinstance(obj.get("segments"), list):
                                     segments = obj.get("segments")
                                 if task_id:
-                                    update_task_progress(task_id, 100.0, db=db)
+                                    update_task_progress(task_id, 100.0)
                                     logger.debug("Marking progress 100%% for %s (final-fallback)", task_id)
                             elif typ == "error":
                                 raise RuntimeError(obj.get("error"))
@@ -426,21 +415,21 @@ def process_audio(self, input_path: str):
                 try:
                     end = float(getattr(seg, "end", 0.0) or 0.0)
                     if task_id:
-                        update_task_status(task_id, f"transcribing:{end:.1f}s", db=db)
+                        update_task_status(task_id, f"transcribing:{end:.1f}s")
                         if audio_duration and audio_duration > 0:
                             pct = min(100.0, (end / audio_duration) * 100.0)
-                            update_task_progress(task_id, pct, db=db)
+                            update_task_progress(task_id, pct)
                 except Exception:
                     pass
 
             raw_text, segments = transcribe(clean, model_size="small", prompt=None, progress_callback=_progress)
             if task_id:
                 # ensure we mark progress complete when local transcribe finishes
-                update_task_progress(task_id, 100.0, db=db)
+                update_task_progress(task_id, 100.0)
 
         # mark formatting stage
         if task_id:
-            update_task_status(task_id, "formatting", db=db)
+            update_task_status(task_id, "formatting")
             # proactively publish an SSE event so frontends update immediately
             try:
                 from minutes.sse import publish_event
@@ -457,14 +446,10 @@ def process_audio(self, input_path: str):
         # Attempt to read task metadata to customize the formatting prompt
         meta = None
         try:
-            if db and task_id:
-                try:
-                    key = _parse_key(task_id)
-                    trec = db.get(Task, key)
-                    if trec:
-                        meta = trec.result or {}
-                except Exception:
-                    meta = meta
+            if task_id:
+                trec = get_task(task_id)
+                if trec:
+                    meta = trec.get('result') or {}
         except Exception:
             meta = None
 
@@ -567,7 +552,7 @@ def process_audio(self, input_path: str):
 
         # Update shared task store for API visibility with structured result
         if task_id:
-            update_task_success(task_id, structured, db=db)
+            update_task_success(task_id, structured)
 
         # Optionally remove intermediate files produced by preprocessing
         try:
@@ -600,14 +585,8 @@ def process_audio(self, input_path: str):
         # Record failure in shared store if possible
         if task_id:
             try:
-                update_task_failure(task_id, str(e), db=db)
+                update_task_failure(task_id, str(e))
             except Exception:
                 pass
         raise
-    finally:
-        try:
-            if db is not None:
-                db.close()
-        except Exception:
-            pass
 
