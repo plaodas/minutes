@@ -17,7 +17,9 @@ def run(upload_path: str, task_id: str):
             final_minutes = format_minutes_from_raw(raw_text)
         except Exception as fe:
             # Ollama formatting failed; fall back to raw transcript with header
-            final_minutes = "[FALLBACK] Ollama formatting failed: " + str(fe) + "\n\n" + raw_text
+            final_minutes = (
+                "[FALLBACK] Ollama formatting failed: " + str(fe) + "\n\n" + raw_text
+            )
 
         outputs_dir = os.environ.get("OUTPUTS_DIR", "data/outputs")
         os.makedirs(outputs_dir, exist_ok=True)

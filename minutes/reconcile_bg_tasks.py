@@ -9,14 +9,23 @@ def reconcile_once(outputs_dir="data/outputs"):
     try:
         from minutes.db import session_scope
         from minutes.models import Task
+
         with session_scope() as session:
             for t in session.query(Task).all():
                 tasks[str(t.id)] = {
                     "status": t.status,
                     "result": t.result or {},
                     "fail_count": int(t.fail_count or 0),
-                    "last_failure_ts": t.last_failure_ts.isoformat() + "Z" if t.last_failure_ts else None,
-                    "last_success_ts": t.last_success_ts.isoformat() + "Z" if t.last_success_ts else None,
+                    "last_failure_ts": (
+                        t.last_failure_ts.isoformat() + "Z"
+                        if t.last_failure_ts
+                        else None
+                    ),
+                    "last_success_ts": (
+                        t.last_success_ts.isoformat() + "Z"
+                        if t.last_success_ts
+                        else None
+                    ),
                 }
     except Exception:
         tasks = {}

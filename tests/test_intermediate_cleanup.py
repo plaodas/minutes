@@ -13,7 +13,9 @@ class DummySelf:
 
 def _make_files(tmp_path):
     import wave
+
     inp = tmp_path / "input.wav"
+
     # create a small valid WAV file for input and derived files
     def write_wav(path):
         with wave.open(str(path), "wb") as w:
@@ -41,7 +43,9 @@ def test_cleanup_intermediates_enabled(monkeypatch, tmp_path):
     monkeypatch.setattr(tasks, "preprocess", lambda p: (mono, norm, clean))
     monkeypatch.setattr(tasks, "transcribe", lambda c, **kw: ("raw", []))
     monkeypatch.setattr(tasks, "format_minutes_from_raw", lambda r: "minutes")
-    monkeypatch.setattr(tasks, "update_task_success", lambda tid, structured, db=None: None)
+    monkeypatch.setattr(
+        tasks, "update_task_success", lambda tid, structured, db=None: None
+    )
     monkeypatch.setattr(tasks, "update_task_status", lambda *a, **k: None)
     monkeypatch.setattr(tasks, "update_task_progress", lambda *a, **k: None)
 
@@ -66,7 +70,9 @@ def test_no_cleanup_when_disabled(monkeypatch, tmp_path):
     monkeypatch.setattr(tasks, "preprocess", lambda p: (mono, norm, clean))
     monkeypatch.setattr(tasks, "transcribe", lambda c, **kw: ("raw", []))
     monkeypatch.setattr(tasks, "format_minutes_from_raw", lambda r: "minutes")
-    monkeypatch.setattr(tasks, "update_task_success", lambda tid, structured, db=None: None)
+    monkeypatch.setattr(
+        tasks, "update_task_success", lambda tid, structured, db=None: None
+    )
     monkeypatch.setattr(tasks, "update_task_status", lambda *a, **k: None)
     monkeypatch.setattr(tasks, "update_task_progress", lambda *a, **k: None)
 

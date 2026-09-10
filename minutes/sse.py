@@ -5,7 +5,7 @@ import os
 import logging
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger('minutes.sse')
+logger = logging.getLogger("minutes.sse")
 
 _lock = threading.Lock()
 # list of asyncio.Queue instances
@@ -44,12 +44,12 @@ def _push_to_local_queues(event: Dict[str, Any]):
             try:
                 loop.call_soon_threadsafe(q.put_nowait, event)
             except Exception:
-                logger.exception('failed to push event to local queue')
+                logger.exception("failed to push event to local queue")
         else:
             try:
                 q.put_nowait(event)
             except Exception:
-                logger.exception('failed to put event into queue without loop')
+                logger.exception("failed to put event into queue without loop")
 
 
 def publish_event(event: Dict[str, Any]):
@@ -61,39 +61,45 @@ def publish_event(event: Dict[str, Any]):
     try:
         _push_to_local_queues(event)
     except Exception:
-        logger.exception('local push failed')
+        logger.exception("local push failed")
 
     # publish to redis channel for other instances
     try:
         # allow fallback to commonly-set broker/url env vars so worker processes
         # without explicit REDIS_URL still publish events (e.g., Celery uses REDIS)
-        redis_url = os.environ.get('REDIS_URL') or os.environ.get('CELERY_BROKER_URL') or os.environ.get('BROKER_URL')
+        redis_url = (
+            os.environ.get("REDIS_URL")
+            or os.environ.get("CELERY_BROKER_URL")
+            or os.environ.get("BROKER_URL")
+        )
         if not redis_url:
             return
         global _redis_pub
         if _redis_pub is None:
             import redis
+
             try:
                 _redis_pub = redis.from_url(redis_url, decode_responses=True)
             except Exception:
-                logger.exception('failed to create redis publisher from %s', redis_url)
+                logger.exception("failed to create redis publisher from %s", redis_url)
                 _redis_pub = None
         if _redis_pub is not None:
             try:
-                _redis_pub.publish('minutes:events', json.dumps(event, default=str))
+                _redis_pub.publish("minutes:events", json.dumps(event, default=str))
             except Exception:
-                logger.exception('redis publish failed; resetting publisher')
+                logger.exception("redis publish failed; resetting publisher")
                 try:
                     _redis_pub.close()
                 except Exception:
                     pass
                 _redis_pub = None
     except Exception:
-        logger.exception('publish_event top-level failure')
+        logger.exception("publish_event top-level failure")
 
 
 async def _redis_listener(redis_url: str):
     import redis.asyncio as aioredis
+
     backoff_base = 0.5
     max_backoff = 30.0
     backoff = backoff_base
@@ -104,15 +110,17 @@ async def _redis_listener(redis_url: str):
             try:
                 client = aioredis.from_url(redis_url, decode_responses=True)
                 pubsub = client.pubsub()
-                await pubsub.subscribe('minutes:events')
-                logger.info('Subscribed to Redis minutes:events')
+                await pubsub.subscribe("minutes:events")
+                logger.info("Subscribed to Redis minutes:events")
                 backoff = backoff_base
 
                 while True:
                     # non-blocking get_message with timeout so we can check cancellation
-                    msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                    if msg and 'data' in msg:
-                        data = msg['data']
+                    msg = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=1.0
+                    )
+                    if msg and "data" in msg:
+                        data = msg["data"]
                         try:
                             ev = json.loads(data)
                         except Exception:
@@ -120,23 +128,28 @@ async def _redis_listener(redis_url: str):
                         _push_to_local_queues(ev)
                     await asyncio.sleep(0.01)
             except asyncio.CancelledError:
-                logger.info('Redis listener cancelled during subscribe/read')
+                logger.info("Redis listener cancelled during subscribe/read")
                 raise
             except Exception:
-                logger.exception('Redis listener connection/read failed; will retry with backoff')
+                logger.exception(
+                    "Redis listener connection/read failed; will retry with backoff"
+                )
                 # cleanup client/pubsub before retry
                 try:
                     if pubsub is not None:
                         await pubsub.close()
                 except Exception:
-                    logger.exception('failed to close pubsub')
+                    logger.exception("failed to close pubsub")
                 try:
                     if client is not None:
                         await client.close()
                 except Exception:
-                    logger.exception('failed to close redis client')
+                    logger.exception("failed to close redis client")
                 # exponential backoff with jitter
-                await asyncio.sleep(backoff + (backoff * 0.1 * (0.5 - asyncio.get_event_loop().time() % 1)))
+                await asyncio.sleep(
+                    backoff
+                    + (backoff * 0.1 * (0.5 - asyncio.get_event_loop().time() % 1))
+                )
                 backoff = min(backoff * 2, max_backoff)
                 continue
     finally:
@@ -144,12 +157,12 @@ async def _redis_listener(redis_url: str):
             if pubsub is not None:
                 await pubsub.close()
         except Exception:
-            logger.exception('failed to close pubsub on shutdown')
+            logger.exception("failed to close pubsub on shutdown")
         try:
             if client is not None:
                 await client.close()
         except Exception:
-            logger.exception('failed to close redis client on shutdown')
+            logger.exception("failed to close redis client on shutdown")
 
 
 def start_redis_listener(redis_url: str):
@@ -173,4 +186,4 @@ def stop_redis_listener():
             _redis_task.cancel()
             _redis_task = None
     except Exception:
-        logger.exception('failed to stop redis listener')
+        logger.exception("failed to stop redis listener")

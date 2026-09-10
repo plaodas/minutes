@@ -71,7 +71,9 @@ class MinioService:
             if not ignore_missing:
                 raise
 
-    def delete_objects_with_prefix(self, bucket: str, prefix: str, ignore_missing: bool = True):
+    def delete_objects_with_prefix(
+        self, bucket: str, prefix: str, ignore_missing: bool = True
+    ):
         # iterate and remove objects under prefix
         for obj in self.client.list_objects(bucket, prefix=prefix, recursive=True):
             try:

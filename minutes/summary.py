@@ -1,5 +1,6 @@
 import re
 
+
 def summarize_local(raw_text: str, max_sentences: int = 5) -> str:
     """Very small extractive summarizer: split into sentences and pick the
     longest sentences as a crude summary. Returns joined sentences.
@@ -8,7 +9,7 @@ def summarize_local(raw_text: str, max_sentences: int = 5) -> str:
         return ""
 
     # naive sentence splitter
-    parts = re.split(r'(?<=[。．！？!?\.!\?])\s*', raw_text)
+    parts = re.split(r"(?<=[。．！？!?\.!\?])\s*", raw_text)
     parts = [p.strip() for p in parts if p.strip()]
     if not parts:
         # fallback to line-based

@@ -81,19 +81,27 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
             q.put(line + "\n")
         except Exception:
             try:
-                q.put(json.dumps({"type": "segment", "text": str(s)}, ensure_ascii=False) + "\n")
+                q.put(
+                    json.dumps({"type": "segment", "text": str(s)}, ensure_ascii=False)
+                    + "\n"
+                )
             except Exception:
                 pass
 
     def worker():
         try:
-            raw_text, _ = transcribe(dest_path, model_size="small", prompt=None, progress_callback=_progress)
+            raw_text, _ = transcribe(
+                dest_path, model_size="small", prompt=None, progress_callback=_progress
+            )
             final = {"type": "final", "raw_text": raw_text, "segments": segs}
             q.put(json.dumps(final, ensure_ascii=False) + "\n")
         except Exception as exc:
             # Log full exception with traceback for debugging on the inference side
             logger.exception("transcribe worker failed for %s: %s", dest_path, exc)
-            q.put(json.dumps({"type": "error", "error": str(exc)}, ensure_ascii=False) + "\n")
+            q.put(
+                json.dumps({"type": "error", "error": str(exc)}, ensure_ascii=False)
+                + "\n"
+            )
         finally:
             q.put(None)
 
@@ -101,6 +109,7 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
 
     def event_stream():
         import time
+
         heartbeat_interval = 2.0
         while True:
             try:

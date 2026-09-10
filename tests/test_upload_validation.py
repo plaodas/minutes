@@ -47,7 +47,9 @@ def test_accept_wav_bg(monkeypatch):
     if hasattr(tasks.process_audio, "delay"):
         monkeypatch.setattr(tasks.process_audio, "delay", fake_delay)
     else:
-        monkeypatch.setattr(tasks, "process_audio", lambda path: DummyTask("bg-fake-id"))
+        monkeypatch.setattr(
+            tasks, "process_audio", lambda path: DummyTask("bg-fake-id")
+        )
 
     wav = make_wav_bytes()
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}

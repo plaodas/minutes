@@ -1,4 +1,13 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request, Form
+from fastapi import (
+    FastAPI,
+    UploadFile,
+    File,
+    HTTPException,
+    BackgroundTasks,
+    Depends,
+    Request,
+    Form,
+)
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import logging
@@ -45,28 +54,29 @@ from minutes.minio_client import MinioService
 from fastapi import Header
 
 # Allowed upload file types
-ALLOWED_EXTENSIONS = {'.wav', '.mp3', '.m4a', '.flac', '.ogg', '.opus'}
+ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus"}
+
 
 def _is_allowed_upload(file: UploadFile) -> (bool, str):
     """Return (allowed, reason)."""
     # check extension and content-type heuristics first
-    fn = (file.filename or '')
+    fn = file.filename or ""
     ext = os.path.splitext(fn)[1].lower()
-    ct = (getattr(file, 'content_type', None) or '')
+    ct = getattr(file, "content_type", None) or ""
 
-    if ext not in ALLOWED_EXTENSIONS and not ct.startswith('audio/'):
-        return False, f'invalid file type: ext={ext!r} mime={ct!r}'
+    if ext not in ALLOWED_EXTENSIONS and not ct.startswith("audio/"):
+        return False, f"invalid file type: ext={ext!r} mime={ct!r}"
 
     # read a small prefix from the uploaded stream for analysis
-    stream = getattr(file, 'file', None)
+    stream = getattr(file, "file", None)
     if not stream:
-        return False, 'missing upload stream'
+        return False, "missing upload stream"
     pos = None
     try:
         pos = stream.tell()
     except Exception:
         pos = None
-    header = stream.read(4096) or b''
+    header = stream.read(4096) or b""
     try:
         if pos is not None:
             stream.seek(pos)
@@ -86,24 +96,34 @@ def _is_allowed_upload(file: UploadFile) -> (bool, str):
             # some python-magic builds expose from_buffer at module level
             mime = magic.from_buffer(header)
 
-        if isinstance(mime, str) and mime.startswith('audio/'):
-            return True, ''
-        return False, f'invalid mime detected: {mime!r} ext={ext!r} orig_mime={ct!r}'
+        if isinstance(mime, str) and mime.startswith("audio/"):
+            return True, ""
+        return False, f"invalid mime detected: {mime!r} ext={ext!r} orig_mime={ct!r}"
     except Exception:
         # fallback to lightweight signature checks if python-magic is unavailable
-        h = header if isinstance(header, (bytes, bytearray)) else str(header).encode('latin1', errors='ignore')
-        if h.startswith(b'RIFF') and h[8:12] == b'WAVE':
-            return True, ''
-        if h.startswith(b'OggS'):
-            return True, ''
-        if h.startswith(b'fLaC'):
-            return True, ''
-        if h.startswith(b'ID3') or (len(h) >= 2 and h[0] == 0xFF and (h[1] & 0xE0) == 0xE0):
-            return True, ''
-        if len(h) >= 12 and h[4:8] == b'ftyp':
-            return True, ''
+        h = (
+            header
+            if isinstance(header, (bytes, bytearray))
+            else str(header).encode("latin1", errors="ignore")
+        )
+        if h.startswith(b"RIFF") and h[8:12] == b"WAVE":
+            return True, ""
+        if h.startswith(b"OggS"):
+            return True, ""
+        if h.startswith(b"fLaC"):
+            return True, ""
+        if h.startswith(b"ID3") or (
+            len(h) >= 2 and h[0] == 0xFF and (h[1] & 0xE0) == 0xE0
+        ):
+            return True, ""
+        if len(h) >= 12 and h[4:8] == b"ftyp":
+            return True, ""
 
-        return False, f'file signature did not match audio formats: ext={ext!r} mime={ct!r}'
+        return (
+            False,
+            f"file signature did not match audio formats: ext={ext!r} mime={ct!r}",
+        )
+
 
 # Configuration: request limits for /bg/histories
 MAX_IDS_PER_REQUEST = int(os.environ.get("MAX_BG_HISTORIES_IDS", "500"))
@@ -131,7 +151,11 @@ def _run_pipeline_background(input_path: str, task_id: str):
         # prefixed with "[FALLBACK] ") and log it for observability.
         logger = logging.getLogger("minutes.api")
         if isinstance(final_minutes, str) and final_minutes.startswith("[FALLBACK]"):
-            logger.warning("Task %s used Ollama fallback: %s", task_id, final_minutes.splitlines()[0])
+            logger.warning(
+                "Task %s used Ollama fallback: %s",
+                task_id,
+                final_minutes.splitlines()[0],
+            )
 
         now = uuid.uuid4().hex
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
@@ -159,7 +183,9 @@ def _run_pipeline_background(input_path: str, task_id: str):
         # If configured, upload the final minutes to MinIO as a cached copy.
         minio_info = None
         try:
-            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get("MINIO_BUCKET")
+            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get(
+                "MINIO_BUCKET"
+            )
             if bucket:
                 svc = MinioService()
                 try:
@@ -171,18 +197,33 @@ def _run_pipeline_background(input_path: str, task_id: str):
                 try:
                     svc.client.fput_object(bucket, object_name, out_file)
                     try:
-                        expires_sec = int(os.environ.get('MINIO_PRESIGNED_EXPIRES', '3600'))
-                        url = svc.presigned_get(bucket, object_name, expires=expires_sec)
+                        expires_sec = int(
+                            os.environ.get("MINIO_PRESIGNED_EXPIRES", "3600")
+                        )
+                        url = svc.presigned_get(
+                            bucket, object_name, expires=expires_sec
+                        )
                         from datetime import datetime, timedelta
-                        expires_at = (datetime.utcnow() + timedelta(seconds=expires_sec)).isoformat() + 'Z'
+
+                        expires_at = (
+                            datetime.utcnow() + timedelta(seconds=expires_sec)
+                        ).isoformat() + "Z"
                     except Exception:
                         url = None
                         expires_sec = None
                         expires_at = None
-                    minio_info = {"bucket": bucket, "object": object_name, "url": url, "expires": expires_sec, "expires_at": expires_at}
+                    minio_info = {
+                        "bucket": bucket,
+                        "object": object_name,
+                        "url": url,
+                        "expires": expires_sec,
+                        "expires_at": expires_at,
+                    }
                 except Exception as exc:
                     # log but do not fail the whole pipeline
-                    logging.getLogger("minutes.api").exception("MinIO upload failed for task %s: %s", task_id, exc)
+                    logging.getLogger("minutes.api").exception(
+                        "MinIO upload failed for task %s: %s", task_id, exc
+                    )
         except Exception:
             # any MinIO client init error should not block task success
             minio_info = None
@@ -220,10 +261,15 @@ def require_admin(req: Request = None):
         raise HTTPException(status_code=403, detail="forbidden")
     return True
 
+
 # CORS: allow local dev origins used by the frontend and Playwright
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8080", "http://localhost"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:8080",
+        "http://localhost",
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -262,16 +308,16 @@ async def startup_reconciler():
     app.state.reconcile_task = asyncio.create_task(reconcile_loop())
     # start Redis-backed SSE relay if configured
     try:
-        redis_url = os.environ.get('REDIS_URL')
+        redis_url = os.environ.get("REDIS_URL")
         if redis_url:
             try:
                 from minutes.sse import start_redis_listener
 
                 start_redis_listener(redis_url)
             except Exception:
-                logger.exception('failed to start redis listener')
+                logger.exception("failed to start redis listener")
     except Exception:
-        logger.exception('redis listener startup check failed')
+        logger.exception("redis listener startup check failed")
 
 
 @app.on_event("shutdown")
@@ -289,16 +335,16 @@ async def shutdown_reconciler():
 
         stop_redis_listener()
     except Exception:
-        logger = logging.getLogger('minutes.api')
-        logger.exception('failed to stop redis listener')
+        logger = logging.getLogger("minutes.api")
+        logger.exception("failed to stop redis listener")
 
 
-@app.get('/api/health')
+@app.get("/api/health")
 def health():
     return {"status": "ok"}
 
 
-@app.get('/api/admin/buckets')
+@app.get("/api/admin/buckets")
 def admin_list_buckets(_=Depends(require_admin)):
     try:
         svc = MinioService()
@@ -315,40 +361,52 @@ def admin_list_buckets(_=Depends(require_admin)):
         seen = set()
         for b in minio_buckets:
             name = b.name
-            created = getattr(b, 'creation_date', None)
+            created = getattr(b, "creation_date", None)
             rec = db_buckets.get(name)
-            out.append({
-                "name": name,
-                "created_at": rec.created_at.isoformat() + 'Z' if rec and rec.created_at else (created.isoformat() if created else None),
-                "public": bool(rec.public) if rec is not None else None,
-                "owner_id": str(rec.owner_id) if rec is not None else None,
-                "in_db": rec is not None,
-            })
+            out.append(
+                {
+                    "name": name,
+                    "created_at": (
+                        rec.created_at.isoformat() + "Z"
+                        if rec and rec.created_at
+                        else (created.isoformat() if created else None)
+                    ),
+                    "public": bool(rec.public) if rec is not None else None,
+                    "owner_id": str(rec.owner_id) if rec is not None else None,
+                    "in_db": rec is not None,
+                }
+            )
             seen.add(name)
 
         # include DB-only buckets (if any)
         for name, rec in db_buckets.items():
             if name in seen:
                 continue
-            out.append({
-                "name": name,
-                "created_at": rec.created_at.isoformat() + 'Z' if rec and rec.created_at else None,
-                "public": bool(rec.public) if rec is not None else None,
-                "owner_id": str(rec.owner_id) if rec is not None else None,
-                "in_db": True,
-            })
+            out.append(
+                {
+                    "name": name,
+                    "created_at": (
+                        rec.created_at.isoformat() + "Z"
+                        if rec and rec.created_at
+                        else None
+                    ),
+                    "public": bool(rec.public) if rec is not None else None,
+                    "owner_id": str(rec.owner_id) if rec is not None else None,
+                    "in_db": True,
+                }
+            )
 
         return {"buckets": out}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get('/api/admin/buckets')
+@app.get("/api/admin/buckets")
 def api_admin_list_buckets(_=Depends(require_admin)):
     return admin_list_buckets(_)
 
 
-@app.post('/api/admin/buckets')
+@app.post("/api/admin/buckets")
 def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
     name = (payload or {}).get("name")
     if not name:
@@ -374,12 +432,12 @@ def admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post('/api/admin/buckets')
+@app.post("/api/admin/buckets")
 def api_admin_create_bucket(payload: Dict[str, typing.Any], _=Depends(require_admin)):
     return admin_create_bucket(payload, _=_)
 
 
-@app.delete('/api/admin/buckets/{name}')
+@app.delete("/api/admin/buckets/{name}")
 def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
     try:
         svc = MinioService()
@@ -396,12 +454,12 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.delete('/api/admin/buckets/{name}')
+@app.delete("/api/admin/buckets/{name}")
 def api_admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
     return admin_delete_bucket(name, force=force, _=_)
 
 
-@app.post('/api/transcribe-upload', response_model=CreateTaskResponse)
+@app.post("/api/transcribe-upload", response_model=CreateTaskResponse)
 def transcribe_upload(
     file: UploadFile = File(...),
     x_user_id: str | None = Header(None),
@@ -418,7 +476,9 @@ def transcribe_upload(
     # sanitize filename and avoid collisions by generating a unique name
     suffix = os.path.splitext(file.filename)[1] or ".wav"
     safe_name = os.path.basename(file.filename) or f"upload{suffix}"
-    unique_name = f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
+    unique_name = (
+        f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
+    )
     tmp_path = None
     # validate file type
     ok, reason = _is_allowed_upload(file)
@@ -459,7 +519,7 @@ def transcribe_upload(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post('/api/format-raw', response_model=FormatRawResponse)
+@app.post("/api/format-raw", response_model=FormatRawResponse)
 def format_raw(payload: FormatRawRequest):
     """Accept JSON {"raw": "..."} and return formatted minutes as JSON."""
     raw = payload.raw
@@ -473,18 +533,18 @@ def format_raw(payload: FormatRawRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post('/api/format-raw', response_model=FormatRawResponse)
+@app.post("/api/format-raw", response_model=FormatRawResponse)
 def api_format_raw(payload: FormatRawRequest):
     return format_raw(payload)
 
 
-@app.get('/api/status/{task_id}')
+@app.get("/api/status/{task_id}")
 def task_status(task_id: str):
     res = AsyncResult(task_id, app=celery)
     return {"task_id": task_id, "status": res.status, "info": str(res.info)}
 
 
-@app.get('/api/status/{task_id}')
+@app.get("/api/status/{task_id}")
 def api_task_status(task_id: str):
     return task_status(task_id)
 
@@ -494,17 +554,19 @@ def api_bg_status(task_id: str):
     return task_status(task_id)
 
 
-@app.get('/api/result/{task_id}')
+@app.get("/api/result/{task_id}")
 def task_result(task_id: str):
     res = AsyncResult(task_id, app=celery)
     if not res.ready():
         return JSONResponse({"status": res.status}, status_code=202)
     if res.failed():
-        return JSONResponse({"status": "failed", "info": str(res.info)}, status_code=500)
+        return JSONResponse(
+            {"status": "failed", "info": str(res.info)}, status_code=500
+        )
     return JSONResponse({"status": "success", "result": res.result})
 
 
-@app.get('/api/result/{task_id}')
+@app.get("/api/result/{task_id}")
 def api_task_result(task_id: str):
     return task_result(task_id)
 
@@ -526,7 +588,9 @@ def transcribe_upload_bg(
     os.makedirs(uploads_dir, exist_ok=True)
     # sanitize and uniquify filename to avoid collisions and path traversal
     safe_name = os.path.basename(file.filename) or "upload.wav"
-    unique_name = f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
+    unique_name = (
+        f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
+    )
     dest_path = os.path.join(uploads_dir, unique_name)
     # validate file type
     ok, reason = _is_allowed_upload(file)
@@ -571,7 +635,7 @@ def transcribe_upload_bg(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post('/api/transcribe-upload-bg', response_model=CreateTaskResponse)
+@app.post("/api/transcribe-upload-bg", response_model=CreateTaskResponse)
 def api_transcribe_upload_bg(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
@@ -582,7 +646,7 @@ def api_transcribe_upload_bg(
     """Compatibility wrapper for `/api/transcribe-upload-bg` used by the frontend."""
 
 
-@app.post('/transcribe-upload', response_model=CreateTaskResponse)
+@app.post("/transcribe-upload", response_model=CreateTaskResponse)
 def root_transcribe_upload(
     file: UploadFile = File(...),
     x_user_id: str | None = Header(None),
@@ -590,11 +654,22 @@ def root_transcribe_upload(
     include_actions: str | None = Form(None),
 ):
     """Root-path compatibility wrapper for older clients/tests."""
-    return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
-    return transcribe_upload_bg(file=file, background_tasks=background_tasks, x_user_id=x_user_id, language=language, include_actions=include_actions)
+    return transcribe_upload(
+        file=file,
+        x_user_id=x_user_id,
+        language=language,
+        include_actions=include_actions,
+    )
+    return transcribe_upload_bg(
+        file=file,
+        background_tasks=background_tasks,
+        x_user_id=x_user_id,
+        language=language,
+        include_actions=include_actions,
+    )
 
 
-@app.post('/api/transcribe-upload', response_model=CreateTaskResponse)
+@app.post("/api/transcribe-upload", response_model=CreateTaskResponse)
 def api_transcribe_upload(
     file: UploadFile = File(...),
     x_user_id: str | None = Header(None),
@@ -602,19 +677,29 @@ def api_transcribe_upload(
     include_actions: str | None = Form(None),
 ):
     """Compatibility wrapper for `/api/transcribe-upload` (synchronous) used by some clients."""
-    return transcribe_upload(file=file, x_user_id=x_user_id, language=language, include_actions=include_actions)
+    return transcribe_upload(
+        file=file,
+        x_user_id=x_user_id,
+        language=language,
+        include_actions=include_actions,
+    )
 
 
-@app.get('/api/bg/status/{task_id}', response_model=StatusResponse)
+@app.get("/api/bg/status/{task_id}", response_model=StatusResponse)
 def bg_status(task_id: str):
     t = get_task(task_id)
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
-    return {"task_id": task_id, "status": t["status"], "error": t.get("error"), "progress": t.get("progress")}
+    return {
+        "task_id": task_id,
+        "status": t["status"],
+        "error": t.get("error"),
+        "progress": t.get("progress"),
+    }
 
 
 @app.get(
-    '/api/bg/result/{task_id}',
+    "/api/bg/result/{task_id}",
     responses={
         200: {"description": "success", "content": {"application/json": {}}},
         202: {"description": "pending or failed"},
@@ -626,7 +711,9 @@ def bg_result(task_id: str):
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
     if t["status"] != "success":
-        return JSONResponse({"status": t["status"], "error": t.get("error")}, status_code=202)
+        return JSONResponse(
+            {"status": t["status"], "error": t.get("error")}, status_code=202
+        )
     return {"status": "success", "result": t.get("result")}
 
 
@@ -635,7 +722,7 @@ def api_bg_result(task_id: str):
     return bg_result(task_id)
 
 
-@app.get('/api/bg/history/{task_id}')
+@app.get("/api/bg/history/{task_id}")
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return task history events. Works with DB-backed store or file-backed fallback."""
     # DB-backed only: query TaskHistory rows for the given task id.
@@ -654,15 +741,17 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
         )
         out = []
         for r in rows:
-            out.append({
-                "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
-                "event_type": r.event_type,
-                "payload": r.payload,
-            })
+            out.append(
+                {
+                    "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
+                    "event_type": r.event_type,
+                    "payload": r.payload,
+                }
+            )
         return {"task_id": task_id, "history": out}
 
 
-@app.get('/api/bg/history/{task_id}')
+@app.get("/api/bg/history/{task_id}")
 def api_bg_history(task_id: str, limit: int = 100, offset: int = 0):
     return bg_history(task_id, limit=limit, offset=offset)
 
@@ -691,7 +780,7 @@ def api_bg_task_events(task_id: str):
     return bg_task_events(task_id)
 
 
-@app.post('/api/bg/task/{task_id}/rename')
+@app.post("/api/bg/task/{task_id}/rename")
 def bg_task_rename(task_id: str, payload: Dict[str, str]):
     """Rename a task display `name`.
 
@@ -718,7 +807,7 @@ def bg_task_rename(task_id: str, payload: Dict[str, str]):
         return {"task_id": task_id, "name": name}
 
 
-@app.post('/api/bg/task/{task_id}/regenerate-name')
+@app.post("/api/bg/task/{task_id}/regenerate-name")
 def bg_task_regenerate_name(task_id: str):
     """Regenerate the task display `name` from the output file using the local summarizer."""
     with session_scope() as session:
@@ -732,23 +821,26 @@ def bg_task_regenerate_name(task_id: str):
         res = t.result or {}
         output_file = None
         if isinstance(res, dict):
-            output_file = res.get('output_file') or (res.get('result') or {}).get('output_file')
+            output_file = res.get("output_file") or (res.get("result") or {}).get(
+                "output_file"
+            )
         if not output_file:
             return JSONResponse({"error": "no output file available"}, status_code=404)
-        outputs_dir = os.environ.get('OUTPUTS_DIR', 'outputs')
+        outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
         candidate = os.path.join(outputs_dir, os.path.basename(output_file))
         try:
             from minutes.summary import summarize_local
-            with open(candidate, 'r', encoding='utf-8') as rf:
+
+            with open(candidate, "r", encoding="utf-8") as rf:
                 text = rf.read()
             short = summarize_local(text, max_sentences=1).strip()
             if short and len(short) > 120:
-                short = short[:117].rstrip() + '...'
+                short = short[:117].rstrip() + "..."
             t.name = short
             session.add(t)
             session.commit()
             try:
-                record_history(task_id, 'rename', {'name': short}, db=session)
+                record_history(task_id, "rename", {"name": short}, db=session)
             except Exception:
                 pass
             return {"task_id": task_id, "name": short}
@@ -758,7 +850,7 @@ def bg_task_regenerate_name(task_id: str):
             return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.get('/api/bg/tasks')
+@app.get("/api/bg/tasks")
 def bg_tasks(limit: int = 50, offset: int = 0):
     """Return a paginated list of background tasks (DB-backed only).
 
@@ -780,7 +872,11 @@ def bg_tasks(limit: int = 50, offset: int = 0):
         # We'll implement cursor if provided via a special header in future. For now, implement offset-based but include preview events.
 
         # Order tasks by creation time (newest first) for history listing
-        q = q.order_by(Task.created_at.desc(), Task.id.desc()).offset(int(offset)).limit(int(limit))
+        q = (
+            q.order_by(Task.created_at.desc(), Task.id.desc())
+            .offset(int(offset))
+            .limit(int(limit))
+        )
 
         out = []
         for t in q.all():
@@ -795,39 +891,53 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                     .all()
                 )
                 for r in rows:
-                    previews.append({
-                        "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
-                        "event_type": r.event_type,
-                        "payload": r.payload,
-                    })
+                    previews.append(
+                        {
+                            "event_ts": (
+                                r.event_ts.isoformat() + "Z" if r.event_ts else None
+                            ),
+                            "event_type": r.event_type,
+                            "payload": r.payload,
+                        }
+                    )
                 # count total events
-                total = session.query(TaskHistory).filter(TaskHistory.task_id == t.id).count()
+                total = (
+                    session.query(TaskHistory)
+                    .filter(TaskHistory.task_id == t.id)
+                    .count()
+                )
             except Exception:
                 previews = []
                 total = 0
 
-            out.append({
-                "id": str(t.id),
-                "name": t.name,
-                "status": t.status,
-                "progress": float(t.progress) if t.progress is not None else None,
-                "result": t.result,
-                "created_at": t.created_at.isoformat() + "Z" if t.created_at else None,
-                "last_success_ts": t.last_success_ts.isoformat() + "Z" if t.last_success_ts else None,
-                "preview_events": previews,
-                "event_count": int(total),
-            })
+            out.append(
+                {
+                    "id": str(t.id),
+                    "name": t.name,
+                    "status": t.status,
+                    "progress": float(t.progress) if t.progress is not None else None,
+                    "result": t.result,
+                    "created_at": (
+                        t.created_at.isoformat() + "Z" if t.created_at else None
+                    ),
+                    "last_success_ts": (
+                        t.last_success_ts.isoformat() + "Z"
+                        if t.last_success_ts
+                        else None
+                    ),
+                    "preview_events": previews,
+                    "event_count": int(total),
+                }
+            )
         return {"tasks": out}
 
 
-
-@app.get('/api/bg/tasks')
+@app.get("/api/bg/tasks")
 def api_bg_tasks_alias(limit: int = 50, offset: int = 0):
     return bg_tasks(limit=limit, offset=offset)
 
 
-
-@app.get('/api/bg/events')
+@app.get("/api/bg/events")
 async def bg_events(request: Request):
     """Server-Sent Events endpoint streaming task events to clients.
 
@@ -848,20 +958,18 @@ async def bg_events(request: Request):
                 try:
                     payload = json.dumps(ev, default=str)
                 except Exception:
-                    payload = json.dumps({"type": "error", "error": "serialization_failed"})
+                    payload = json.dumps(
+                        {"type": "error", "error": "serialization_failed"}
+                    )
                 # SSE message (data lines, blank line terminator)
                 yield f"data: {payload}\n\n"
         finally:
             unregister_queue(q)
 
-    return StreamingResponse(event_generator(), media_type='text/event-stream')
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-
-
-
-
-@app.get('/api/bg/tasks/{task_id}/events')
+@app.get("/api/bg/tasks/{task_id}/events")
 def bg_task_events(task_id: str):
     """Return all events for a task (descending by timestamp). This is intended for the "View full events" modal.
 
@@ -880,11 +988,13 @@ def bg_task_events(task_id: str):
         )
         out = []
         for r in rows:
-            out.append({
-                "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
-                "event_type": r.event_type,
-                "payload": r.payload,
-            })
+            out.append(
+                {
+                    "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
+                    "event_type": r.event_type,
+                    "payload": r.payload,
+                }
+            )
         return {"task_id": task_id, "events": out}
 
 
@@ -897,7 +1007,7 @@ class IdList(BaseModel):
     offsets: Dict[str, int] | None = None
 
 
-@app.post('/api/bg/histories')
+@app.post("/api/bg/histories")
 def bg_histories(payload: IdList):
     """Return history entries for multiple task ids in one request.
 
@@ -925,12 +1035,17 @@ def bg_histories(payload: IdList):
 
     n_ids = len(ids)
     if n_ids > HARD_IDS_LIMIT:
-        raise HTTPException(status_code=413, detail=f"too many ids in request ({n_ids} > {HARD_IDS_LIMIT})")
+        raise HTTPException(
+            status_code=413,
+            detail=f"too many ids in request ({n_ids} > {HARD_IDS_LIMIT})",
+        )
 
     # Warning for large requests; we'll still process but in batches
     warnings: List[str] = []
     if n_ids > MAX_IDS_PER_REQUEST:
-        warnings.append(f"request contains {n_ids} ids; processing in internal batches of {BG_HISTORIES_BATCH_SIZE}")
+        warnings.append(
+            f"request contains {n_ids} ids; processing in internal batches of {BG_HISTORIES_BATCH_SIZE}"
+        )
 
     out: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -965,7 +1080,14 @@ def bg_histories(payload: IdList):
             # For each valid task_id in this chunk, fetch its rows using a window function
             for u, orig_id in valid_map.items():
                 off = int(offsets_map.get(orig_id, 0))
-                rownum = func.row_number().over(partition_by=TaskHistory.task_id, order_by=TaskHistory.event_ts.desc()).label("rn")
+                rownum = (
+                    func.row_number()
+                    .over(
+                        partition_by=TaskHistory.task_id,
+                        order_by=TaskHistory.event_ts.desc(),
+                    )
+                    .label("rn")
+                )
                 subq = (
                     select(
                         TaskHistory.id,
@@ -992,7 +1114,9 @@ def bg_histories(payload: IdList):
                     entries = out.setdefault(tid, [])
                     entries.append(
                         {
-                            "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
+                            "event_ts": (
+                                row.event_ts.isoformat() + "Z" if row.event_ts else None
+                            ),
                             "event_type": row.event_type,
                             "payload": row.payload,
                         }
@@ -1010,7 +1134,7 @@ def api_bg_histories(payload: IdList):
     return bg_histories(payload)
 
 
-@app.post('/api/bg/cancel/{task_id}')
+@app.post("/api/bg/cancel/{task_id}")
 def bg_cancel(task_id: str):
     """Request cancellation for a background task started via Celery.
 
@@ -1036,7 +1160,7 @@ def api_bg_cancel(task_id: str):
     return bg_cancel(task_id)
 
 
-@app.post('/api/bg/delete/{task_id}')
+@app.post("/api/bg/delete/{task_id}")
 def bg_delete(task_id: str):
     """Soft-delete a background task by marking its status as 'deleted'."""
     try:
@@ -1062,6 +1186,7 @@ def bg_delete(task_id: str):
                 obj.status = "deleted"
                 # mark soft-delete flags
                 from datetime import datetime as _dt
+
                 try:
                     obj.deleted = True
                     obj.deleted_at = _dt.utcnow()
@@ -1114,7 +1239,7 @@ def api_bg_force_delete(task_id: str):
     return bg_force_delete(task_id)
 
 
-@app.post('/api/bg/force-delete/{task_id}')
+@app.post("/api/bg/force-delete/{task_id}")
 def bg_force_delete(task_id: str):
     """Force-delete a background task: revoke running worker, remove outputs (MinIO/files),
     and delete DB Task and TaskHistory rows.
@@ -1159,20 +1284,28 @@ def bg_force_delete(task_id: str):
         try:
             res = obj.result or {}
             if isinstance(res, dict):
-                minio_info = res.get("minio") if isinstance(res.get("minio"), dict) else None
+                minio_info = (
+                    res.get("minio") if isinstance(res.get("minio"), dict) else None
+                )
                 if minio_info and minio_info.get("bucket") and minio_info.get("object"):
                     try:
                         svc = MinioService()
-                        svc.client.remove_object(minio_info["bucket"], minio_info["object"])
+                        svc.client.remove_object(
+                            minio_info["bucket"], minio_info["object"]
+                        )
                     except Exception:
                         pass
 
                 # remove output file if present
-                output_file = res.get("output_file") or (res.get("result") or {}).get("output_file")
+                output_file = res.get("output_file") or (res.get("result") or {}).get(
+                    "output_file"
+                )
                 if output_file:
                     try:
                         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
-                        candidate = os.path.join(outputs_dir, os.path.basename(output_file))
+                        candidate = os.path.join(
+                            outputs_dir, os.path.basename(output_file)
+                        )
                         if os.path.exists(candidate):
                             os.remove(candidate)
                     except Exception:
@@ -1196,7 +1329,7 @@ def bg_force_delete(task_id: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post('/api/bg/undelete/{task_id}')
+@app.post("/api/bg/undelete/{task_id}")
 def bg_undelete(task_id: str):
     """Attempt to restore a soft-deleted task to its prior lifecycle state.
 
@@ -1238,7 +1371,7 @@ def api_bg_undelete(task_id: str):
     return bg_undelete(task_id)
 
 
-@app.post('/api/bg/hard-delete/{task_id}')
+@app.post("/api/bg/hard-delete/{task_id}")
 def bg_hard_delete(task_id: str, request: Request = None):
     """Enqueue an admin-only hard-delete job to remove MinIO objects and DB rows."""
     # require admin if token configured
@@ -1250,6 +1383,7 @@ def bg_hard_delete(task_id: str, request: Request = None):
         # enqueue Celery task for deletion
         try:
             from minutes.tasks import hard_delete_task
+
             jid = hard_delete_task.delay(task_id, None)
             return {"task_id": task_id, "enqueued": True, "job_id": str(jid)}
         except Exception:
@@ -1264,7 +1398,7 @@ def api_bg_hard_delete(task_id: str, request: Request = None):
     return bg_hard_delete(task_id, request=request)
 
 
-@app.get('/api/bg/minutes/{task_id}')
+@app.get("/api/bg/minutes/{task_id}")
 def bg_minutes_file(task_id: str):
     """Return the rendered minutes text for a background task.
 
@@ -1286,7 +1420,12 @@ def bg_minutes_file(task_id: str):
     if isinstance(res, dict) and res.get("output_file"):
         output_file = res.get("output_file")
     # If still None, try nested result key
-    if not output_file and isinstance(res, dict) and res.get("result") and isinstance(res.get("result"), dict):
+    if (
+        not output_file
+        and isinstance(res, dict)
+        and res.get("result")
+        and isinstance(res.get("result"), dict)
+    ):
         output_file = res.get("result").get("output_file")
 
     if not output_file:
@@ -1303,9 +1442,19 @@ def bg_minutes_file(task_id: str):
     try:
         # If MinIO cached object exists in result, stream from MinIO proxy instead
         res = t.get("result") or {}
-        if isinstance(res, dict) and res.get("minio") and res["minio"].get("bucket") and res["minio"].get("object"):
+        if (
+            isinstance(res, dict)
+            and res.get("minio")
+            and res["minio"].get("bucket")
+            and res["minio"].get("object")
+        ):
             minio_info = res["minio"]
-            return _stream_minio_object(minio_info["bucket"], minio_info["object"], filename=fname, media_type="text/plain")
+            return _stream_minio_object(
+                minio_info["bucket"],
+                minio_info["object"],
+                filename=fname,
+                media_type="text/plain",
+            )
 
         # Serve as a downloadable/plain text file with proper headers
         # Use FileResponse to let FastAPI set Content-Type and support streaming
@@ -1334,10 +1483,17 @@ def _resolve_output_file_from_task(task_id: str):
     output_file = None
     if isinstance(res, dict) and res.get("output_file"):
         output_file = res.get("output_file")
-    if not output_file and isinstance(res, dict) and res.get("result") and isinstance(res.get("result"), dict):
+    if (
+        not output_file
+        and isinstance(res, dict)
+        and res.get("result")
+        and isinstance(res.get("result"), dict)
+    ):
         output_file = res.get("result").get("output_file")
     if not output_file:
-        return None, JSONResponse({"error": "no output file available"}, status_code=404)
+        return None, JSONResponse(
+            {"error": "no output file available"}, status_code=404
+        )
 
     outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
     if os.path.isabs(output_file):
@@ -1348,12 +1504,19 @@ def _resolve_output_file_from_task(task_id: str):
     return candidate, None
 
 
-def _stream_minio_object(bucket: str, object_name: str, filename: str | None = None, media_type: str = "application/octet-stream"):
+def _stream_minio_object(
+    bucket: str,
+    object_name: str,
+    filename: str | None = None,
+    media_type: str = "application/octet-stream",
+):
     svc = MinioService()
     try:
         obj = svc.client.get_object(bucket, object_name)
     except Exception as exc:
-        return JSONResponse({"error": f"failed to fetch object from MinIO: {str(exc)}"}, status_code=502)
+        return JSONResponse(
+            {"error": f"failed to fetch object from MinIO: {str(exc)}"}, status_code=502
+        )
 
     def iterfile(chunk_size: int = 32 * 1024):
         try:
@@ -1373,7 +1536,9 @@ def _stream_minio_object(bucket: str, object_name: str, filename: str | None = N
 
     headers = {}
     if filename:
-        headers["Content-Disposition"] = f'attachment; filename="{os.path.basename(filename)}"'
+        headers["Content-Disposition"] = (
+            f'attachment; filename="{os.path.basename(filename)}"'
+        )
 
     return StreamingResponse(iterfile(), media_type=media_type, headers=headers)
 
@@ -1396,14 +1561,16 @@ def auth_features(x_admin: str | None = Header(None)):
     """
     try:
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
-        header_admin = (x_admin == "1" or (isinstance(x_admin, str) and x_admin.lower() == "true"))
+        header_admin = x_admin == "1" or (
+            isinstance(x_admin, str) and x_admin.lower() == "true"
+        )
         is_admin = force or header_admin
         return {"is_admin": bool(is_admin)}
     except Exception:
         return {"is_admin": False}
 
 
-@app.get('/api/auth/features')
+@app.get("/api/auth/features")
 def api_auth_features(x_admin: str | None = Header(None)):
     """Compatibility wrapper for `/api/auth/features` used by the frontend."""
     return auth_features(x_admin)
@@ -1412,7 +1579,9 @@ def api_auth_features(x_admin: str | None = Header(None)):
 def _is_request_admin(x_admin: str | None) -> bool:
     try:
         force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
-        header_admin = (x_admin == "1" or (isinstance(x_admin, str) and x_admin.lower() == "true"))
+        header_admin = x_admin == "1" or (
+            isinstance(x_admin, str) and x_admin.lower() == "true"
+        )
         return bool(force or header_admin)
     except Exception:
         return False
@@ -1433,8 +1602,12 @@ def _get_user_id_from_header(x_user_id: str | None):
         return None
 
 
-@app.post('/api/buckets')
-def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
+@app.post("/api/buckets")
+def api_create_bucket(
+    payload: CreateBucketReq,
+    x_admin: str | None = Header(None),
+    x_user_id: str | None = Header(None),
+):
     """Create a MinIO bucket and record it in the `buckets` table.
 
     Simple auth/ownership (temporary):
@@ -1444,22 +1617,36 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
     is_admin = _is_request_admin(x_admin)
     user_uuid = _get_user_id_from_header(x_user_id)
     if not is_admin and not user_uuid:
-        return JSONResponse({"error": "unauthorized: missing X-User-Id"}, status_code=401)
+        return JSONResponse(
+            {"error": "unauthorized: missing X-User-Id"}, status_code=401
+        )
 
     svc = MinioService()
     try:
         if not svc.client.bucket_exists(payload.name):
             svc.client.make_bucket(payload.name)
     except Exception as exc:
-        return JSONResponse({"error": f"minio create failed: {str(exc)}"}, status_code=502)
+        return JSONResponse(
+            {"error": f"minio create failed: {str(exc)}"}, status_code=502
+        )
 
     with session_scope() as db:
         existing = db.query(Bucket).filter(Bucket.name == payload.name).one_or_none()
         if existing:
-            return {"id": str(existing.id), "name": existing.name, "owner_id": str(existing.owner_id), "public": bool(existing.public)}
+            return {
+                "id": str(existing.id),
+                "name": existing.name,
+                "owner_id": str(existing.owner_id),
+                "public": bool(existing.public),
+            }
 
         owner_id = user_uuid or DUMMY_OWNER_ID
-        b = Bucket(name=payload.name, owner_id=owner_id, public=bool(payload.public), bucket_metadata={})
+        b = Bucket(
+            name=payload.name,
+            owner_id=owner_id,
+            public=bool(payload.public),
+            bucket_metadata={},
+        )
         db.add(b)
         try:
             db.commit()
@@ -1470,11 +1657,18 @@ def api_create_bucket(payload: CreateBucketReq, x_admin: str | None = Header(Non
             except Exception:
                 pass
             return JSONResponse({"error": "db insert failed"}, status_code=500)
-        return {"id": str(b.id), "name": b.name, "owner_id": str(b.owner_id), "public": bool(b.public)}
+        return {
+            "id": str(b.id),
+            "name": b.name,
+            "owner_id": str(b.owner_id),
+            "public": bool(b.public),
+        }
 
 
-@app.get('/api/buckets')
-def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None = Header(None)):
+@app.get("/api/buckets")
+def api_list_buckets(
+    x_admin: str | None = Header(None), x_user_id: str | None = Header(None)
+):
     """List buckets. Admins see all; non-admins see only their own buckets."""
     is_admin = _is_request_admin(x_admin)
     user_uuid = _get_user_id_from_header(x_user_id)
@@ -1487,7 +1681,15 @@ def api_list_buckets(x_admin: str | None = Header(None), x_user_id: str | None =
                 return {"buckets": []}
         out = []
         for b in q.order_by(Bucket.created_at.desc()).all():
-            out.append({"id": str(b.id), "name": b.name, "owner_id": str(b.owner_id), "public": bool(b.public), "created_at": b.created_at.isoformat() if b.created_at else None})
+            out.append(
+                {
+                    "id": str(b.id),
+                    "name": b.name,
+                    "owner_id": str(b.owner_id),
+                    "public": bool(b.public),
+                    "created_at": b.created_at.isoformat() if b.created_at else None,
+                }
+            )
         return {"buckets": out}
 
 
@@ -1505,14 +1707,23 @@ def admin_uploads_cleanup_get(
     if not _is_request_admin(x_admin):
         return JSONResponse({"error": "forbidden"}, status_code=403)
 
-    uploads_dir = dir or (request.query_params.get('dir') if request else None) or os.environ.get("UPLOADS_DIR") or "uploads"
+    uploads_dir = (
+        dir
+        or (request.query_params.get("dir") if request else None)
+        or os.environ.get("UPLOADS_DIR")
+        or "uploads"
+    )
     if not os.path.isdir(uploads_dir):
         return JSONResponse({"error": "dir not found"}, status_code=404)
 
     now = int(time.time())
     candidates = []
     try:
-        files = [f for f in os.listdir(uploads_dir) if os.path.isfile(os.path.join(uploads_dir, f))]
+        files = [
+            f
+            for f in os.listdir(uploads_dir)
+            if os.path.isfile(os.path.join(uploads_dir, f))
+        ]
         for f in files:
             if pattern and not f.startswith(pattern):
                 continue
@@ -1534,12 +1745,23 @@ def admin_uploads_cleanup_get(
 
 
 @app.post("/admin/uploads/cleanup")
-def admin_uploads_cleanup_post(payload: dict, x_admin: str | None = Header(None), request: Request = None):
+def admin_uploads_cleanup_post(
+    payload: dict, x_admin: str | None = Header(None), request: Request = None
+):
     """Perform deletion of files. payload keys: dir, pattern, older_than, limit"""
     if not _is_request_admin(x_admin):
         return JSONResponse({"error": "forbidden"}, status_code=403)
 
-    uploads_dir = payload.get("dir") or (request.query_params.get('dir') if request and request.query_params.get('dir') else None) or os.environ.get("UPLOADS_DIR") or "uploads"
+    uploads_dir = (
+        payload.get("dir")
+        or (
+            request.query_params.get("dir")
+            if request and request.query_params.get("dir")
+            else None
+        )
+        or os.environ.get("UPLOADS_DIR")
+        or "uploads"
+    )
     pattern = payload.get("pattern") or ""
     older_than = int(payload.get("older_than") or 0)
     limit = int(payload.get("limit") or 100)
@@ -1551,7 +1773,11 @@ def admin_uploads_cleanup_post(payload: dict, x_admin: str | None = Header(None)
     deleted = []
     errors = []
     try:
-        files = [f for f in os.listdir(uploads_dir) if os.path.isfile(os.path.join(uploads_dir, f))]
+        files = [
+            f
+            for f in os.listdir(uploads_dir)
+            if os.path.isfile(os.path.join(uploads_dir, f))
+        ]
         for f in files:
             if pattern and not f.startswith(pattern):
                 continue
@@ -1576,7 +1802,7 @@ def admin_uploads_cleanup_post(payload: dict, x_admin: str | None = Header(None)
     return {"deleted": deleted, "errors": errors, "count": len(deleted)}
 
 
-@app.get('/api/admin/uploads/cleanup')
+@app.get("/api/admin/uploads/cleanup")
 def api_admin_uploads_cleanup_get(
     dir: str | None = None,
     pattern: str = "",
@@ -1586,11 +1812,21 @@ def api_admin_uploads_cleanup_get(
     x_admin: str | None = Header(None),
     request: Request = None,
 ):
-    return admin_uploads_cleanup_get(dir=dir, pattern=pattern, older_than=older_than, limit=limit, dry_run=dry_run, x_admin=x_admin, request=request)
+    return admin_uploads_cleanup_get(
+        dir=dir,
+        pattern=pattern,
+        older_than=older_than,
+        limit=limit,
+        dry_run=dry_run,
+        x_admin=x_admin,
+        request=request,
+    )
 
 
-@app.post('/api/admin/uploads/cleanup')
-def api_admin_uploads_cleanup_post(payload: dict, x_admin: str | None = Header(None), request: Request = None):
+@app.post("/api/admin/uploads/cleanup")
+def api_admin_uploads_cleanup_post(
+    payload: dict, x_admin: str | None = Header(None), request: Request = None
+):
     return admin_uploads_cleanup_post(payload=payload, x_admin=x_admin, request=request)
 
 
@@ -1601,7 +1837,7 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
         obj = svc.client.get_object(bucket, object_name)
         data = obj.read()
         if isinstance(data, bytes):
-            return data.decode('utf-8')
+            return data.decode("utf-8")
         return str(data)
     finally:
         if obj is not None:
@@ -1615,7 +1851,7 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
                 pass
 
 
-@app.get('/api/bg/transcript/{task_id}')
+@app.get("/api/bg/transcript/{task_id}")
 def bg_transcript(task_id: str, format: str = "txt"):
     """Return the transcript portion. Supported formats: txt, md."""
     t = get_task(task_id)
@@ -1642,7 +1878,12 @@ def bg_transcript(task_id: str, format: str = "txt"):
 
     # If MinIO cached object exists in result, stream from MinIO proxy instead
     res = t.get("result") or {}
-    if isinstance(res, dict) and res.get("minio") and res["minio"].get("bucket") and res["minio"].get("object"):
+    if (
+        isinstance(res, dict)
+        and res.get("minio")
+        and res["minio"].get("bucket")
+        and res["minio"].get("object")
+    ):
         minio_info = res["minio"]
         # prefer reading MinIO text for transcript/summary endpoints
         try:
@@ -1664,7 +1905,7 @@ def api_bg_transcript(task_id: str, format: str = "txt"):
     return bg_transcript(task_id, format=format)
 
 
-@app.get('/api/bg/summary/{task_id}')
+@app.get("/api/bg/summary/{task_id}")
 def bg_summary(task_id: str, format: str = "txt"):
     """Return a short summary. If the output contains a clearly delimited Summary section, use it; else run local summarizer."""
     t = get_task(task_id)
@@ -1675,9 +1916,16 @@ def bg_summary(task_id: str, format: str = "txt"):
 
     res = t.get("result") or {}
     # If MinIO cached object exists, try to read summary from MinIO text
-    if isinstance(res, dict) and res.get("minio") and res["minio"].get("bucket") and res["minio"].get("object"):
+    if (
+        isinstance(res, dict)
+        and res.get("minio")
+        and res["minio"].get("bucket")
+        and res["minio"].get("object")
+    ):
         try:
-            text = _read_minio_object_text(res["minio"]["bucket"], res["minio"]["object"])
+            text = _read_minio_object_text(
+                res["minio"]["bucket"], res["minio"]["object"]
+            )
         except Exception:
             text = None
     if isinstance(res, dict) and res.get("summary"):
@@ -1698,7 +1946,9 @@ def bg_summary(task_id: str, format: str = "txt"):
         # try to find a 'Summary' section
         import re
 
-        m = re.search(r"(?ims)^\s*summary\s*$\n(.*?)\n\s*(?:action items|transcript|$)", text)
+        m = re.search(
+            r"(?ims)^\s*summary\s*$\n(.*?)\n\s*(?:action items|transcript|$)", text
+        )
         if m:
             summary_text = m.group(1).strip()
         else:
@@ -1715,10 +1965,7 @@ def bg_summary(task_id: str, format: str = "txt"):
     return Response(content=summary_text, media_type=media)
 
 
-
-
-
-@app.get('/api/bg/action-items/{task_id}')
+@app.get("/api/bg/action-items/{task_id}")
 def bg_action_items(task_id: str, format: str = "json"):
     """Return action items. Supported formats: json, csv, txt"""
     t = get_task(task_id)
@@ -1788,6 +2035,3 @@ def bg_action_items(task_id: str, format: str = "json"):
         txt = "\n".join([f"- {it.get('text')}" for it in items])
         return Response(content=txt, media_type="text/plain")
     return JSONResponse({"error": "unsupported format"}, status_code=400)
-
-
-

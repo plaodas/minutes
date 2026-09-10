@@ -11,7 +11,9 @@ def main():
 
     prompt = ()
 
-    raw_text, segments = transcribe(audio, model_size="medium", prompt=prompt, raw_out="raw_transcript.txt")
+    raw_text, segments = transcribe(
+        audio, model_size="medium", prompt=prompt, raw_out="raw_transcript.txt"
+    )
 
     print("raw_transcript.txt に書き出したよ")
 

@@ -33,7 +33,9 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
         def __init__(self, id):
             self.id = id
 
-    monkeypatch.setattr(tasks.process_audio, 'delay', lambda path: DummyTask(str(fake_id)))
+    monkeypatch.setattr(
+        tasks.process_audio, "delay", lambda path: DummyTask(str(fake_id))
+    )
 
     # ensure create_task writes a DB Task row with metadata so worker can read it
     import minutes.bg_store as bg_store
@@ -45,7 +47,7 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
                 key = uuid.UUID(str(task_id)) if isinstance(task_id, str) else task_id
                 t = session.get(Task, key)
                 if not t:
-                    t = Task(id=key, status='pending', result=metadata or None)
+                    t = Task(id=key, status="pending", result=metadata or None)
                     session.add(t)
                 else:
                     if metadata:
@@ -57,7 +59,7 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
                 key = uuid.UUID(str(task_id)) if isinstance(task_id, str) else task_id
                 t = session.get(Task, key)
                 if not t:
-                    t = Task(id=key, status='pending', result=metadata or None)
+                    t = Task(id=key, status="pending", result=metadata or None)
                     session.add(t)
                 else:
                     if metadata:
@@ -68,25 +70,25 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
                 session.rollback()
                 raise
 
-    monkeypatch.setattr(bg_store, 'create_task', fake_create)
-    monkeypatch.setattr(api_mod, 'create_task', fake_create)
+    monkeypatch.setattr(bg_store, "create_task", fake_create)
+    monkeypatch.setattr(api_mod, "create_task", fake_create)
 
     captured = {}
 
     def fake_format(raw_text, model=None, system_prompt=None, host=None):
-        captured['prompt'] = system_prompt
-        return 'FORMATTED'
+        captured["prompt"] = system_prompt
+        return "FORMATTED"
 
-    monkeypatch.setattr(tasks, 'format_minutes_from_raw', fake_format)
+    monkeypatch.setattr(tasks, "format_minutes_from_raw", fake_format)
 
     wav = make_wav_bytes()
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
-    data = {'language': 'Japanese', 'include_actions': '0'}
+    data = {"language": "Japanese", "include_actions": "0"}
 
-    r = client.post('/transcribe-upload-bg', files=files, data=data)
+    r = client.post("/transcribe-upload-bg", files=files, data=data)
     assert r.status_code == 200
     resp = r.json()
-    assert resp.get('task_id')
+    assert resp.get("task_id")
 
     # fetch Task row from DB and get metadata
     with session_scope() as session:
@@ -97,6 +99,8 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
     # build prompt and call the (monkeypatched) formatter to simulate worker using it
     prompt = tasks.build_system_prompt(meta)
     assert prompt is not None
-    tasks.format_minutes_from_raw('raw transcript', system_prompt=prompt)
-    assert '日本語' in (captured.get('prompt') or '') or 'Japanese' in (captured.get('prompt') or '')
-    assert 'Do not extract action items' in (captured.get('prompt') or '')
+    tasks.format_minutes_from_raw("raw transcript", system_prompt=prompt)
+    assert "日本語" in (captured.get("prompt") or "") or "Japanese" in (
+        captured.get("prompt") or ""
+    )
+    assert "Do not extract action items" in (captured.get("prompt") or "")

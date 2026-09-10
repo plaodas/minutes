@@ -6,6 +6,7 @@ and generating a short summary using the local summarizer.
 Usage: python scripts/backfill_task_names.py
 Environment: set DATABASE_URL to point to the Postgres DB (or use default sqlite).
 """
+
 import os
 from minutes.db import session_scope
 from minutes.models import Task
@@ -18,7 +19,11 @@ outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
 def backfill(limit=None):
     # collect candidate task ids first in a short-lived session
     with session_scope() as db:
-        q = db.query(Task.id).filter((Task.name == None) | (Task.name == "")).order_by(Task.created_at.asc())
+        q = (
+            db.query(Task.id)
+            .filter((Task.name == None) | (Task.name == ""))
+            .order_by(Task.created_at.asc())
+        )
         if limit:
             q = q.limit(limit)
         ids = [r.id for r in q.all()]
@@ -34,7 +39,9 @@ def backfill(limit=None):
                 res = t.result or {}
                 output_file = None
                 if isinstance(res, dict):
-                    output_file = res.get("output_file") or (res.get("result") or {}).get("output_file")
+                    output_file = res.get("output_file") or (
+                        res.get("result") or {}
+                    ).get("output_file")
                 if not output_file:
                     print(f"skipping {t.id}: no output_file")
                     continue
@@ -42,7 +49,7 @@ def backfill(limit=None):
                 if not candidate.exists():
                     print(f"skipping {t.id}: output file not found: {candidate}")
                     continue
-                text = candidate.read_text(encoding='utf-8')
+                text = candidate.read_text(encoding="utf-8")
                 short = summarize_local(text, max_sentences=1).strip()
                 if not short:
                     print(f"skipping {t.id}: empty summary")
@@ -60,5 +67,5 @@ def backfill(limit=None):
     print(f"done: updated {updated} tasks")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     backfill()

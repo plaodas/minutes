@@ -4,12 +4,13 @@ Revision ID: 20260901_add_timestamps
 Revises: 20260829_task_history_index
 Create Date: 2026-09-01 00:00:00.000000
 """
+
 from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = '20260901_add_timestamps'
-down_revision = '20260829_task_history_index'
+revision = "20260901_add_timestamps"
+down_revision = "20260829_task_history_index"
 branch_labels = None
 depends_on = None
 

@@ -12,7 +12,9 @@ def run_minute_pipeline(audio: str) -> str:
 
     mono, norm, clean = preprocess(audio)
     prompt = ()
-    raw_text, segments = transcribe(clean, model_size="medium", prompt=prompt, raw_out=raw_file)
+    raw_text, segments = transcribe(
+        clean, model_size="medium", prompt=prompt, raw_out=raw_file
+    )
     final_minutes = format_minutes_from_raw(raw_text)
     with open(final_file, "w", encoding="utf-8") as f:
         f.write(final_minutes)
@@ -26,10 +28,10 @@ def auto_minutes_ollama(audio: str, prompt: str | None = None) -> str:
 
     mono, norm, clean = preprocess(audio)
     if prompt is None:
-        prompt = (
-            ""
-        )
-    raw_text, segments = transcribe(clean, model_size="medium", prompt=prompt, raw_out=raw_file)
+        prompt = ""
+    raw_text, segments = transcribe(
+        clean, model_size="medium", prompt=prompt, raw_out=raw_file
+    )
     final_minutes = format_minutes_from_raw(raw_text)
     with open(final_file, "w", encoding="utf-8") as f:
         f.write(final_minutes)

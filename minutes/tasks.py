@@ -9,7 +9,13 @@ from minutes.celery_app import celery
 from minutes.audio import preprocess
 from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw, DEFAULT_SYSTEM_PROMPT
-from minutes.bg_store import get_task, update_task_success, update_task_failure, update_task_status, update_task_progress
+from minutes.bg_store import (
+    get_task,
+    update_task_success,
+    update_task_failure,
+    update_task_status,
+    update_task_progress,
+)
 import requests
 
 
@@ -18,15 +24,19 @@ def build_system_prompt(meta_obj):
     if not isinstance(meta_obj, dict):
         return None
     sp = DEFAULT_SYSTEM_PROMPT
-    lang = meta_obj.get('language')
-    if lang and isinstance(lang, str) and lang.lower() not in ('auto', 'auto-detect', 'auto detect'):
-        if 'jap' in lang.lower():
-            sp = '出力は日本語で行ってください。\n' + sp
+    lang = meta_obj.get("language")
+    if (
+        lang
+        and isinstance(lang, str)
+        and lang.lower() not in ("auto", "auto-detect", "auto detect")
+    ):
+        if "jap" in lang.lower():
+            sp = "出力は日本語で行ってください。\n" + sp
         else:
-            sp = 'Please produce the output in English.\n' + sp
-    inc = meta_obj.get('include_actions')
+            sp = "Please produce the output in English.\n" + sp
+    inc = meta_obj.get("include_actions")
     if inc is False:
-        sp = sp + '\n' + 'Do not extract action items. Skip STEP3.'
+        sp = sp + "\n" + "Do not extract action items. Skip STEP3."
     return sp
 
 
@@ -36,56 +46,78 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
 
     This task is retryable by Celery if MinIO deletion fails.
     """
-    logger = logging.getLogger('minutes.tasks')
+    logger = logging.getLogger("minutes.tasks")
     from minutes.db import session_scope
     from minutes.minio_client import MinioService
     from minutes.models import Task, TaskHistory, Bucket
     from datetime import datetime
+
     with session_scope() as db:
         # normalize key
         try:
             from minutes.bg_store import _parse_key
+
             key = _parse_key(task_id)
         except Exception:
             key = task_id
 
         t = db.get(Task, key)
         if not t:
-            logger.info('hard_delete_task: unknown task %s', task_id)
-            return {'deleted': False, 'reason': 'unknown task'}
+            logger.info("hard_delete_task: unknown task %s", task_id)
+            return {"deleted": False, "reason": "unknown task"}
 
         res = t.result or {}
         # attempt MinIO deletion if present
         try:
             if isinstance(res, dict):
-                minio_info = res.get('minio') if isinstance(res.get('minio'), dict) else None
+                minio_info = (
+                    res.get("minio") if isinstance(res.get("minio"), dict) else None
+                )
                 svc = None
-                if minio_info and minio_info.get('bucket'):
+                if minio_info and minio_info.get("bucket"):
                     svc = MinioService()
-                    bucket = minio_info.get('bucket')
+                    bucket = minio_info.get("bucket")
                     # if an object key is provided, delete it; otherwise delete prefix for task
-                    if minio_info.get('object'):
-                        logger.info('hard_delete_task removing object %s/%s', bucket, minio_info.get('object'))
-                        svc.delete_object(bucket, minio_info.get('object'), ignore_missing=True)
+                    if minio_info.get("object"):
+                        logger.info(
+                            "hard_delete_task removing object %s/%s",
+                            bucket,
+                            minio_info.get("object"),
+                        )
+                        svc.delete_object(
+                            bucket, minio_info.get("object"), ignore_missing=True
+                        )
                     else:
-                        prefix = f'minutes/{task_id}/'
-                        logger.info('hard_delete_task removing objects under %s prefix in bucket %s', prefix, bucket)
-                        svc.delete_objects_with_prefix(bucket, prefix, ignore_missing=True)
+                        prefix = f"minutes/{task_id}/"
+                        logger.info(
+                            "hard_delete_task removing objects under %s prefix in bucket %s",
+                            prefix,
+                            bucket,
+                        )
+                        svc.delete_objects_with_prefix(
+                            bucket, prefix, ignore_missing=True
+                        )
         except Exception as exc:
-            logger.exception('hard_delete_task: MinIO deletion failed for %s: %s', task_id, exc)
+            logger.exception(
+                "hard_delete_task: MinIO deletion failed for %s: %s", task_id, exc
+            )
             # raise to allow Celery to retry; session_scope will rollback
             raise
 
         # remove output file if present locally
         try:
-            output_file = res.get('output_file') or (res.get('result') or {}).get('output_file')
+            output_file = res.get("output_file") or (res.get("result") or {}).get(
+                "output_file"
+            )
             if output_file:
-                outputs_dir = os.environ.get('OUTPUTS_DIR', 'outputs')
+                outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
                 candidate = os.path.join(outputs_dir, os.path.basename(output_file))
                 if os.path.exists(candidate):
                     os.remove(candidate)
         except Exception:
-            logger.exception('hard_delete_task: failed to remove local output for %s', task_id)
+            logger.exception(
+                "hard_delete_task: failed to remove local output for %s", task_id
+            )
 
         # delete TaskHistory and Task rows
         try:
@@ -93,33 +125,56 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
             # attempt to delete Task row
             db.delete(t)
         except Exception:
-            logger.exception('hard_delete_task: failed DB delete for %s', task_id)
+            logger.exception("hard_delete_task: failed DB delete for %s", task_id)
             raise
 
         # attempt to delete Bucket row if no other task references it
         try:
-            if isinstance(res, dict) and res.get('minio') and res['minio'].get('bucket'):
-                bucket_name = res['minio'].get('bucket')
+            if (
+                isinstance(res, dict)
+                and res.get("minio")
+                and res["minio"].get("bucket")
+            ):
+                bucket_name = res["minio"].get("bucket")
                 # check other tasks referencing this bucket
-                other = db.query(Task).filter(Task.result['minio']['bucket'].astext == bucket_name).count()
+                other = (
+                    db.query(Task)
+                    .filter(Task.result["minio"]["bucket"].astext == bucket_name)
+                    .count()
+                )
                 if other == 0:
-                    b = db.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
+                    b = (
+                        db.query(Bucket)
+                        .filter(Bucket.name == bucket_name)
+                        .one_or_none()
+                    )
                     if b:
                         db.delete(b)
         except Exception:
             # non-fatal
-            logger.exception('hard_delete_task: failed to cleanup bucket row for %s', task_id)
+            logger.exception(
+                "hard_delete_task: failed to cleanup bucket row for %s", task_id
+            )
 
         # record audit history row
         try:
             from minutes.bg_store import record_history
 
-            record_history(task_id, 'deleted_hard', {'requester': requester or None, 'deleted_at': datetime.utcnow().isoformat()})
+            record_history(
+                task_id,
+                "deleted_hard",
+                {
+                    "requester": requester or None,
+                    "deleted_at": datetime.utcnow().isoformat(),
+                },
+            )
         except Exception:
-            logger.exception('hard_delete_task: failed to record deletion history for %s', task_id)
+            logger.exception(
+                "hard_delete_task: failed to record deletion history for %s", task_id
+            )
     # session_scope will commit/close automatically
-    logger.info('hard_delete_task completed for %s', task_id)
-    return {'deleted': True}
+    logger.info("hard_delete_task completed for %s", task_id)
+    return {"deleted": True}
 
 
 @celery.task(bind=True)
@@ -148,12 +203,16 @@ def process_audio(self, input_path: str):
         logger = logging.getLogger("minutes.tasks")
         if task_id:
             try:
-                logger.debug("process_audio: setting task status 'preprocess' for %s", task_id)
+                logger.debug(
+                    "process_audio: setting task status 'preprocess' for %s", task_id
+                )
             except Exception:
                 pass
             update_task_status(task_id, "preprocess")
             try:
-                logger.debug("process_audio: update_task_status returned for %s", task_id)
+                logger.debug(
+                    "process_audio: update_task_status returned for %s", task_id
+                )
             except Exception:
                 pass
 
@@ -165,18 +224,27 @@ def process_audio(self, input_path: str):
             inp_exists = False
             inp_size = None
         try:
-            logger.info("process_audio: preprocess start input=%s exists=%s size=%s cwd=%s", input_path, inp_exists, inp_size, os.getcwd())
+            logger.info(
+                "process_audio: preprocess start input=%s exists=%s size=%s cwd=%s",
+                input_path,
+                inp_exists,
+                inp_size,
+                os.getcwd(),
+            )
         except Exception:
             pass
 
         # Call preprocess with timing and robust exception logging
         import time as _time
+
         _start = _time.time()
         try:
             mono, norm, clean = preprocess(input_path)
         except Exception as e:
             try:
-                logger.exception("process_audio: preprocess failed for %s: %s", input_path, e)
+                logger.exception(
+                    "process_audio: preprocess failed for %s: %s", input_path, e
+                )
             except Exception:
                 pass
             # Record failure in task store if possible, then re-raise
@@ -185,20 +253,34 @@ def process_audio(self, input_path: str):
                     update_task_failure(task_id, f"preprocess failed: {e}")
                 except Exception:
                     try:
-                        logger.exception("process_audio: failed to record preprocess failure for %s", task_id)
+                        logger.exception(
+                            "process_audio: failed to record preprocess failure for %s",
+                            task_id,
+                        )
                     except Exception:
                         pass
             raise
         _dur = _time.time() - _start
         try:
-            logger.info("process_audio: preprocess completed in %.2fs -> mono=%s norm=%s clean=%s", _dur, mono, norm, clean)
+            logger.info(
+                "process_audio: preprocess completed in %.2fs -> mono=%s norm=%s clean=%s",
+                _dur,
+                mono,
+                norm,
+                clean,
+            )
         except Exception:
             pass
         # log sizes of produced files
         for p in (mono, norm, clean):
             try:
                 s = os.path.getsize(p) if (p and os.path.exists(p)) else None
-                logger.debug("process_audio: preprocess output %s exists=%s size=%s", p, (p and os.path.exists(p)), s)
+                logger.debug(
+                    "process_audio: preprocess output %s exists=%s size=%s",
+                    p,
+                    (p and os.path.exists(p)),
+                    s,
+                )
             except Exception:
                 try:
                     logger.debug("process_audio: preprocess output %s check failed", p)
@@ -208,15 +290,20 @@ def process_audio(self, input_path: str):
         # Validate cleaned WAV exists and appears valid before continuing.
         try:
             if not clean or not os.path.exists(clean) or os.path.getsize(clean) == 0:
-                raise RuntimeError(f"Invalid data found when processing input: '{clean}'")
+                raise RuntimeError(
+                    f"Invalid data found when processing input: '{clean}'"
+                )
             # ensure it's a readable WAV and inspect sample rate
             import wave as _wave
+
             with contextlib.closing(_wave.open(clean, "rb")) as wf:
                 rate = wf.getframerate()
                 channels = wf.getnchannels()
         except Exception as e:
             # raise with the familiar message shape so existing handlers record it
-            raise RuntimeError(f"Invalid data found when processing input: '{clean}'") from e
+            raise RuntimeError(
+                f"Invalid data found when processing input: '{clean}'"
+            ) from e
         # Warn if sample rate differs from expected (we force 16k in preprocess)
         try:
             logger = logging.getLogger("minutes.tasks")
@@ -238,10 +325,20 @@ def process_audio(self, input_path: str):
                 # fallback: try ffprobe
                 try:
                     import subprocess
-                    out = subprocess.check_output([
-                        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-                        "-of", "default=noprint_wrappers=1:nokey=1", path
-                    ], stderr=subprocess.DEVNULL)
+
+                    out = subprocess.check_output(
+                        [
+                            "ffprobe",
+                            "-v",
+                            "error",
+                            "-show_entries",
+                            "format=duration",
+                            "-of",
+                            "default=noprint_wrappers=1:nokey=1",
+                            path,
+                        ],
+                        stderr=subprocess.DEVNULL,
+                    )
                     try:
                         return float(out.strip())
                     except Exception:
@@ -272,7 +369,12 @@ def process_audio(self, input_path: str):
                 size = os.path.getsize(clean) if os.path.exists(clean) else None
             except Exception:
                 size = None
-            logger.info("inference: calling %s file=%s size=%s", inference_url, os.path.basename(clean), size)
+            logger.info(
+                "inference: calling %s file=%s size=%s",
+                inference_url,
+                os.path.basename(clean),
+                size,
+            )
             try_stream = True
             attempts = 0
             max_attempts = 3
@@ -280,10 +382,22 @@ def process_audio(self, input_path: str):
             while attempts < max_attempts:
                 attempts += 1
                 try:
-                    resp = requests.post(inference_url, files=files, stream=True, timeout=(5, 360), headers={"Connection": "keep-alive"})
-                    logger.info("inference: http POST sent (attempt=%s) -> status=%s", attempts, getattr(resp, 'status_code', None))
+                    resp = requests.post(
+                        inference_url,
+                        files=files,
+                        stream=True,
+                        timeout=(5, 360),
+                        headers={"Connection": "keep-alive"},
+                    )
+                    logger.info(
+                        "inference: http POST sent (attempt=%s) -> status=%s",
+                        attempts,
+                        getattr(resp, "status_code", None),
+                    )
                     try:
-                        logger.debug("inference response headers: %s", dict(resp.headers))
+                        logger.debug(
+                            "inference response headers: %s", dict(resp.headers)
+                        )
                     except Exception:
                         pass
                     resp.raise_for_status()
@@ -291,11 +405,21 @@ def process_audio(self, input_path: str):
                     for line in resp.iter_lines(decode_unicode=True, chunk_size=1024):
                         if not line:
                             continue
-                        logger.debug("inference: ndjson raw line: %s", (line[:200] if isinstance(line, str) else str(line)[:200]))
+                        logger.debug(
+                            "inference: ndjson raw line: %s",
+                            (line[:200] if isinstance(line, str) else str(line)[:200]),
+                        )
                         try:
                             obj = json.loads(line)
                         except Exception:
-                            logger.debug("inference: failed to parse ndjson line: %r", (line[:200] if isinstance(line, str) else str(line)[:200]))
+                            logger.debug(
+                                "inference: failed to parse ndjson line: %r",
+                                (
+                                    line[:200]
+                                    if isinstance(line, str)
+                                    else str(line)[:200]
+                                ),
+                            )
                             continue
                         typ = obj.get("type")
                         if typ == "heartbeat":
@@ -305,10 +429,17 @@ def process_audio(self, input_path: str):
                             try:
                                 end = float(obj.get("end", 0.0) or 0.0)
                                 if task_id:
-                                    update_task_status(task_id, f"transcribing:{end:.1f}s")
+                                    update_task_status(
+                                        task_id, f"transcribing:{end:.1f}s"
+                                    )
                                     if audio_duration and audio_duration > 0:
                                         pct = min(100.0, (end / audio_duration) * 100.0)
-                                        logger.debug("Updating progress for %s: %.2f%% (end=%.2f)", task_id, pct, end)
+                                        logger.debug(
+                                            "Updating progress for %s: %.2f%% (end=%.2f)",
+                                            task_id,
+                                            pct,
+                                            end,
+                                        )
                                         update_task_progress(task_id, pct)
                             except Exception:
                                 pass
@@ -319,9 +450,14 @@ def process_audio(self, input_path: str):
                                 segments = obj.get("segments")
                             if task_id:
                                 update_task_progress(task_id, 100.0)
-                                logger.debug("Marking progress 100%% for %s (final)", task_id)
+                                logger.debug(
+                                    "Marking progress 100%% for %s (final)", task_id
+                                )
                             try:
-                                logger.info("inference: final received (len=%s)", len(raw_text) if raw_text is not None else 0)
+                                logger.info(
+                                    "inference: final received (len=%s)",
+                                    len(raw_text) if raw_text is not None else 0,
+                                )
                             except Exception:
                                 pass
                         elif typ == "error":
@@ -329,21 +465,40 @@ def process_audio(self, input_path: str):
                     # if we completed without exception, break
                     break
                 except ChunkedEncodingError as e:
-                    logger.exception("ChunkedEncodingError from inference (attempt %s): %s", attempts, e)
+                    logger.exception(
+                        "ChunkedEncodingError from inference (attempt %s): %s",
+                        attempts,
+                        e,
+                    )
                     try_stream = False
                 except RequestException as e:
-                    logger.exception("RequestException from inference (attempt %s): %s", attempts, e)
+                    logger.exception(
+                        "RequestException from inference (attempt %s): %s", attempts, e
+                    )
                     try_stream = False
 
                 # fallback: non-streaming request to get whole response body
                 if not try_stream and attempts < max_attempts:
                     try:
-                        logger.info("Attempting non-streaming fallback request to inference (attempt %s)", attempts + 1)
+                        logger.info(
+                            "Attempting non-streaming fallback request to inference (attempt %s)",
+                            attempts + 1,
+                        )
                         # need to re-open the file for the new request
                         with open(clean, "rb") as fh2:
-                            files2 = {"file": (os.path.basename(clean), fh2, "audio/wav")}
-                            resp2 = requests.post(inference_url, files=files2, timeout=(5, 300), headers={"Connection": "keep-alive"})
-                        logger.info("inference fallback response status=%s", getattr(resp2, 'status_code', None))
+                            files2 = {
+                                "file": (os.path.basename(clean), fh2, "audio/wav")
+                            }
+                            resp2 = requests.post(
+                                inference_url,
+                                files=files2,
+                                timeout=(5, 300),
+                                headers={"Connection": "keep-alive"},
+                            )
+                        logger.info(
+                            "inference fallback response status=%s",
+                            getattr(resp2, "status_code", None),
+                        )
                         try:
                             body = resp2.text
                         except Exception:
@@ -362,10 +517,19 @@ def process_audio(self, input_path: str):
                                 try:
                                     end = float(obj.get("end", 0.0) or 0.0)
                                     if task_id:
-                                        update_task_status(task_id, f"transcribing:{end:.1f}s", db=db)
+                                        update_task_status(
+                                            task_id, f"transcribing:{end:.1f}s", db=db
+                                        )
                                         if audio_duration and audio_duration > 0:
-                                            pct = min(100.0, (end / audio_duration) * 100.0)
-                                            logger.debug("Updating progress for %s: %.2f%% (end=%.2f)", task_id, pct, end)
+                                            pct = min(
+                                                100.0, (end / audio_duration) * 100.0
+                                            )
+                                            logger.debug(
+                                                "Updating progress for %s: %.2f%% (end=%.2f)",
+                                                task_id,
+                                                pct,
+                                                end,
+                                            )
                                             update_task_progress(task_id, pct, db=db)
                                 except Exception:
                                     pass
@@ -376,7 +540,10 @@ def process_audio(self, input_path: str):
                                     segments = obj.get("segments")
                                 if task_id:
                                     update_task_progress(task_id, 100.0)
-                                    logger.debug("Marking progress 100%% for %s (final-fallback)", task_id)
+                                    logger.debug(
+                                        "Marking progress 100%% for %s (final-fallback)",
+                                        task_id,
+                                    )
                             elif typ == "error":
                                 raise RuntimeError(obj.get("error"))
                         break
@@ -385,6 +552,7 @@ def process_audio(self, input_path: str):
                         # sleep exponential backoff before retrying
                         try:
                             import time
+
                             time.sleep(backoff)
                             backoff = min(60, backoff * 2)
                         except Exception:
@@ -408,7 +576,9 @@ def process_audio(self, input_path: str):
                 except Exception:
                     pass
 
-            raw_text, segments = transcribe(clean, model_size="small", prompt=None, progress_callback=_progress)
+            raw_text, segments = transcribe(
+                clean, model_size="small", prompt=None, progress_callback=_progress
+            )
             if task_id:
                 # ensure we mark progress complete when local transcribe finishes
                 update_task_progress(task_id, 100.0)
@@ -420,12 +590,14 @@ def process_audio(self, input_path: str):
             try:
                 from minutes.sse import publish_event
 
-                publish_event({
-                    "type": "task.event",
-                    "task_id": str(task_id),
-                    "event_type": "status",
-                    "payload": {"status": "formatting"},
-                })
+                publish_event(
+                    {
+                        "type": "task.event",
+                        "task_id": str(task_id),
+                        "event_type": "status",
+                        "payload": {"status": "formatting"},
+                    }
+                )
             except Exception:
                 pass
 
@@ -435,15 +607,16 @@ def process_audio(self, input_path: str):
             if task_id:
                 trec = get_task(task_id)
                 if trec:
-                    meta = trec.get('result') or {}
+                    meta = trec.get("result") or {}
         except Exception:
             meta = None
-
 
         system_prompt = build_system_prompt(meta)
 
         if system_prompt:
-            final_minutes = format_minutes_from_raw(raw_text, system_prompt=system_prompt)
+            final_minutes = format_minutes_from_raw(
+                raw_text, system_prompt=system_prompt
+            )
         else:
             final_minutes = format_minutes_from_raw(raw_text)
 
@@ -458,6 +631,7 @@ def process_audio(self, input_path: str):
         try:
             from minutes.summary import summarize_local
         except Exception:
+
             def summarize_local(x, max_sentences=3):
                 return ""
 
@@ -472,7 +646,9 @@ def process_audio(self, input_path: str):
             import re
 
             items = []
-            m = re.search(r"(?ims)^\s*action items\s*$\n(.*?)(?:\n\s*$|$)", final_minutes)
+            m = re.search(
+                r"(?ims)^\s*action items\s*$\n(.*?)(?:\n\s*$|$)", final_minutes
+            )
             section = None
             if m:
                 section = m.group(1)
@@ -501,12 +677,19 @@ def process_audio(self, input_path: str):
 
         # If configured, upload the final minutes to MinIO as a cached copy
         try:
-            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get("MINIO_BUCKET")
+            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get(
+                "MINIO_BUCKET"
+            )
             if bucket:
                 try:
                     from minutes.minio_client import MinioService
+
                     svc = MinioService()
-                    logging.getLogger('minutes.tasks').info('Attempting MinIO upload for task %s to bucket %s', task_id, bucket)
+                    logging.getLogger("minutes.tasks").info(
+                        "Attempting MinIO upload for task %s to bucket %s",
+                        task_id,
+                        bucket,
+                    )
                     try:
                         svc.ensure_bucket(bucket)
                     except Exception:
@@ -515,23 +698,45 @@ def process_audio(self, input_path: str):
                     object_name = f"minutes/{task_id}/minutes_{now}.txt"
                     try:
                         svc.client.fput_object(bucket, object_name, out_file)
-                        logging.getLogger('minutes.tasks').info('MinIO fput_object succeeded for task %s object %s', task_id, object_name)
+                        logging.getLogger("minutes.tasks").info(
+                            "MinIO fput_object succeeded for task %s object %s",
+                            task_id,
+                            object_name,
+                        )
                         try:
-                            expires_sec = int(os.environ.get('MINIO_PRESIGNED_EXPIRES', '3600'))
-                            url = svc.presigned_get(bucket, object_name, expires=expires_sec)
+                            expires_sec = int(
+                                os.environ.get("MINIO_PRESIGNED_EXPIRES", "3600")
+                            )
+                            url = svc.presigned_get(
+                                bucket, object_name, expires=expires_sec
+                            )
                             # use module-level datetime to avoid UnboundLocalError when
                             # a local import shadows the name
                             from datetime import timedelta
-                            expires_at = (datetime.datetime.utcnow() + timedelta(seconds=expires_sec)).isoformat() + 'Z'
+
+                            expires_at = (
+                                datetime.datetime.utcnow()
+                                + timedelta(seconds=expires_sec)
+                            ).isoformat() + "Z"
                         except Exception:
                             url = None
                             expires_sec = None
                             expires_at = None
-                        structured['minio'] = {"bucket": bucket, "object": object_name, "url": url, "expires": expires_sec, "expires_at": expires_at}
+                        structured["minio"] = {
+                            "bucket": bucket,
+                            "object": object_name,
+                            "url": url,
+                            "expires": expires_sec,
+                            "expires_at": expires_at,
+                        }
                     except Exception:
-                        logging.getLogger('minutes.tasks').exception('MinIO upload failed for task %s', task_id)
+                        logging.getLogger("minutes.tasks").exception(
+                            "MinIO upload failed for task %s", task_id
+                        )
                 except Exception:
-                    logging.getLogger('minutes.tasks').exception('Failed initializing MinIO client for task %s', task_id)
+                    logging.getLogger("minutes.tasks").exception(
+                        "Failed initializing MinIO client for task %s", task_id
+                    )
         except Exception:
             # swallow any MinIO-related errors; shouldn't fail the task
             pass
@@ -542,7 +747,9 @@ def process_audio(self, input_path: str):
 
         # Optionally remove intermediate files produced by preprocessing
         try:
-            DELETE_INTERMEDIATE = os.environ.get("DELETE_INTERMEDIATE", "true").lower() in ("1", "true", "yes")
+            DELETE_INTERMEDIATE = os.environ.get(
+                "DELETE_INTERMEDIATE", "true"
+            ).lower() in ("1", "true", "yes")
             if DELETE_INTERMEDIATE:
                 # Only remove files that are in the same directory as the input_path
                 base_dir = os.path.dirname(os.path.abspath(input_path)) or os.getcwd()
@@ -553,18 +760,29 @@ def process_audio(self, input_path: str):
                         p_abs = os.path.abspath(p)
                         # safety check: ensure the intermediate lives under the same directory
                         if not p_abs.startswith(base_dir):
-                            logger = logging.getLogger('minutes.tasks')
-                            logger.warning('Skipping removal of intermediate outside base dir: %s', p_abs)
+                            logger = logging.getLogger("minutes.tasks")
+                            logger.warning(
+                                "Skipping removal of intermediate outside base dir: %s",
+                                p_abs,
+                            )
                             continue
                         if os.path.exists(p_abs):
                             os.remove(p_abs)
-                            logger = logging.getLogger('minutes.tasks')
-                            logger.info('Removed intermediate file %s for task %s', p_abs, task_id)
+                            logger = logging.getLogger("minutes.tasks")
+                            logger.info(
+                                "Removed intermediate file %s for task %s",
+                                p_abs,
+                                task_id,
+                            )
                     except Exception:
-                        logger = logging.getLogger('minutes.tasks')
-                        logger.exception('Failed to remove intermediate %s for task %s', p, task_id)
+                        logger = logging.getLogger("minutes.tasks")
+                        logger.exception(
+                            "Failed to remove intermediate %s for task %s", p, task_id
+                        )
         except Exception:
-            logging.getLogger('minutes.tasks').exception('Error while cleaning intermediates')
+            logging.getLogger("minutes.tasks").exception(
+                "Error while cleaning intermediates"
+            )
 
         return {"status": "success", "result": structured}
     except Exception as e:
@@ -575,4 +793,3 @@ def process_audio(self, input_path: str):
             except Exception:
                 pass
         raise
-

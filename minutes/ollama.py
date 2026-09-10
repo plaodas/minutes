@@ -3,7 +3,6 @@ import requests
 from typing import Optional
 from minutes.summary import summarize_local
 
-
 DEFAULT_SYSTEM_PROMPT = """
 あなたは議事録整形・要約・アクション抽出の専門家です。
 以下の文字起こしを、次の3ステップで処理してください。
@@ -56,7 +55,13 @@ def format_minutes_from_raw(
 
     # allow overriding default model and fallback models via env
     primary_model = model or os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
-    fallback_models = [m.strip() for m in os.environ.get("OLLAMA_FALLBACK_MODELS", "gemma4-mini,gemma3").split(",") if m.strip()]
+    fallback_models = [
+        m.strip()
+        for m in os.environ.get("OLLAMA_FALLBACK_MODELS", "gemma4-mini,gemma3").split(
+            ","
+        )
+        if m.strip()
+    ]
 
     def _call_model(model_name: str):
         payload = {
@@ -71,7 +76,7 @@ def format_minutes_from_raw(
         base_timeout = int(os.environ.get("OLLAMA_TIMEOUT", "120"))
         last_exc = None
         for attempt in range(3):
-            timeout = base_timeout * (2 ** attempt)
+            timeout = base_timeout * (2**attempt)
             try:
                 resp = requests.post(f"{host}/api/chat", json=payload, timeout=timeout)
                 resp.raise_for_status()
@@ -99,11 +104,16 @@ def format_minutes_from_raw(
         err_msg = f"Ollama call failed: {last_error}"
         # produce a concise extractive summary via local summarizer
         try:
-            summary = summarize_local(raw_text, max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")))
+            summary = summarize_local(
+                raw_text,
+                max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")),
+            )
             return f"[FALLBACK] {err_msg}\n\n{summary}"
         except Exception:
             max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
-            snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
+            snippet = (
+                raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
+            )
             return f"[FALLBACK] {err_msg}\n\n{snippet}"
 
     # extract content
@@ -117,7 +127,10 @@ def format_minutes_from_raw(
     # Unexpected structured response; attempt local summarization as fallback.
     err_msg = f"Unexpected response from Ollama: {resp_json}"
     try:
-        summary = summarize_local(raw_text, max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")))
+        summary = summarize_local(
+            raw_text,
+            max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")),
+        )
         return f"[FALLBACK] {err_msg}\n\n{summary}"
     except Exception:
         max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))

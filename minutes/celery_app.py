@@ -1,6 +1,7 @@
 import os
 from celery import Celery
 from celery.signals import worker_process_init, worker_process_shutdown
+
 try:
     # import engine disposal helper; if import fails, ignore (tests may not set DB)
     from minutes.db import dispose_engine
@@ -12,11 +13,7 @@ REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 celery = Celery("minutes", broker=REDIS_URL, backend=REDIS_URL)
 
-celery.conf.update(
-    task_routes={
-        "minutes.tasks.*": {"queue": "minutes"}
-    }
-)
+celery.conf.update(task_routes={"minutes.tasks.*": {"queue": "minutes"}})
 
 
 @worker_process_init.connect

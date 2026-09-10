@@ -5,6 +5,7 @@ Usage:
 
 If no args provided, reads from environment variables ADMIN_USER and ADMIN_PASS.
 """
+
 import os
 import sys
 import argparse
@@ -22,25 +23,29 @@ from minutes.auth import get_password_hash
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--username', '-u', default=os.environ.get('ADMIN_USER'))
-    p.add_argument('--password', '-p', default=os.environ.get('ADMIN_PASS'))
+    p.add_argument("--username", "-u", default=os.environ.get("ADMIN_USER"))
+    p.add_argument("--password", "-p", default=os.environ.get("ADMIN_PASS"))
     args = p.parse_args()
 
     if not args.username or not args.password:
-        print('Provide --username and --password (or set ADMIN_USER/ADMIN_PASS)')
+        print("Provide --username and --password (or set ADMIN_USER/ADMIN_PASS)")
         return
 
     with session_scope() as db:
         existing = db.query(User).filter(User.username == args.username).one_or_none()
         if existing:
-            print('User already exists:', existing.username)
+            print("User already exists:", existing.username)
             return
 
-        u = User(username=args.username, password_hash=get_password_hash(args.password), is_admin=True)
+        u = User(
+            username=args.username,
+            password_hash=get_password_hash(args.password),
+            is_admin=True,
+        )
         db.add(u)
         db.flush()
-        print('Created admin user:', args.username)
+        print("Created admin user:", args.username)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

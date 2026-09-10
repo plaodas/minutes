@@ -4,11 +4,12 @@ Revision ID: 20260829_task_history_index
 Revises: 20260829_add_minutes_text
 Create Date: 2026-08-29 00:00:00.000001
 """
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = '20260829_task_history_index'
-down_revision = '20260829_add_minutes_text'
+revision = "20260829_task_history_index"
+down_revision = "20260829_add_minutes_text"
 branch_labels = None
 depends_on = None
 

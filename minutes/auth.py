@@ -12,11 +12,13 @@ from minutes.models import User
 from minutes.models import ServiceToken
 import hashlib
 
-
 # Configuration
-SECRET_KEY = os.environ.get("JWT_SECRET") or os.environ.get("ADMIN_API_TOKEN") or "dev-secret"
+SECRET_KEY = (
+    os.environ.get("JWT_SECRET") or os.environ.get("ADMIN_API_TOKEN") or "dev-secret"
+)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "8"))
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
@@ -31,7 +33,9 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(sub: str, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = {"sub": str(sub)}
-    expire = datetime.utcnow() + (expires_delta or timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS))
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    )
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -41,7 +45,10 @@ def decode_access_token(token: str) -> dict:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
     except jwt.PyJWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+        )
 
 
 def get_user_by_id(user_id: str) -> Optional[User]:
@@ -70,12 +77,14 @@ def require_current_user(minutes_session: Optional[str] = Cookie(None)) -> User:
     """
     user = get_current_user_from_cookie(minutes_session)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
     return user
 
 
 def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def create_service_token(name: str | None = None, user_id: str | None = None):
@@ -99,11 +108,17 @@ def verify_service_token(token: str):
     if not token:
         return None
     # accept Bearer tokens
-    if token.lower().startswith('bearer '):
-        token = token.split(' ', 1)[1]
+    if token.lower().startswith("bearer "):
+        token = token.split(" ", 1)[1]
     token_hash = _hash_token(token)
     with session_scope() as db:
-        st = db.query(ServiceToken).filter(ServiceToken.token_hash == token_hash, ServiceToken.revoked == False).one_or_none()
+        st = (
+            db.query(ServiceToken)
+            .filter(
+                ServiceToken.token_hash == token_hash, ServiceToken.revoked == False
+            )
+            .one_or_none()
+        )
         if not st:
             return None
         return st.user_id

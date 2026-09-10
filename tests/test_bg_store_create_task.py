@@ -24,16 +24,21 @@ def test_create_task_with_external_id_and_owner():
     # Use raw SQL to avoid SQLAlchemy UUID type conversions in SQLite tests
     from minutes.db import engine
     from sqlalchemy import text
+
     conn = engine.connect()
     try:
-        row = conn.execute(text("SELECT id, user_id, result FROM tasks WHERE result LIKE :p"), {"p": f"%{external}%"}).fetchone()
+        row = conn.execute(
+            text("SELECT id, user_id, result FROM tasks WHERE result LIKE :p"),
+            {"p": f"%{external}%"},
+        ).fetchone()
         assert row is not None
         user_text = row[1]
         # user_text may be stored as hex string without hyphens; normalize and compare
-        user_norm = str(user_text).replace('-', '').lower()
+        user_norm = str(user_text).replace("-", "").lower()
         # Ensure a user_id was stored (format: 32-hex chars)
         assert user_norm and len(user_norm) == 32
         import json
+
         res = json.loads(row[2]) if row[2] else {}
         assert res.get("meta") == "x"
     finally:

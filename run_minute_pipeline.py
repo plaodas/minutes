@@ -21,7 +21,9 @@ def main():
 
     print("--- transcribing")
     prompt = ()
-    raw_text, segments = transcribe(clean, model_size="medium", prompt=prompt, raw_out=raw_file)
+    raw_text, segments = transcribe(
+        clean, model_size="medium", prompt=prompt, raw_out=raw_file
+    )
     print(f"raw saved -> {raw_file}")
 
     print("--- formatting minutes with Ollama")

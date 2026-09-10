@@ -20,7 +20,9 @@ def main():
 
     print("=== Step 2: transcribe ===")
     prompt = ()
-    raw_text, segments = transcribe(clean, model_size="medium", prompt=prompt, raw_out=RAW_FILE)
+    raw_text, segments = transcribe(
+        clean, model_size="medium", prompt=prompt, raw_out=RAW_FILE
+    )
     print(f"raw transcript saved → {RAW_FILE}")
 
     print("=== Step 3: format minutes with Ollama ===")

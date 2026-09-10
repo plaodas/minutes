@@ -38,7 +38,9 @@ else:
 # Session factory: avoid expiring objects on commit so callers can read simple
 # scalar attributes without reloading; callers should still prefer short-lived
 # sessions and not rely on expired-on-access semantics.
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, expire_on_commit=False)
+SessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, bind=engine, expire_on_commit=False
+)
 
 
 @contextmanager
@@ -73,5 +75,6 @@ def dispose_engine():
         engine.dispose()
     except Exception:
         pass
+
 
 # Note: do not auto-create or modify schema here. Use Alembic migrations instead.
