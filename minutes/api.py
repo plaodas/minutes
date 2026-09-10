@@ -9,6 +9,7 @@ import typing
 import uuid
 from typing import Any
 
+from celery.exceptions import CeleryError
 from celery.result import AsyncResult
 from fastapi import (
     BackgroundTasks,
@@ -29,7 +30,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from minutes import tasks
 from minutes.audio import preprocess
@@ -79,7 +80,7 @@ def _is_allowed_upload(file: UploadFile) -> (bool, str):
     pos = None
     try:
         pos = stream.tell()
-    except Exception:
+    except (OSError, AttributeError):
         pos = None
     header = stream.read(4096) or b""
     try:
@@ -87,7 +88,7 @@ def _is_allowed_upload(file: UploadFile) -> (bool, str):
             stream.seek(pos)
         else:
             stream.seek(0)
-    except Exception:
+    except (OSError, ValueError):
         pass
 
     # prefer python-magic if available for robust MIME detection
@@ -97,14 +98,14 @@ def _is_allowed_upload(file: UploadFile) -> (bool, str):
         try:
             m = magic.Magic(mime=True)
             mime = m.from_buffer(header)
-        except Exception:
+        except (AttributeError, TypeError):
             # some python-magic builds expose from_buffer at module level
             mime = magic.from_buffer(header)
 
         if isinstance(mime, str) and mime.startswith("audio/"):
             return True, ""
         return False, f"invalid mime detected: {mime!r} ext={ext!r} orig_mime={ct!r}"
-    except Exception:
+    except ImportError:
         # fallback to lightweight signature checks if python-magic is unavailable
         h = (
             header
@@ -137,7 +138,7 @@ def _parse_header_user_id(x_user_id: str | None):
     try:
         parsed = _parse_key(x_user_id)
         return parsed if isinstance(parsed, uuid.UUID) else None
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return None
 
 
@@ -153,11 +154,11 @@ def _run_pipeline_background(input_path: str, task_id: str):
     try:
         # update intermediate status: preprocessing
         update_task_status(task_id, "preprocess")
-        mono, norm, clean = preprocess(input_path)
+        _mono, _norm, clean = preprocess(input_path)
 
         # update intermediate status: transcribing
         update_task_status(task_id, "transcribing")
-        raw_text, segments = transcribe(clean, model_size="medium", prompt=None)
+        raw_text, _segments = transcribe(clean, model_size="medium", prompt=None)
 
         # update intermediate status: formatting
         update_task_status(task_id, "formatting")
@@ -185,7 +186,7 @@ def _run_pipeline_background(input_path: str, task_id: str):
             f.flush()
             try:
                 os.fsync(f.fileno())
-            except Exception:
+            except OSError:
                 # fsync may not be available in all environments; continue
                 pass
 
@@ -205,12 +206,18 @@ def _run_pipeline_background(input_path: str, task_id: str):
             if bucket:
                 svc = MinioService()
                 try:
+                    from minio.error import S3Error
+
                     svc.ensure_bucket(bucket)
-                except Exception:
+                except S3Error:
                     # ensure_bucket best-effort
-                    pass
+                    logging.getLogger("minutes.api").debug(
+                        "ensure_bucket failed for %s", bucket, exc_info=True
+                    )
                 object_name = f"minutes/{task_id}/minutes_{now}.txt"
                 try:
+                    from minio.error import S3Error
+
                     svc.client.fput_object(bucket, object_name, out_file)
                     try:
                         expires_sec = int(
@@ -224,7 +231,7 @@ def _run_pipeline_background(input_path: str, task_id: str):
                         expires_at = (
                             datetime.utcnow() + timedelta(seconds=expires_sec)
                         ).isoformat() + "Z"
-                    except Exception:
+                    except (ValueError, OSError):
                         url = None
                         expires_sec = None
                         expires_at = None
@@ -235,12 +242,12 @@ def _run_pipeline_background(input_path: str, task_id: str):
                         "expires": expires_sec,
                         "expires_at": expires_at,
                     }
-                except Exception as exc:
+                except S3Error:
                     # log but do not fail the whole pipeline
                     logging.getLogger("minutes.api").exception(
-                        "MinIO upload failed for task %s: %s", task_id, exc
+                        "MinIO upload failed for task %s", task_id
                     )
-        except Exception:
+        except (OSError, ImportError):
             # any MinIO client init error should not block task success
             minio_info = None
 
@@ -249,7 +256,7 @@ def _run_pipeline_background(input_path: str, task_id: str):
             result_payload["minio"] = minio_info
 
         update_task_success(task_id, result_payload)
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError, SQLAlchemyError, TypeError) as exc:
         update_task_failure(task_id, str(exc))
 
 
@@ -303,8 +310,8 @@ async def startup_reconciler():
         # run once immediately in a thread to avoid blocking the event loop
         await asyncio.to_thread(reconcile_once)
         logger.info("Initial bg task reconciliation completed")
-    except Exception as exc:
-        logger.exception("Initial reconciliation failed: %s", exc)
+    except (SQLAlchemyError, RuntimeError, OSError):
+        logger.exception("Initial reconciliation failed")
 
     interval = int(os.environ.get("RECONCILE_INTERVAL_SECONDS", "3600"))
 
@@ -317,7 +324,7 @@ async def startup_reconciler():
             except asyncio.CancelledError:
                 logger.info("Reconcile loop cancelled")
                 break
-            except Exception:
+            except (SQLAlchemyError, RuntimeError, OSError):
                 logger.exception("Reconcile loop error")
 
     # store the task so it can be cancelled on shutdown
@@ -330,9 +337,9 @@ async def startup_reconciler():
                 from minutes.sse import start_redis_listener
 
                 start_redis_listener(redis_url)
-            except Exception:
+            except (ImportError, RuntimeError, OSError):
                 logger.exception("failed to start redis listener")
-    except Exception:
+    except (RuntimeError, OSError):
         logger.exception("redis listener startup check failed")
 
 
@@ -350,7 +357,7 @@ async def shutdown_reconciler():
         from minutes.sse import stop_redis_listener
 
         stop_redis_listener()
-    except Exception:
+    except (ImportError, RuntimeError, OSError):
         logger = logging.getLogger("minutes.api")
         logger.exception("failed to stop redis listener")
 
@@ -370,8 +377,12 @@ def admin_list_buckets(_=Depends(require_admin)):
 
         out = []
         try:
+            from minio.error import S3Error
+        except ImportError:
+            S3Error = Exception
+        try:
             minio_buckets = svc.list_buckets()
-        except Exception:
+        except (S3Error, OSError):
             minio_buckets = []
 
         seen = set()
@@ -413,7 +424,7 @@ def admin_list_buckets(_=Depends(require_admin)):
             )
 
         return {"buckets": out}
-    except Exception as exc:
+    except (SQLAlchemyError, OSError, RuntimeError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -428,6 +439,10 @@ def admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_admin)
     if not name:
         return JSONResponse({"error": "missing name"}, status_code=400)
     public = bool((payload or {}).get("public", False))
+    try:
+        from minio.error import S3Error
+    except ImportError:
+        S3Error = Exception
     try:
         svc = MinioService()
         svc.create_bucket(name, public=public)
@@ -444,7 +459,7 @@ def admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_admin)
         return {"name": name}
     except ValueError:
         return JSONResponse({"error": "already exists"}, status_code=409)
-    except Exception as exc:
+    except (S3Error, OSError, SQLAlchemyError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -456,6 +471,10 @@ def api_admin_create_bucket(payload: dict[str, typing.Any], _=Depends(require_ad
 @app.delete("/api/admin/buckets/{name}")
 def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)):
     try:
+        try:
+            from minio.error import S3Error
+        except ImportError:
+            S3Error = Exception
         svc = MinioService()
         svc.delete_bucket(name, force=force)
         # remove DB record if present
@@ -463,10 +482,10 @@ def admin_delete_bucket(name: str, force: bool = False, _=Depends(require_admin)
             session.query(Bucket).filter(Bucket.name == name).delete()
             try:
                 session.commit()
-            except Exception:
+            except SQLAlchemyError:
                 session.rollback()
         return {"deleted": True}
-    except Exception as exc:
+    except (S3Error, OSError, SQLAlchemyError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -495,7 +514,7 @@ def transcribe_upload(
     unique_name = (
         f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
     )
-    tmp_path = None
+    # temporary file path (not used here)
     # validate file type
     ok, reason = _is_allowed_upload(file)
     if not ok:
@@ -521,7 +540,7 @@ def transcribe_upload(
             if include_actions is not None:
                 try:
                     meta["include_actions"] = bool(int(include_actions))
-                except Exception:
+                except (ValueError, TypeError):
                     meta["include_actions"] = include_actions in ("1", "true", "True")
             owner = _parse_header_user_id(x_user_id)
             create_task(task.id, metadata=meta, user_id=owner)
@@ -529,10 +548,10 @@ def transcribe_upload(
             # older create_task signature
             try:
                 create_task(task.id, metadata={"upload_filename": safe_name})
-            except Exception:
+            except SQLAlchemyError:
                 pass
         return {"task_id": task.id, "upload_filename": safe_name}
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError, SQLAlchemyError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -546,7 +565,7 @@ def format_raw(payload: FormatRawRequest):
     try:
         minutes = format_minutes_from_raw(raw)
         return {"minutes": minutes}
-    except Exception as exc:
+    except (RuntimeError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -616,7 +635,7 @@ def transcribe_upload_bg(
     try:
         with open(dest_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
-    except Exception as exc:
+    except (OSError, AttributeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
     # Enqueue as a Celery task so we can support revoke/terminate later.
@@ -637,7 +656,7 @@ def transcribe_upload_bg(
             if include_actions is not None:
                 try:
                     meta["include_actions"] = bool(int(include_actions))
-                except Exception:
+                except (ValueError, TypeError):
                     meta["include_actions"] = include_actions in ("1", "true", "True")
             owner = _parse_header_user_id(x_user_id)
             create_task(task_id, metadata=meta, user_id=owner)
@@ -646,10 +665,10 @@ def transcribe_upload_bg(
             # call without metadata
             try:
                 create_task(task_id)
-            except Exception:
+            except SQLAlchemyError:
                 pass
         return {"task_id": task_id}
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError, SQLAlchemyError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -747,7 +766,7 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
-        except Exception:
+        except (ValueError, TypeError):
             return JSONResponse({"error": "invalid task id"}, status_code=400)
         rows = (
             session.query(TaskHistory)
@@ -810,7 +829,7 @@ def bg_task_rename(task_id: str, payload: dict[str, str]):
     with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
-        except Exception:
+        except (ValueError, TypeError):
             return JSONResponse({"error": "invalid task id"}, status_code=400)
         t = session.get(Task, key)
         if not t:
@@ -820,8 +839,10 @@ def bg_task_rename(task_id: str, payload: dict[str, str]):
         session.commit()
         try:
             record_history(task_id, "rename", {"name": name}, db=session)
-        except Exception:
-            pass
+        except SQLAlchemyError:
+            logging.getLogger("minutes.api").exception(
+                "record_history failed for %s", task_id
+            )
         return {"task_id": task_id, "name": name}
 
 
@@ -831,7 +852,7 @@ def bg_task_regenerate_name(task_id: str):
     with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
-        except Exception:
+        except (ValueError, TypeError):
             return JSONResponse({"error": "invalid task id"}, status_code=400)
         t = session.get(Task, key)
         if not t:
@@ -859,12 +880,14 @@ def bg_task_regenerate_name(task_id: str):
             session.commit()
             try:
                 record_history(task_id, "rename", {"name": short}, db=session)
-            except Exception:
-                pass
+            except SQLAlchemyError:
+                logging.getLogger("minutes.api").exception(
+                    "record_history failed for %s", task_id
+                )
             return {"task_id": task_id, "name": short}
         except FileNotFoundError:
             return JSONResponse({"error": "output file not found"}, status_code=404)
-        except Exception as exc:
+        except (OSError, UnicodeError, ValueError, TypeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
 
@@ -878,7 +901,6 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     # Cursor format: "<updated_at_iso>|<id>" (optional). If not provided, fall back to offset paging.
 
     with session_scope() as session:
-        cursor = None
         # try to read from query param 'cursor' passed via request (FastAPI maps unknown params automatically)
         # If caller provided an offset, keep backward compatibility.
         # Build base query ordered by updated_at desc, id desc
@@ -923,7 +945,10 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                     .filter(TaskHistory.task_id == t.id)
                     .count()
                 )
-            except Exception:
+            except SQLAlchemyError:
+                logging.getLogger("minutes.api").exception(
+                    "failed to load TaskHistory preview for %s", t.id
+                )
                 previews = []
                 total = 0
 
@@ -974,7 +999,7 @@ async def bg_events(request: Request):
                     break
                 try:
                     payload = json.dumps(ev, default=str)
-                except Exception:
+                except (TypeError, ValueError):
                     payload = json.dumps(
                         {"type": "error", "error": "serialization_failed"}
                     )
@@ -995,7 +1020,7 @@ def bg_task_events(task_id: str):
     with session_scope() as session:
         try:
             key = uuid.UUID(task_id)
-        except Exception:
+        except (ValueError, TypeError):
             return JSONResponse({"error": "invalid task id"}, status_code=400)
         rows = (
             session.query(TaskHistory)
@@ -1040,7 +1065,7 @@ def bg_histories(payload: IdList):
     if getattr(payload, "offsets", None):
         try:
             offsets_map = {str(k): int(v) for k, v in (payload.offsets or {}).items()}
-        except Exception:
+        except (TypeError, ValueError):
             offsets_map = {}
     else:
         # single numeric offset (backward compat)
@@ -1087,7 +1112,7 @@ def bg_histories(payload: IdList):
                 try:
                     u = uuid.UUID(i)
                     valid_map[u] = str(i)
-                except Exception:
+                except (ValueError, TypeError):
                     # invalid UUIDs are left as empty lists
                     continue
 
@@ -1160,14 +1185,18 @@ def bg_cancel(task_id: str):
     """
     try:
         celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
-    except Exception:
+    except CeleryError:
         # best-effort: ignore revoke errors and still mark cancelled
-        pass
+        logging.getLogger("minutes.api").debug(
+            "celery.revoke failed for %s", task_id, exc_info=True
+        )
     # mark cancelled in our bg store
     try:
         update_task_cancelled(task_id)
-    except Exception:
-        pass
+    except SQLAlchemyError:
+        logging.getLogger("minutes.api").exception(
+            "update_task_cancelled failed for %s", task_id
+        )
     return {"task_id": task_id, "cancelled": True}
 
 
@@ -1180,9 +1209,11 @@ def api_bg_cancel(task_id: str):
 @app.post("/api/bg/delete/{task_id}")
 def bg_delete(task_id: str):
     """Soft-delete a background task by marking its status as 'deleted'."""
+    t = None
     try:
         t = get_task(task_id)
-    except Exception:
+    except SQLAlchemyError:
+        logging.getLogger("minutes.api").exception("get_task failed for %s", task_id)
         t = None
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
@@ -1192,7 +1223,7 @@ def bg_delete(task_id: str):
             # prefer DB-backed update
             try:
                 from minutes.bg_store import _parse_key
-            except Exception:
+            except ImportError:
                 _parse_key = None
             with session_scope() as db:
                 key = _parse_key(task_id) if _parse_key else task_id
@@ -1207,18 +1238,25 @@ def bg_delete(task_id: str):
                 try:
                     obj.deleted = True
                     obj.deleted_at = _dt.utcnow()
-                except Exception:
-                    pass
+                except (AttributeError, SQLAlchemyError):
+                    logging.getLogger("minutes.api").debug(
+                        "failed to set deleted flags for %s", task_id, exc_info=True
+                    )
                 db.add(obj)
                 try:
                     db.commit()
-                except Exception:
+                except SQLAlchemyError:
                     db.rollback()
+                    logging.getLogger("minutes.api").exception(
+                        "commit failed while deleting task %s", task_id
+                    )
                 try:
                     record_history(task_id, "deleted", {"previous": prev}, db=db)
-                except Exception:
-                    pass
-        except Exception:
+                except SQLAlchemyError:
+                    logging.getLogger("minutes.api").exception(
+                        "record_history failed while deleting task %s", task_id
+                    )
+        except SQLAlchemyError:
             # fallback: best-effort using existing update helpers
             try:
                 t = get_task(task_id)
@@ -1227,12 +1265,16 @@ def bg_delete(task_id: str):
                 # save back if store supports it
                 try:
                     update_task_success(task_id, t.get("result") or {})
-                except Exception:
-                    pass
-            except Exception:
-                pass
+                except SQLAlchemyError:
+                    logging.getLogger("minutes.api").exception(
+                        "update_task_success failed in fallback for %s", task_id
+                    )
+            except SQLAlchemyError:
+                logging.getLogger("minutes.api").exception(
+                    "fallback get_task/update failed for %s", task_id
+                )
         return {"task_id": task_id, "deleted": True}
-    except Exception as exc:
+    except (SQLAlchemyError, OSError, RuntimeError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
@@ -1267,7 +1309,7 @@ def bg_force_delete(task_id: str):
     # best-effort: try to revoke/terminate any running Celery task
     try:
         celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
-    except Exception:
+    except CeleryError:
         pass
 
     try:
@@ -1278,7 +1320,7 @@ def bg_force_delete(task_id: str):
         # parse key using bg_store helper if available
         try:
             from minutes.bg_store import _parse_key
-        except Exception:
+        except ImportError:
             _parse_key = None
 
         key = None
@@ -1289,7 +1331,7 @@ def bg_force_delete(task_id: str):
                 import uuid
 
                 key = uuid.UUID(task_id)
-            except Exception:
+            except (ValueError, TypeError):
                 key = task_id
 
         with session_scope() as db:
@@ -1307,11 +1349,27 @@ def bg_force_delete(task_id: str):
                 if minio_info and minio_info.get("bucket") and minio_info.get("object"):
                     try:
                         svc = MinioService()
-                        svc.client.remove_object(
-                            minio_info["bucket"], minio_info["object"]
+                        try:
+                            from minio.error import S3Error
+                        except ImportError:
+                            S3Error = Exception
+                        try:
+                            svc.client.remove_object(
+                                minio_info["bucket"], minio_info["object"]
+                            )
+                        except S3Error:
+                            logging.getLogger("minutes.api").debug(
+                                "MinIO remove_object failed for %s/%s",
+                                minio_info.get("bucket"),
+                                minio_info.get("object"),
+                                exc_info=True,
+                            )
+                    except (ImportError, OSError, RuntimeError, AttributeError):
+                        logging.getLogger("minutes.api").debug(
+                            "MinIO client unavailable while removing object for %s",
+                            task_id,
+                            exc_info=True,
                         )
-                    except Exception:
-                        pass
 
                 # remove output file if present
                 output_file = res.get("output_file") or (res.get("result") or {}).get(
@@ -1325,23 +1383,30 @@ def bg_force_delete(task_id: str):
                         )
                         if os.path.exists(candidate):
                             os.remove(candidate)
-                    except Exception:
-                        pass
-        except Exception:
+                    except OSError:
+                        logging.getLogger("minutes.api").debug(
+                            "failed to remove output file candidate %s for %s",
+                            candidate,
+                            task_id,
+                            exc_info=True,
+                        )
+        except (SQLAlchemyError, S3Error, OSError):
 
             # delete history and task rows
             try:
                 db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
-            except Exception:
-                pass
+            except SQLAlchemyError:
+                logging.getLogger("minutes.api").exception(
+                    "failed to delete TaskHistory for %s", key
+                )
             try:
                 db.delete(obj)
                 db.commit()
-            except Exception:
+            except SQLAlchemyError:
                 db.rollback()
                 return JSONResponse({"error": "failed to delete task"}, status_code=500)
         return {"task_id": task_id, "deleted": True}
-    except Exception as exc:
+    except (SQLAlchemyError, OSError, RuntimeError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
@@ -1351,9 +1416,11 @@ def bg_undelete(task_id: str):
 
     If the task has a `result` present, restore to `success`, otherwise to `pending`.
     """
+    t = None
     try:
         t = get_task(task_id)
-    except Exception:
+    except SQLAlchemyError:
+        logging.getLogger("minutes.api").exception("get_task failed for %s", task_id)
         t = None
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
@@ -1361,7 +1428,7 @@ def bg_undelete(task_id: str):
         # use bg_store's _parse_key to normalize incoming task ids
         try:
             from minutes.bg_store import _parse_key
-        except Exception:
+        except ImportError:
             _parse_key = None
         with session_scope() as db:
             key = _parse_key(task_id) if _parse_key else task_id
@@ -1374,10 +1441,12 @@ def bg_undelete(task_id: str):
             db.commit()
             try:
                 record_history(task_id, "undeleted", {"previous": prev}, db=db)
-            except Exception:
-                pass
+            except SQLAlchemyError:
+                logging.getLogger("minutes.api").exception(
+                    "record_history failed while undeleting task %s", task_id
+                )
         return {"task_id": task_id, "undeleted": True}
-    except Exception as exc:
+    except (SQLAlchemyError, OSError, RuntimeError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
@@ -1402,10 +1471,10 @@ def bg_hard_delete(task_id: str, request: Request = None):
 
             jid = hard_delete_task.delay(task_id, None)
             return {"task_id": task_id, "enqueued": True, "job_id": str(jid)}
-        except Exception:
+        except (ImportError, AttributeError, CeleryError):
             # fallback: run synchronous deletion via existing force-delete path
             return bg_force_delete(task_id)
-    except Exception as exc:
+    except (SQLAlchemyError, OSError, RuntimeError, CeleryError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
@@ -1423,7 +1492,10 @@ def bg_minutes_file(task_id: str):
     """
     try:
         t = get_task(task_id)
-    except Exception:
+    except SQLAlchemyError:
+        logging.getLogger("minutes.api").debug(
+            "get_task failed for %s", task_id, exc_info=True
+        )
         t = None
     if not t:
         return JSONResponse({"error": "unknown task"}, status_code=404)
@@ -1481,14 +1553,16 @@ def bg_minutes_file(task_id: str):
         )
     except FileNotFoundError:
         return JSONResponse({"error": "output file not found"}, status_code=404)
-    except Exception as exc:
+    except OSError as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 def _resolve_output_file_from_task(task_id: str):
+    t = None
     try:
         t = get_task(task_id)
-    except Exception:
+    except SQLAlchemyError:
+        logging.getLogger("minutes.api").exception("get_task failed for %s", task_id)
         t = None
     if not t:
         return None, JSONResponse({"error": "unknown task"}, status_code=404)
@@ -1528,8 +1602,12 @@ def _stream_minio_object(
 ):
     svc = MinioService()
     try:
+        from minio.error import S3Error
+    except ImportError:
+        S3Error = Exception
+    try:
         obj = svc.client.get_object(bucket, object_name)
-    except Exception as exc:
+    except (S3Error, OSError) as exc:
         return JSONResponse(
             {"error": f"failed to fetch object from MinIO: {exc!s}"}, status_code=502
         )
@@ -1543,12 +1621,19 @@ def _stream_minio_object(
         finally:
             try:
                 obj.close()
-            except Exception:
-                pass
+            except (S3Error, OSError, AttributeError):
+                logging.getLogger("minutes.api").debug(
+                    "obj.close() failed for %s/%s", bucket, object_name, exc_info=True
+                )
             try:
                 obj.release_conn()
-            except Exception:
-                pass
+            except (S3Error, OSError, AttributeError):
+                logging.getLogger("minutes.api").debug(
+                    "obj.release_conn() failed for %s/%s",
+                    bucket,
+                    object_name,
+                    exc_info=True,
+                )
 
     headers = {}
     if filename:
@@ -1582,7 +1667,7 @@ def auth_features(x_admin: str | None = Header(None)):
         )
         is_admin = force or header_admin
         return {"is_admin": bool(is_admin)}
-    except Exception:
+    except (ValueError, AttributeError, TypeError):
         return {"is_admin": False}
 
 
@@ -1599,7 +1684,7 @@ def _is_request_admin(x_admin: str | None) -> bool:
             isinstance(x_admin, str) and x_admin.lower() == "true"
         )
         return bool(force or header_admin)
-    except Exception:
+    except (ValueError, AttributeError, TypeError):
         return False
 
 
@@ -1614,7 +1699,7 @@ def _get_user_id_from_header(x_user_id: str | None):
         return None
     try:
         return uuid.UUID(x_user_id)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
@@ -1639,9 +1724,13 @@ def api_create_bucket(
 
     svc = MinioService()
     try:
+        from minio.error import S3Error
+    except ImportError:
+        S3Error = Exception
+    try:
         if not svc.client.bucket_exists(payload.name):
             svc.client.make_bucket(payload.name)
-    except Exception as exc:
+    except (S3Error, OSError) as exc:
         return JSONResponse({"error": f"minio create failed: {exc!s}"}, status_code=502)
 
     with session_scope() as db:
@@ -1668,8 +1757,10 @@ def api_create_bucket(
             db.rollback()
             try:
                 svc.delete_bucket(payload.name, force=True)
-            except Exception:
-                pass
+            except (S3Error, OSError):
+                logging.getLogger("minutes.api").debug(
+                    "delete_bucket failed for %s (cleanup)", payload.name, exc_info=True
+                )
             return JSONResponse({"error": "db insert failed"}, status_code=500)
         return {
             "id": str(b.id),
@@ -1744,7 +1835,7 @@ def admin_uploads_cleanup_get(
             full = os.path.join(uploads_dir, f)
             try:
                 mtime = int(os.path.getmtime(full))
-            except Exception:
+            except OSError:
                 continue
             age = now - mtime
             if older_than and age < older_than:
@@ -1752,7 +1843,7 @@ def admin_uploads_cleanup_get(
             candidates.append({"path": full, "name": f, "age_seconds": age})
             if len(candidates) >= limit:
                 break
-    except Exception as exc:
+    except OSError as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
     return {"candidates": candidates, "count": len(candidates)}
@@ -1798,7 +1889,7 @@ def admin_uploads_cleanup_post(
             full = os.path.join(uploads_dir, f)
             try:
                 mtime = int(os.path.getmtime(full))
-            except Exception:
+            except OSError:
                 continue
             age = now - mtime
             if older_than and age < older_than:
@@ -1806,11 +1897,11 @@ def admin_uploads_cleanup_post(
             try:
                 os.remove(full)
                 deleted.append(full)
-            except Exception as e:
+            except OSError as e:
                 errors.append({"path": full, "error": str(e)})
             if len(deleted) >= limit:
                 break
-    except Exception as exc:
+    except OSError as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
     return {"deleted": deleted, "errors": errors, "count": len(deleted)}
@@ -1854,15 +1945,29 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
             return data.decode("utf-8")
         return str(data)
     finally:
+        try:
+            from minio.error import S3Error
+        except ImportError:
+            S3Error = Exception
         if obj is not None:
             try:
                 obj.close()
-            except Exception:
-                pass
+            except (S3Error, OSError, AttributeError):
+                logging.getLogger("minutes.api").debug(
+                    "_read_minio_object_text: obj.close() failed for %s/%s",
+                    bucket,
+                    object_name,
+                    exc_info=True,
+                )
             try:
                 obj.release_conn()
-            except Exception:
-                pass
+            except (S3Error, OSError, AttributeError):
+                logging.getLogger("minutes.api").debug(
+                    "_read_minio_object_text: obj.release_conn() failed for %s/%s",
+                    bucket,
+                    object_name,
+                    exc_info=True,
+                )
 
 
 @app.get("/api/bg/transcript/{task_id}")
@@ -1887,7 +1992,7 @@ def bg_transcript(task_id: str, format: str = "txt"):
                 text = f.read()
         except FileNotFoundError:
             return JSONResponse({"error": "output file not found"}, status_code=404)
-        except Exception as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     # If MinIO cached object exists in result, stream from MinIO proxy instead
@@ -1901,10 +2006,18 @@ def bg_transcript(task_id: str, format: str = "txt"):
         minio_info = res["minio"]
         # prefer reading MinIO text for transcript/summary endpoints
         try:
+            try:
+                from minio.error import S3Error
+            except ImportError:
+                S3Error = Exception
             text = _read_minio_object_text(minio_info["bucket"], minio_info["object"])
-        except Exception:
-            # fallback to previously read text
-            pass
+        except (S3Error, OSError, ImportError) as exc:
+            logging.getLogger("minutes.api").debug(
+                "MinIO transcript read failed for %s: %s",
+                task_id,
+                str(exc),
+                exc_info=True,
+            )
 
     # For now, transcript is the full output; future: extract section
     if format not in ("txt", "md"):
@@ -1937,10 +2050,17 @@ def bg_summary(task_id: str, format: str = "txt"):
         and res["minio"].get("object")
     ):
         try:
+            try:
+                from minio.error import S3Error
+            except ImportError:
+                S3Error = Exception
             text = _read_minio_object_text(
                 res["minio"]["bucket"], res["minio"]["object"]
             )
-        except Exception:
+        except (S3Error, OSError, ImportError) as exc:
+            logging.getLogger("minutes.api").debug(
+                "MinIO summary read failed for %s: %s", task_id, str(exc), exc_info=True
+            )
             text = None
     if isinstance(res, dict) and res.get("summary"):
         summary_text = res.get("summary")
@@ -1954,7 +2074,7 @@ def bg_summary(task_id: str, format: str = "txt"):
                 text = f.read()
         except FileNotFoundError:
             return JSONResponse({"error": "output file not found"}, status_code=404)
-        except Exception as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
         # try to find a 'Summary' section
@@ -1970,7 +2090,13 @@ def bg_summary(task_id: str, format: str = "txt"):
                 from minutes.summary import summarize_local
 
                 summary_text = summarize_local(text, max_sentences=3)
-            except Exception:
+            except (ImportError, RuntimeError, TypeError) as exc:
+                logging.getLogger("minutes.api").debug(
+                    "summarize_local failed for %s: %s",
+                    task_id,
+                    str(exc),
+                    exc_info=True,
+                )
                 summary_text = ""
 
     if format not in ("txt", "md"):
@@ -2001,7 +2127,7 @@ def bg_action_items(task_id: str, format: str = "json"):
                 text = f.read()
         except FileNotFoundError:
             return JSONResponse({"error": "output file not found"}, status_code=404)
-        except Exception as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
         # Simple heuristic: find 'Action Items' section and parse lines

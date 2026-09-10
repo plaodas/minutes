@@ -1,7 +1,7 @@
 import hashlib
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import Cookie, HTTPException, status
@@ -21,7 +21,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "8"))
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         return pbkdf2_sha256.verify(plain_password, hashed_password)
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -31,7 +31,7 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(sub: str, expires_delta: timedelta | None = None) -> str:
     to_encode = {"sub": str(sub)}
-    expire = datetime.utcnow() + (
+    expire = datetime.now(tz=timezone.utc) + (
         expires_delta or timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     )
     to_encode.update({"exp": expire})
@@ -52,7 +52,7 @@ def decode_access_token(token: str) -> dict:
 def get_user_by_id(user_id: str) -> User | None:
     try:
         uid = uuid.UUID(user_id)
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return None
     with session_scope() as db:
         return db.get(User, uid)
@@ -94,7 +94,7 @@ def create_service_token(name: str | None = None, user_id: str | None = None):
         if user_id:
             try:
                 st.user_id = uuid.UUID(user_id)
-            except Exception:
+            except (ValueError, TypeError):
                 pass
         db.add(st)
         db.flush()

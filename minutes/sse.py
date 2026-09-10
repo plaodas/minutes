@@ -43,12 +43,12 @@ def _push_to_local_queues(event: dict[str, Any]):
         if loop and loop.is_running():
             try:
                 loop.call_soon_threadsafe(q.put_nowait, event)
-            except Exception:
+            except RuntimeError:
                 logger.exception("failed to push event to local queue")
         else:
             try:
                 q.put_nowait(event)
-            except Exception:
+            except asyncio.QueueFull:
                 logger.exception("failed to put event into queue without loop")
 
 
@@ -58,10 +58,7 @@ def publish_event(event: dict[str, Any]):
     This function is safe to call from synchronous code.
     """
     # send to local subscribers
-    try:
-        _push_to_local_queues(event)
-    except Exception:
-        logger.exception("local push failed")
+    _push_to_local_queues(event)
 
     # publish to redis channel for other instances
     try:
@@ -77,21 +74,24 @@ def publish_event(event: dict[str, Any]):
         global _redis_pub
         if _redis_pub is None:
             import redis
+            from redis.exceptions import RedisError
 
             try:
                 _redis_pub = redis.from_url(redis_url, decode_responses=True)
-            except Exception:
+            except (RedisError, OSError):
                 logger.exception("failed to create redis publisher from %s", redis_url)
                 _redis_pub = None
         if _redis_pub is not None:
+            from redis.exceptions import RedisError
+
             try:
                 _redis_pub.publish("minutes:events", json.dumps(event, default=str))
-            except Exception:
+            except (RedisError, OSError):
                 logger.exception("redis publish failed; resetting publisher")
                 try:
                     _redis_pub.close()
-                except Exception:
-                    pass
+                except (RedisError, OSError):
+                    logger.exception("failed to close redis publisher")
                 _redis_pub = None
     except Exception:
         logger.exception("publish_event top-level failure")
@@ -123,7 +123,7 @@ async def _redis_listener(redis_url: str):
                         data = msg["data"]
                         try:
                             ev = json.loads(data)
-                        except Exception:
+                        except json.JSONDecodeError:
                             ev = {"type": "redis.raw", "raw": data}
                         _push_to_local_queues(ev)
                     await asyncio.sleep(0.01)
@@ -185,5 +185,5 @@ def stop_redis_listener():
         if _redis_task is not None:
             _redis_task.cancel()
             _redis_task = None
-    except Exception:
+    except RuntimeError:
         logger.exception("failed to stop redis listener")

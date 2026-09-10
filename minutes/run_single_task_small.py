@@ -2,6 +2,9 @@ import os
 import sys
 import uuid
 
+import requests
+from sqlalchemy.exc import SQLAlchemyError
+
 from minutes.audio import preprocess
 from minutes.bg_store import update_task_failure, update_task_success
 from minutes.ollama import format_minutes_from_raw
@@ -10,13 +13,13 @@ from minutes.transcribe import transcribe
 
 def run(upload_path: str, task_id: str):
     try:
-        mono, norm, clean = preprocess(upload_path)
+        _mono, _norm, clean = preprocess(upload_path)
         # use a smaller model to reduce memory use
         model_size = os.environ.get("TRANSCRIBE_MODEL_SIZE", "small")
-        raw_text, segments = transcribe(clean, model_size=model_size, prompt=None)
+        raw_text, _segments = transcribe(clean, model_size=model_size, prompt=None)
         try:
             final_minutes = format_minutes_from_raw(raw_text)
-        except Exception as fe:
+        except (requests.exceptions.RequestException, ValueError, TypeError) as fe:
             # Ollama formatting failed; fall back to raw transcript with header
             final_minutes = (
                 "[FALLBACK] Ollama formatting failed: " + str(fe) + "\n\n" + raw_text
@@ -33,7 +36,7 @@ def run(upload_path: str, task_id: str):
             f.flush()
             try:
                 os.fsync(f.fileno())
-            except Exception:
+            except OSError:
                 pass
 
         os.replace(tmp_file, out_file)
@@ -43,10 +46,15 @@ def run(upload_path: str, task_id: str):
 
         update_task_success(task_id, {"output_file": out_file})
         print("SUCCESS", out_file)
-    except Exception as exc:
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        requests.exceptions.RequestException,
+    ) as exc:
         try:
             update_task_failure(task_id, str(exc))
-        except Exception:
+        except SQLAlchemyError:
             pass
         print("FAILED", repr(exc))
 

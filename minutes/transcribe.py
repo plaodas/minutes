@@ -1,4 +1,5 @@
-from typing import Callable, Any
+from collections.abc import Callable
+from typing import Any
 
 
 def transcribe(
@@ -17,7 +18,7 @@ def transcribe(
     """
     try:
         from faster_whisper import WhisperModel
-    except Exception as e:
+    except ImportError as e:
         raise RuntimeError(
             "faster_whisper is not installed in this environment. "
             "Install full dependencies or use the minimal API image. "
@@ -26,7 +27,7 @@ def transcribe(
 
     model = WhisperModel(model_size, device=device)
 
-    segments, info = model.transcribe(
+    segments, _info = model.transcribe(
         audio_path,
         language="ja",
         initial_prompt=prompt,
@@ -41,8 +42,8 @@ def transcribe(
         if progress_callback is not None:
             try:
                 progress_callback(seg)
-            except Exception:
-                # ignore callback errors
+            except (TypeError, AttributeError, RuntimeError, ValueError):
+                # ignore callback errors that can reasonably occur
                 pass
 
     raw_text = "\n".join([seg.text for seg in seg_list])

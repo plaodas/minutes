@@ -6,7 +6,9 @@ import os
 import wave
 
 import requests
+from minio.error import S3Error
 from requests.exceptions import ChunkedEncodingError, RequestException
+from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.audio import preprocess
 from minutes.bg_store import (
@@ -61,7 +63,7 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
             from minutes.bg_store import _parse_key
 
             key = _parse_key(task_id)
-        except Exception:
+        except (ValueError, AttributeError):
             key = task_id
 
         t = db.get(Task, key)
@@ -100,10 +102,8 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
                         svc.delete_objects_with_prefix(
                             bucket, prefix, ignore_missing=True
                         )
-        except Exception as exc:
-            logger.exception(
-                "hard_delete_task: MinIO deletion failed for %s: %s", task_id, exc
-            )
+        except (S3Error, RequestException, OSError):
+            logger.exception("hard_delete_task: MinIO deletion failed for %s", task_id)
             # raise to allow Celery to retry; session_scope will rollback
             raise
 
@@ -117,7 +117,7 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
                 candidate = os.path.join(outputs_dir, os.path.basename(output_file))
                 if os.path.exists(candidate):
                     os.remove(candidate)
-        except Exception:
+        except OSError:
             logger.exception(
                 "hard_delete_task: failed to remove local output for %s", task_id
             )
@@ -127,7 +127,7 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
             db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
             # attempt to delete Task row
             db.delete(t)
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("hard_delete_task: failed DB delete for %s", task_id)
             raise
 
@@ -153,7 +153,7 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
                     )
                     if b:
                         db.delete(b)
-        except Exception:
+        except SQLAlchemyError:
             # non-fatal
             logger.exception(
                 "hard_delete_task: failed to cleanup bucket row for %s", task_id
@@ -168,10 +168,12 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
                 "deleted_hard",
                 {
                     "requester": requester or None,
-                    "deleted_at": datetime.utcnow().isoformat(),
+                    "deleted_at": datetime.datetime.now(
+                        tz=datetime.timezone.utc
+                    ).isoformat(),
                 },
             )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception(
                 "hard_delete_task: failed to record deletion history for %s", task_id
             )
@@ -191,51 +193,37 @@ def process_audio(self, input_path: str):
     """
     task_id = getattr(self.request, "id", None)
     # Debug: log task id and input path early so we can correlate DB rows
-    # with worker processing. Keep robust to avoid raising during logging.
-    try:
-        logger = logging.getLogger("minutes.tasks")
-        logger.info("process_audio start: task_id=%r input=%s", task_id, input_path)
-        # also print to stdout for immediate worker logs visibility
-        print(f"DEBUG process_audio start task_id={task_id!r} input={input_path}")
-    except Exception:
-        pass
+    # with worker processing.
+    logger = logging.getLogger("minutes.tasks")
+    logger.info("process_audio start: task_id=%r input=%s", task_id, input_path)
+    # also print to stdout for immediate worker logs visibility
+    print(f"DEBUG process_audio start task_id={task_id!r} input={input_path}")
     # Do NOT hold a long-lived DB session during preprocessing/transcription.
     # `update_task_*` helper functions manage their own short-lived sessions.
     try:
         # mark preprocessing stage
         logger = logging.getLogger("minutes.tasks")
         if task_id:
-            try:
-                logger.debug(
-                    "process_audio: setting task status 'preprocess' for %s", task_id
-                )
-            except Exception:
-                pass
+            logger.debug(
+                "process_audio: setting task status 'preprocess' for %s", task_id
+            )
             update_task_status(task_id, "preprocess")
-            try:
-                logger.debug(
-                    "process_audio: update_task_status returned for %s", task_id
-                )
-            except Exception:
-                pass
+            logger.debug("process_audio: update_task_status returned for %s", task_id)
 
         # Log input file presence and size before calling preprocess
         try:
             inp_exists = os.path.exists(input_path)
             inp_size = os.path.getsize(input_path) if inp_exists else None
-        except Exception:
+        except OSError:
             inp_exists = False
             inp_size = None
-        try:
-            logger.info(
-                "process_audio: preprocess start input=%s exists=%s size=%s cwd=%s",
-                input_path,
-                inp_exists,
-                inp_size,
-                os.getcwd(),
-            )
-        except Exception:
-            pass
+        logger.info(
+            "process_audio: preprocess start input=%s exists=%s size=%s cwd=%s",
+            input_path,
+            inp_exists,
+            inp_size,
+            os.getcwd(),
+        )
 
         # Call preprocess with timing and robust exception logging
         import time as _time
@@ -244,51 +232,37 @@ def process_audio(self, input_path: str):
         try:
             mono, norm, clean = preprocess(input_path)
         except Exception as e:
-            try:
-                logger.exception(
-                    "process_audio: preprocess failed for %s: %s", input_path, e
-                )
-            except Exception:
-                pass
+            logger.exception("process_audio: preprocess failed for %s", input_path)
             # Record failure in task store if possible, then re-raise
             if task_id:
                 try:
                     update_task_failure(task_id, f"preprocess failed: {e}")
-                except Exception:
-                    try:
-                        logger.exception(
-                            "process_audio: failed to record preprocess failure for %s",
-                            task_id,
-                        )
-                    except Exception:
-                        pass
+                except SQLAlchemyError:
+                    logger.exception(
+                        "process_audio: failed to record preprocess failure for %s",
+                        task_id,
+                    )
             raise
         _dur = _time.time() - _start
-        try:
-            logger.info(
-                "process_audio: preprocess completed in %.2fs -> mono=%s norm=%s clean=%s",
-                _dur,
-                mono,
-                norm,
-                clean,
-            )
-        except Exception:
-            pass
+        logger.info(
+            "process_audio: preprocess completed in %.2fs -> mono=%s norm=%s clean=%s",
+            _dur,
+            mono,
+            norm,
+            clean,
+        )
         # log sizes of produced files
         for p in (mono, norm, clean):
             try:
                 s = os.path.getsize(p) if (p and os.path.exists(p)) else None
-                logger.debug(
-                    "process_audio: preprocess output %s exists=%s size=%s",
-                    p,
-                    (p and os.path.exists(p)),
-                    s,
-                )
-            except Exception:
-                try:
-                    logger.debug("process_audio: preprocess output %s check failed", p)
-                except Exception:
-                    pass
+            except OSError:
+                s = None
+            logger.debug(
+                "process_audio: preprocess output %s exists=%s size=%s",
+                p,
+                (p and os.path.exists(p)),
+                s,
+            )
 
         # Validate cleaned WAV exists and appears valid before continuing.
         try:
@@ -301,19 +275,15 @@ def process_audio(self, input_path: str):
 
             with contextlib.closing(_wave.open(clean, "rb")) as wf:
                 rate = wf.getframerate()
-                channels = wf.getnchannels()
-        except Exception as e:
+        except (wave.Error, OSError) as e:
             # raise with the familiar message shape so existing handlers record it
             raise RuntimeError(
                 f"Invalid data found when processing input: '{clean}'"
             ) from e
         # Warn if sample rate differs from expected (we force 16k in preprocess)
-        try:
-            logger = logging.getLogger("minutes.tasks")
-            if rate and rate != 16000:
-                logger.warning("Unexpected sample rate %s Hz for %s", rate, clean)
-        except Exception:
-            pass
+        logger = logging.getLogger("minutes.tasks")
+        if rate and rate != 16000:
+            logger.warning("Unexpected sample rate %s Hz for %s", rate, clean)
 
         # try to determine audio duration (seconds) from the cleaned wav file
         def _get_wav_duration(path: str):
@@ -322,7 +292,7 @@ def process_audio(self, input_path: str):
                     frames = wf.getnframes()
                     rate = wf.getframerate()
                     return frames / float(rate)
-            except Exception as e:
+            except (wave.Error, OSError) as e:
                 logger = logging.getLogger("minutes.tasks")
                 logger.debug("wave.open failed for %s: %s", path, e)
                 # fallback: try ffprobe
@@ -344,9 +314,9 @@ def process_audio(self, input_path: str):
                     )
                     try:
                         return float(out.strip())
-                    except Exception:
+                    except (ValueError, TypeError):
                         return None
-                except Exception as e2:
+                except (subprocess.CalledProcessError, OSError) as e2:
                     logger.debug("ffprobe fallback failed for %s: %s", path, e2)
                     return None
 
@@ -367,161 +337,80 @@ def process_audio(self, input_path: str):
             logger = logging.getLogger("minutes.tasks")
             raw_text = ""
             segments = []
-            files = {"file": (os.path.basename(clean), open(clean, "rb"), "audio/wav")}
-            try:
-                size = os.path.getsize(clean) if os.path.exists(clean) else None
-            except Exception:
-                size = None
-            logger.info(
-                "inference: calling %s file=%s size=%s",
-                inference_url,
-                os.path.basename(clean),
-                size,
-            )
-            try_stream = True
-            attempts = 0
-            max_attempts = 3
-            backoff = 1
-            while attempts < max_attempts:
-                attempts += 1
+            with open(clean, "rb") as fh:
+                files = {"file": (os.path.basename(clean), fh, "audio/wav")}
                 try:
-                    resp = requests.post(
-                        inference_url,
-                        files=files,
-                        stream=True,
-                        timeout=(5, 360),
-                        headers={"Connection": "keep-alive"},
-                    )
-                    logger.info(
-                        "inference: http POST sent (attempt=%s) -> status=%s",
-                        attempts,
-                        getattr(resp, "status_code", None),
-                    )
+                    size = os.path.getsize(clean) if os.path.exists(clean) else None
+                except OSError:
+                    size = None
+                logger.info(
+                    "inference: calling %s file=%s size=%s",
+                    inference_url,
+                    os.path.basename(clean),
+                    size,
+                )
+                try_stream = True
+                attempts = 0
+                max_attempts = 3
+                backoff = 1
+                while attempts < max_attempts:
+                    attempts += 1
                     try:
-                        logger.debug(
-                            "inference response headers: %s", dict(resp.headers)
+                        resp = requests.post(
+                            inference_url,
+                            files=files,
+                            stream=True,
+                            timeout=(5, 360),
+                            headers={"Connection": "keep-alive"},
                         )
-                    except Exception:
-                        pass
-                    resp.raise_for_status()
-                    # parse NDJSON stream
-                    for line in resp.iter_lines(decode_unicode=True, chunk_size=1024):
-                        if not line:
-                            continue
-                        logger.debug(
-                            "inference: ndjson raw line: %s",
-                            (line[:200] if isinstance(line, str) else str(line)[:200]),
+                        logger.info(
+                            "inference: http POST sent (attempt=%s) -> status=%s",
+                            attempts,
+                            getattr(resp, "status_code", None),
                         )
                         try:
-                            obj = json.loads(line)
-                        except Exception:
                             logger.debug(
-                                "inference: failed to parse ndjson line: %r",
+                                "inference response headers: %s", dict(resp.headers)
+                            )
+                        except (TypeError, AttributeError):
+                            pass
+                        resp.raise_for_status()
+                        # parse NDJSON stream
+                        for line in resp.iter_lines(
+                            decode_unicode=True, chunk_size=1024
+                        ):
+                            if not line:
+                                continue
+                            logger.debug(
+                                "inference: ndjson raw line: %s",
                                 (
                                     line[:200]
                                     if isinstance(line, str)
                                     else str(line)[:200]
                                 ),
                             )
-                            continue
-                        typ = obj.get("type")
-                        if typ == "heartbeat":
-                            # ignore heartbeats
-                            continue
-                        if typ == "segment":
-                            try:
-                                end = float(obj.get("end", 0.0) or 0.0)
-                                if task_id:
-                                    update_task_status(
-                                        task_id, f"transcribing:{end:.1f}s"
-                                    )
-                                    if audio_duration and audio_duration > 0:
-                                        pct = min(100.0, (end / audio_duration) * 100.0)
-                                        logger.debug(
-                                            "Updating progress for %s: %.2f%% (end=%.2f)",
-                                            task_id,
-                                            pct,
-                                            end,
-                                        )
-                                        update_task_progress(task_id, pct)
-                            except Exception:
-                                pass
-                            segments.append(obj)
-                        elif typ == "final":
-                            raw_text = obj.get("raw_text", "")
-                            if isinstance(obj.get("segments"), list):
-                                segments = obj.get("segments")
-                            if task_id:
-                                update_task_progress(task_id, 100.0)
-                                logger.debug(
-                                    "Marking progress 100%% for %s (final)", task_id
-                                )
-                            try:
-                                logger.info(
-                                    "inference: final received (len=%s)",
-                                    len(raw_text) if raw_text is not None else 0,
-                                )
-                            except Exception:
-                                pass
-                        elif typ == "error":
-                            raise RuntimeError(obj.get("error"))
-                    # if we completed without exception, break
-                    break
-                except ChunkedEncodingError as e:
-                    logger.exception(
-                        "ChunkedEncodingError from inference (attempt %s): %s",
-                        attempts,
-                        e,
-                    )
-                    try_stream = False
-                except RequestException as e:
-                    logger.exception(
-                        "RequestException from inference (attempt %s): %s", attempts, e
-                    )
-                    try_stream = False
-
-                # fallback: non-streaming request to get whole response body
-                if not try_stream and attempts < max_attempts:
-                    try:
-                        logger.info(
-                            "Attempting non-streaming fallback request to inference (attempt %s)",
-                            attempts + 1,
-                        )
-                        # need to re-open the file for the new request
-                        with open(clean, "rb") as fh2:
-                            files2 = {
-                                "file": (os.path.basename(clean), fh2, "audio/wav")
-                            }
-                            resp2 = requests.post(
-                                inference_url,
-                                files=files2,
-                                timeout=(5, 300),
-                                headers={"Connection": "keep-alive"},
-                            )
-                        logger.info(
-                            "inference fallback response status=%s",
-                            getattr(resp2, "status_code", None),
-                        )
-                        try:
-                            body = resp2.text
-                        except Exception:
-                            body = None
-                        for line in body.splitlines():
-                            if not line:
-                                continue
                             try:
                                 obj = json.loads(line)
-                            except Exception:
+                            except json.JSONDecodeError:
+                                logger.debug(
+                                    "inference: failed to parse ndjson line: %r",
+                                    (
+                                        line[:200]
+                                        if isinstance(line, str)
+                                        else str(line)[:200]
+                                    ),
+                                )
                                 continue
                             typ = obj.get("type")
                             if typ == "heartbeat":
+                                # ignore heartbeats
                                 continue
                             if typ == "segment":
                                 try:
                                     end = float(obj.get("end", 0.0) or 0.0)
                                     if task_id:
                                         update_task_status(
-                                            task_id, f"transcribing:{end:.1f}s", db=db
+                                            task_id, f"transcribing:{end:.1f}s"
                                         )
                                         if audio_duration and audio_duration > 0:
                                             pct = min(
@@ -533,8 +422,8 @@ def process_audio(self, input_path: str):
                                                 pct,
                                                 end,
                                             )
-                                            update_task_progress(task_id, pct, db=db)
-                                except Exception:
+                                            update_task_progress(task_id, pct)
+                                except (ValueError, TypeError, SQLAlchemyError):
                                     pass
                                 segments.append(obj)
                             elif typ == "final":
@@ -544,28 +433,110 @@ def process_audio(self, input_path: str):
                                 if task_id:
                                     update_task_progress(task_id, 100.0)
                                     logger.debug(
-                                        "Marking progress 100%% for %s (final-fallback)",
-                                        task_id,
+                                        "Marking progress 100%% for %s (final)", task_id
                                     )
+                                logger.info(
+                                    "inference: final received (len=%s)",
+                                    len(raw_text) if raw_text is not None else 0,
+                                )
                             elif typ == "error":
                                 raise RuntimeError(obj.get("error"))
+                        # if we completed without exception, break
                         break
-                    except Exception as e:
-                        logger.exception("Fallback inference request failed: %s", e)
-                        # sleep exponential backoff before retrying
-                        try:
-                            import time
+                    except ChunkedEncodingError:
+                        logger.exception(
+                            "ChunkedEncodingError from inference (attempt %s)",
+                            attempts,
+                        )
+                        try_stream = False
+                    except RequestException:
+                        logger.exception(
+                            "RequestException from inference (attempt %s)", attempts
+                        )
+                        try_stream = False
 
-                            time.sleep(backoff)
-                            backoff = min(60, backoff * 2)
-                        except Exception:
-                            pass
-                        continue
-            # close the original file object in files
-            try:
-                files["file"][1].close()
-            except Exception:
-                pass
+                    # fallback: non-streaming request to get whole response body
+                    if not try_stream and attempts < max_attempts:
+                        try:
+                            logger.info(
+                                "Attempting non-streaming fallback request to inference (attempt %s)",
+                                attempts + 1,
+                            )
+                            # need to re-open the file for the new request
+                            with open(clean, "rb") as fh2:
+                                files2 = {
+                                    "file": (os.path.basename(clean), fh2, "audio/wav")
+                                }
+                                resp2 = requests.post(
+                                    inference_url,
+                                    files=files2,
+                                    timeout=(5, 300),
+                                    headers={"Connection": "keep-alive"},
+                                )
+                            logger.info(
+                                "inference fallback response status=%s",
+                                getattr(resp2, "status_code", None),
+                            )
+                            try:
+                                body = resp2.text
+                            except AttributeError:
+                                body = None
+                            for line in body.splitlines():
+                                if not line:
+                                    continue
+                                try:
+                                    obj = json.loads(line)
+                                except json.JSONDecodeError:
+                                    continue
+                                typ = obj.get("type")
+                                if typ == "heartbeat":
+                                    continue
+                                if typ == "segment":
+                                    try:
+                                        end = float(obj.get("end", 0.0) or 0.0)
+                                        if task_id:
+                                            update_task_status(
+                                                task_id, f"transcribing:{end:.1f}s"
+                                            )
+                                            if audio_duration and audio_duration > 0:
+                                                pct = min(
+                                                    100.0,
+                                                    (end / audio_duration) * 100.0,
+                                                )
+                                                logger.debug(
+                                                    "Updating progress for %s: %.2f%% (end=%.2f)",
+                                                    task_id,
+                                                    pct,
+                                                    end,
+                                                )
+                                                update_task_progress(task_id, pct)
+                                    except (ValueError, TypeError, SQLAlchemyError):
+                                        pass
+                                    segments.append(obj)
+                                elif typ == "final":
+                                    raw_text = obj.get("raw_text", "")
+                                    if isinstance(obj.get("segments"), list):
+                                        segments = obj.get("segments")
+                                    if task_id:
+                                        update_task_progress(task_id, 100.0)
+                                        logger.debug(
+                                            "Marking progress 100%% for %s (final-fallback)",
+                                            task_id,
+                                        )
+                                elif typ == "error":
+                                    raise RuntimeError(obj.get("error"))
+                            break
+                        except (RequestException, OSError, json.JSONDecodeError):
+                            logger.exception("Fallback inference request failed")
+                            # sleep exponential backoff before retrying
+                            try:
+                                import time
+
+                                time.sleep(backoff)
+                                backoff = min(60, backoff * 2)
+                            except (OSError, InterruptedError):
+                                pass
+                            continue
         else:
             # Use local transcribe with progress callback to update task status
             def _progress(seg):
@@ -576,7 +547,7 @@ def process_audio(self, input_path: str):
                         if audio_duration and audio_duration > 0:
                             pct = min(100.0, (end / audio_duration) * 100.0)
                             update_task_progress(task_id, pct)
-                except Exception:
+                except (ValueError, TypeError, SQLAlchemyError):
                     pass
 
             raw_text, segments = transcribe(
@@ -601,7 +572,8 @@ def process_audio(self, input_path: str):
                         "payload": {"status": "formatting"},
                     }
                 )
-            except Exception:
+            except ImportError:
+                # SSE machinery not available in some environments
                 pass
 
         # Attempt to read task metadata to customize the formatting prompt
@@ -611,7 +583,7 @@ def process_audio(self, input_path: str):
                 trec = get_task(task_id)
                 if trec:
                     meta = trec.get("result") or {}
-        except Exception:
+        except SQLAlchemyError:
             meta = None
 
         system_prompt = build_system_prompt(meta)
@@ -623,7 +595,7 @@ def process_audio(self, input_path: str):
         else:
             final_minutes = format_minutes_from_raw(raw_text)
 
-        now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        now = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
         os.makedirs(outputs_dir, exist_ok=True)
         out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
@@ -633,7 +605,7 @@ def process_audio(self, input_path: str):
         # Build structured result: transcript, segments, formatted minutes, summary, action items
         try:
             from minutes.summary import summarize_local
-        except Exception:
+        except ImportError:
 
             def summarize_local(x, max_sentences=3):
                 return ""
@@ -641,7 +613,7 @@ def process_audio(self, input_path: str):
         # summary: prefer summarizing formatted minutes for readability
         try:
             summary_text = summarize_local(final_minutes, max_sentences=3)
-        except Exception:
+        except (ValueError, TypeError, RuntimeError):
             summary_text = ""
 
         # action items: simple heuristic parse from formatted minutes
@@ -668,7 +640,7 @@ def process_audio(self, input_path: str):
                         r"\b(Action|TODO|Action Item)[:\-]", line, re.IGNORECASE
                     ):
                         items.append({"text": line.strip()})
-        except Exception:
+        except re.error:
             items = []
 
         structured = {
@@ -697,7 +669,7 @@ def process_audio(self, input_path: str):
                     )
                     try:
                         svc.ensure_bucket(bucket)
-                    except Exception:
+                    except (S3Error, ValueError):
                         # best-effort
                         pass
                     object_name = f"minutes/{task_id}/minutes_{now}.txt"
@@ -720,10 +692,10 @@ def process_audio(self, input_path: str):
                             from datetime import timedelta
 
                             expires_at = (
-                                datetime.datetime.utcnow()
+                                datetime.datetime.now(tz=datetime.timezone.utc)
                                 + timedelta(seconds=expires_sec)
                             ).isoformat() + "Z"
-                        except Exception:
+                        except (ValueError, S3Error):
                             url = None
                             expires_sec = None
                             expires_at = None
@@ -734,7 +706,7 @@ def process_audio(self, input_path: str):
                             "expires": expires_sec,
                             "expires_at": expires_at,
                         }
-                    except Exception:
+                    except S3Error:
                         logging.getLogger("minutes.tasks").exception(
                             "MinIO upload failed for task %s", task_id
                         )
@@ -742,7 +714,7 @@ def process_audio(self, input_path: str):
                     logging.getLogger("minutes.tasks").exception(
                         "Failed initializing MinIO client for task %s", task_id
                     )
-        except Exception:
+        except (RuntimeError, S3Error):
             # swallow any MinIO-related errors; shouldn't fail the task
             pass
 
@@ -779,7 +751,7 @@ def process_audio(self, input_path: str):
                                 p_abs,
                                 task_id,
                             )
-                    except Exception:
+                    except OSError:
                         logger = logging.getLogger("minutes.tasks")
                         logger.exception(
                             "Failed to remove intermediate %s for task %s", p, task_id
@@ -795,6 +767,6 @@ def process_audio(self, input_path: str):
         if task_id:
             try:
                 update_task_failure(task_id, str(e))
-            except Exception:
+            except SQLAlchemyError:
                 pass
         raise

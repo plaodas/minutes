@@ -1,7 +1,9 @@
+import logging
 import os
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("BG_TASK_DB_URL")
@@ -42,6 +44,9 @@ SessionLocal = sessionmaker(
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 @contextmanager
 def session_scope():
     """Provide a transactional scope around a series of operations.
@@ -52,28 +57,29 @@ def session_scope():
             # commit happens automatically on success; rollback on exception
     """
     db = SessionLocal()
+    committed = False
     try:
         yield db
         db.commit()
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        raise
+        committed = True
     finally:
+        if not committed:
+            try:
+                db.rollback()
+            except SQLAlchemyError:
+                logger.exception("Failed to rollback DB session")
         try:
             db.close()
-        except Exception:
-            pass
+        except SQLAlchemyError:
+            logger.exception("Failed to close DB session")
 
 
 def dispose_engine():
     """Dispose the SQLAlchemy engine (useful to call after fork in Celery)."""
     try:
         engine.dispose()
-    except Exception:
-        pass
+    except (SQLAlchemyError, OSError):
+        logger.exception("Failed to dispose engine")
 
 
 # Note: do not auto-create or modify schema here. Use Alembic migrations instead.

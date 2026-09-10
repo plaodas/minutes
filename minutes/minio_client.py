@@ -1,7 +1,11 @@
 import json
+import logging
 import os
 
 from minio import Minio
+from minio.error import S3Error
+
+logger = logging.getLogger(__name__)
 
 
 def make_minio_client():
@@ -44,9 +48,8 @@ class MinioService:
             }
             try:
                 self.client.set_bucket_policy(name, json.dumps(policy))
-            except Exception:
-                # non-fatal
-                pass
+            except S3Error:
+                logger.debug("set_bucket_policy failed for %s", name, exc_info=True)
 
     def delete_bucket(self, name: str, force: bool = False):
         if force:
@@ -54,8 +57,13 @@ class MinioService:
             for obj in self.client.list_objects(name, recursive=True):
                 try:
                     self.client.remove_object(name, obj.object_name)
-                except Exception:
-                    pass
+                except S3Error:
+                    logger.debug(
+                        "remove_object failed for %s/%s",
+                        name,
+                        obj.object_name,
+                        exc_info=True,
+                    )
         self.client.remove_bucket(name)
 
     def list_objects(self, name: str, prefix: str = ""):
@@ -67,9 +75,12 @@ class MinioService:
     def delete_object(self, bucket: str, obj: str, ignore_missing: bool = True):
         try:
             self.client.remove_object(bucket, obj)
-        except Exception:
+        except S3Error:
             if not ignore_missing:
                 raise
+            logger.debug(
+                "remove_object failed for %s/%s (ignored)", bucket, obj, exc_info=True
+            )
 
     def delete_objects_with_prefix(
         self, bucket: str, prefix: str, ignore_missing: bool = True
@@ -78,6 +89,12 @@ class MinioService:
         for obj in self.client.list_objects(bucket, prefix=prefix, recursive=True):
             try:
                 self.client.remove_object(bucket, obj.object_name)
-            except Exception:
+            except S3Error:
                 if not ignore_missing:
                     raise
+                logger.debug(
+                    "remove_object failed for %s/%s (ignored)",
+                    bucket,
+                    obj.object_name,
+                    exc_info=True,
+                )

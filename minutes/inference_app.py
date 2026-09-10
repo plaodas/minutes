@@ -6,6 +6,7 @@ import threading
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from minutes.transcribe import transcribe
 
@@ -14,17 +15,24 @@ logger = logging.getLogger("minutes.inference")
 
 app = FastAPI(title="Minutes Inference Service")
 
+# module-level default for FastAPI `File()` to satisfy linter
+_UPLOAD_FILE = File(...)
+
 
 @app.post("/transcribe")
-async def transcribe_endpoint(file: UploadFile = File(...)):
+async def transcribe_endpoint(file: UploadFile = _UPLOAD_FILE):
     uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
     dest_path = os.path.join(uploads_dir, file.filename)
     try:
-        with open(dest_path, "wb") as out:
-            content = await file.read()
-            out.write(content)
-    except Exception as exc:
+        content = await file.read()
+
+        def _write_bytes(path: str, data: bytes) -> None:
+            with open(path, "wb") as outp:
+                outp.write(data)
+
+        await run_in_threadpool(_write_bytes, dest_path, content)
+    except (OSError, RuntimeError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
     # Stream NDJSON: run transcribe in a background thread and emit one JSON
@@ -50,7 +58,7 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
             ]
             out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
             return float(out.strip())
-        except Exception:
+        except (subprocess.CalledProcessError, FileNotFoundError, ValueError, OSError):
             return None
 
     def _progress(s):
@@ -67,7 +75,7 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
             try:
                 if total_duration and total_duration > 0:
                     percent = min(100, int(100 * (ed / total_duration)))
-            except Exception:
+            except (TypeError, ValueError):
                 percent = None
 
             obj = {
@@ -81,14 +89,15 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
             line = json.dumps(obj, ensure_ascii=False)
             logger.info("stream segment: %s", line[:200])
             q.put(line + "\n")
-        except Exception:
+        except (TypeError, ValueError, AttributeError, OSError):
             try:
-                q.put(
+                fallback = (
                     json.dumps({"type": "segment", "text": str(s)}, ensure_ascii=False)
                     + "\n"
                 )
-            except Exception:
-                pass
+                q.put(fallback)
+            except (TypeError, ValueError, OSError):
+                logger.exception("failed to queue fallback segment for %s", dest_path)
 
     def worker():
         try:
@@ -97,13 +106,16 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
             )
             final = {"type": "final", "raw_text": raw_text, "segments": segs}
             q.put(json.dumps(final, ensure_ascii=False) + "\n")
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError, TypeError) as exc:
             # Log full exception with traceback for debugging on the inference side
-            logger.exception("transcribe worker failed for %s: %s", dest_path, exc)
-            q.put(
-                json.dumps({"type": "error", "error": str(exc)}, ensure_ascii=False)
-                + "\n"
-            )
+            logger.exception("transcribe worker failed for %s", dest_path)
+            try:
+                q.put(
+                    json.dumps({"type": "error", "error": str(exc)}, ensure_ascii=False)
+                    + "\n"
+                )
+            except (TypeError, ValueError, OSError):
+                logger.exception("failed to queue error for %s", dest_path)
         finally:
             q.put(None)
 

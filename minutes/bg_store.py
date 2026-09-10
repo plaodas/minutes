@@ -22,7 +22,7 @@ from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
 
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
-except Exception:
+except ImportError:
     pg_insert = None
 from datetime import datetime
 
@@ -31,7 +31,7 @@ from .summary import summarize_local
 # SSE publisher (minimal): publish events when history rows are recorded
 try:
     from .sse import publish_event
-except Exception:
+except ImportError:
 
     def publish_event(_):
         return
@@ -118,7 +118,7 @@ def _parse_key(maybe_id):
     cleaned = "".join(ch for ch in s if (ch.isalnum() or ch == "-"))
     try:
         return uuid.UUID(cleaned)
-    except Exception:
+    except (ValueError, AttributeError):
         return maybe_id
 
 
@@ -141,47 +141,48 @@ def maybe_session(db=None):
 
 
 def record_history(task_id: str, event_type: str, payload: dict | None = None, db=None):
+    logger.debug(
+        "record_history start: task_id=%s event=%s engine=%s",
+        task_id,
+        event_type,
+        getattr(engine, "url", None),
+    )
+    key = _parse_key(task_id)
+    # if external id isn't a UUID, _parse_key returns original string; ensure we store a UUID
+    if not isinstance(key, uuid.UUID):
+        # best-effort: try to find a Task row by external id in payload or skip
+        # fallback: do not create history row tied to a non-UUID id
+        logger.debug("record_history skipping non-UUID task_id=%s", task_id)
+        return
     try:
-        logger.debug(
-            "record_history start: task_id=%s event=%s engine=%s",
-            task_id,
-            event_type,
-            getattr(engine, "url", None),
-        )
-        key = _parse_key(task_id)
-        # if external id isn't a UUID, _parse_key returns original string; ensure we store a UUID
-        if not isinstance(key, uuid.UUID):
-            # best-effort: try to find a Task row by external id in payload or skip
-            # fallback: do not create history row tied to a non-UUID id
-            logger.debug("record_history skipping non-UUID task_id=%s", task_id)
-            return
         with maybe_session(db) as (s, created):
             h = TaskHistory(task_id=key, event_type=event_type, payload=payload or {})
             s.add(h)
             try:
                 s.commit()
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception("record_history commit failed for %s", task_id)
                 try:
                     s.rollback()
-                except Exception:
-                    pass
-            # publish SSE event for live updates (non-blocking)
-            try:
-                publish_event(
-                    {
-                        "type": "task.event",
-                        "task_id": (
-                            str(key) if isinstance(key, uuid.UUID) else str(task_id)
-                        ),
-                        "event_type": event_type,
-                        "payload": payload or {},
-                    }
-                )
-            except Exception:
-                logger.exception("publish_event failed for %s", task_id)
-    except Exception:
-        logger.exception("record_history failed for %s", task_id)
+                except SQLAlchemyError:
+                    logger.exception("record_history rollback failed for %s", task_id)
+                return
+    except SQLAlchemyError:
+        logger.exception("record_history DB error for %s", task_id)
+        return
+
+    # publish SSE event for live updates (non-blocking)
+    try:
+        publish_event(
+            {
+                "type": "task.event",
+                "task_id": (str(key) if isinstance(key, uuid.UUID) else str(task_id)),
+                "event_type": event_type,
+                "payload": payload or {},
+            }
+        )
+    except (RuntimeError, OSError):
+        logger.exception("publish_event failed for %s", task_id)
 
 
 def create_task(
@@ -230,7 +231,7 @@ def create_task(
                             task_id,
                         )
                         owner_val = None
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     owner_val = None
 
             # If a user id was provided, ensure it exists in the users table
@@ -244,7 +245,7 @@ def create_task(
                             getattr(engine, "dialect", None)
                             and getattr(engine.dialect, "name", "").lower()
                         )
-                    except Exception:
+                    except (AttributeError, TypeError):
                         dialect_name = None
                     if dialect_name == "postgresql":
                         try:
@@ -253,7 +254,7 @@ def create_task(
                                     has_users_table = sa_inspect(
                                         s_check.get_bind()
                                     ).has_table("users")
-                                except Exception:
+                                except SQLAlchemyError:
                                     has_users_table = False
                                 if has_users_table:
                                     try:
@@ -275,12 +276,12 @@ def create_task(
                                                 task_id,
                                             )
                                             owner_val = None
-                                    except Exception:
+                                    except SQLAlchemyError:
                                         logger.exception(
                                             "create_task: error checking user existence for %s; assuming exists",
                                             owner_val,
                                         )
-                        except Exception:
+                        except SQLAlchemyError:
                             logger.exception(
                                 "create_task: unexpected error while checking user existence; keeping owner for %s",
                                 owner_val,
@@ -290,7 +291,7 @@ def create_task(
                             "create_task: non-postgres dialect (%s); skipping user existence check",
                             dialect_name,
                         )
-                except Exception:
+                except (ImportError, SQLAlchemyError, AttributeError):
                     logger.exception(
                         "create_task: unexpected error while checking user existence; keeping owner for %s",
                         owner_val,
@@ -306,7 +307,7 @@ def create_task(
                     and getattr(engine, "dialect", None)
                     and getattr(engine.dialect, "name", "").lower() == "postgresql"
                 )
-            except Exception:
+            except AttributeError:
                 use_pg_upsert = False
 
             if use_pg_upsert:

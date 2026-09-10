@@ -94,7 +94,7 @@ def format_minutes_from_raw(
         try:
             resp_json = _call_model(m)
             break
-        except Exception as exc:
+        except requests.exceptions.RequestException as exc:
             last_error = exc
             # if model load failed due to server OOM or load error, try next fallback
             continue
@@ -110,7 +110,7 @@ def format_minutes_from_raw(
                 max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")),
             )
             return f"[FALLBACK] {err_msg}\n\n{summary}"
-        except Exception:
+        except (ValueError, TypeError, RuntimeError):
             max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
             snippet = (
                 raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
@@ -133,7 +133,7 @@ def format_minutes_from_raw(
             max_sentences=int(os.environ.get("OLLAMA_FALLBACK_SENTENCES", "5")),
         )
         return f"[FALLBACK] {err_msg}\n\n{summary}"
-    except Exception:
+    except (ValueError, TypeError, RuntimeError):
         max_len = int(os.environ.get("OLLAMA_FALLBACK_MAX_CHARS", "4000"))
         snippet = raw_text if len(raw_text) <= max_len else raw_text[:max_len] + "..."
         return f"[FALLBACK] {err_msg}\n\n{snippet}"
