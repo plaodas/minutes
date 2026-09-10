@@ -1,10 +1,13 @@
+from typing import Callable, Any
+
+
 def transcribe(
     audio_path: str,
     model_size: str = "medium",
     prompt: str | None = None,
     device: str = "cpu",
     raw_out: str | None = None,
-    progress_callback: callable | None = None,
+    progress_callback: Callable[[Any], None] | None = None,
 ) -> tuple[str, object]:
     """Transcribe audio using faster-whisper and optionally save raw transcript.
 
