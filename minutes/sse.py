@@ -1,8 +1,8 @@
 import asyncio
-import threading
 import json
-import os
 import logging
+import os
+import threading
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("minutes.sse")

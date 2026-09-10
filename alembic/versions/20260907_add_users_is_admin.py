@@ -5,8 +5,9 @@ Revises: 20260906_add_task_deleted
 Create Date: 2026-09-07 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260907_add_users_is_admin"
 down_revision = "20260906_add_task_deleted"

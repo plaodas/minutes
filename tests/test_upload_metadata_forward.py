@@ -1,13 +1,15 @@
 import io
 import wave
+
 from fastapi.testclient import TestClient
-from backend.app import app
 
 import minutes.tasks as tasks
+from backend.app import app
 
 
 def make_wav_bytes(duration_seconds: float = 0.02) -> bytes:
-    import wave, io
+    import io
+    import wave
 
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -36,8 +38,8 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
         monkeypatch.setattr(tasks, "process_audio", lambda path: Dummy("fake-id-xyz"))
 
     called = {}
-    import minutes.bg_store as bg
     import minutes.api as api_mod
+    import minutes.bg_store as bg
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
         called["task_id"] = task_id

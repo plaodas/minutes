@@ -1,17 +1,18 @@
+import uuid
+
 from sqlalchemy import (
-    Column,
-    String,
-    Integer,
-    DateTime,
-    Numeric,
     JSON,
+    Boolean,
+    Column,
+    DateTime,
     ForeignKey,
+    Integer,
+    Numeric,
+    String,
     func,
 )
-from sqlalchemy import Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
-import uuid
 
 Base = declarative_base()
 

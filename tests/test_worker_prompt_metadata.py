@@ -1,5 +1,5 @@
-import uuid
 import os
+import uuid
 from types import SimpleNamespace
 
 import pytest

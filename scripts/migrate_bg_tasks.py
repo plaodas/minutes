@@ -4,14 +4,15 @@ Usage:
   DATABASE_URL=... python scripts/migrate_bg_tasks.py
 """
 
-import os
-import os
 import json
+import os
 import uuid
+from datetime import datetime
+
 from sqlalchemy.orm import Session
+
 from minutes.db import engine, session_scope
 from minutes.models import Task
-from datetime import datetime
 
 DB_FILE = os.environ.get("BG_TASK_DB", "data/bg_tasks.json")
 

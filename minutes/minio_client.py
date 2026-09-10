@@ -1,7 +1,8 @@
+import json
+import os
+
 from minio import Minio
 from minio.error import S3Error
-import os
-import json
 
 
 def make_minio_client():

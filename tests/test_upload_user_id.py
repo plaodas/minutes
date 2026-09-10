@@ -1,9 +1,10 @@
 import io
 import wave
+
 import pytest
 from fastapi.testclient import TestClient
-from backend.app import app
 
+from backend.app import app
 from minutes import tasks
 
 
@@ -51,8 +52,8 @@ def test_upload_sets_user_id(monkeypatch):
     # create_task was called with the expected user_id by monkeypatching it.
     called = {}
 
-    import minutes.bg_store as bg
     import minutes.api as api_mod
+    import minutes.bg_store as bg
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
         called["task_id"] = task_id

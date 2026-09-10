@@ -1,10 +1,12 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse
-import os
-import logging
 import json
-import threading
+import logging
+import os
 import queue
+import threading
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
+
 from minutes.transcribe import transcribe
 
 logging.basicConfig(level=logging.INFO)

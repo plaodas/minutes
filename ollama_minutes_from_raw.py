@@ -1,5 +1,6 @@
-import sys
 import datetime
+import sys
+
 from minutes.ollama import format_minutes_from_raw
 
 

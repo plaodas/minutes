@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import os
 import sys
-from alembic.config import Config
+
 from alembic import command
+from alembic.config import Config
 
 
 def main():

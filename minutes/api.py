@@ -1,57 +1,63 @@
+import asyncio
+import json
+import logging
+import os
+import shutil
+import tempfile
+import time
+import typing
+import uuid
+from typing import Any, Dict, List
+
+from celery.result import AsyncResult
 from fastapi import (
-    FastAPI,
-    UploadFile,
-    File,
-    HTTPException,
     BackgroundTasks,
     Depends,
-    Request,
+    FastAPI,
+    File,
     Form,
+    Header,
+    HTTPException,
+    Request,
+    UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
-import logging
-from fastapi.responses import PlainTextResponse, JSONResponse
-from fastapi.responses import StreamingResponse, Response, FileResponse
-from typing import Dict, Any, List
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    Response,
+    StreamingResponse,
+)
 from pydantic import BaseModel
-import json
+from sqlalchemy.exc import IntegrityError
+
+import minutes.tasks as tasks
+from minutes.audio import preprocess
+from minutes.bg_store import (
+    create_task,
+    get_task,
+    record_history,
+    update_task_cancelled,
+    update_task_failure,
+    update_task_status,
+    update_task_success,
+)
+from minutes.celery_app import celery
+from minutes.db import session_scope
+from minutes.minio_client import MinioService
+from minutes.models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
+from minutes.ollama import format_minutes_from_raw
+from minutes.reconcile_bg_tasks import reconcile_once
 from minutes.schemas import (
     CreateTaskResponse,
     FormatRawRequest,
     FormatRawResponse,
-    StatusResponse,
     ResultSuccess,
+    StatusResponse,
 )
-import tempfile
-import shutil
-import os
-from minutes.audio import preprocess
-from minutes.transcribe import transcribe
-from minutes.ollama import format_minutes_from_raw
-import minutes.tasks as tasks
-from minutes.celery_app import celery
-from celery.result import AsyncResult
-from minutes.bg_store import (
-    create_task,
-    update_task_success,
-    update_task_failure,
-    get_task,
-    update_task_status,
-    record_history,
-)
-from minutes.bg_store import update_task_cancelled
 from minutes.sse import register_queue, unregister_queue
-import uuid
-import typing
-from minutes.db import session_scope
-from minutes.models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID
-from sqlalchemy.exc import IntegrityError
-import uuid
-from minutes.reconcile_bg_tasks import reconcile_once
-import time
-from minutes.minio_client import MinioService
-from fastapi import Header
+from minutes.transcribe import transcribe
 
 # Allowed upload file types
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus"}
@@ -1055,7 +1061,7 @@ def bg_histories(payload: IdList):
         for i in ids:
             out[str(i)] = []
 
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
 
         # For per-id offsets we execute per-task small window queries within each chunk
         for start in range(0, n_ids, BG_HISTORIES_BATCH_SIZE):
@@ -2023,7 +2029,8 @@ def bg_action_items(task_id: str, format: str = "json"):
         return JSONResponse({"task_id": task_id, "items": items})
     if format == "csv":
         # build CSV
-        import io, csv
+        import csv
+        import io
 
         buf = io.StringIO()
         writer = csv.writer(buf)

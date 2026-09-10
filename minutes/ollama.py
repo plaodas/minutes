@@ -1,6 +1,8 @@
 import os
-import requests
 from typing import Optional
+
+import requests
+
 from minutes.summary import summarize_local
 
 DEFAULT_SYSTEM_PROMPT = """

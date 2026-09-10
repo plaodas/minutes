@@ -1,7 +1,7 @@
-import os
-import types
 import logging
+import os
 import tempfile
+import types
 
 import minutes.tasks as tasks
 

@@ -8,10 +8,11 @@ Environment: set DATABASE_URL to point to the Postgres DB (or use default sqlite
 """
 
 import os
+from pathlib import Path
+
 from minutes.db import session_scope
 from minutes.models import Task
 from minutes.summary import summarize_local
-from pathlib import Path
 
 outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
 

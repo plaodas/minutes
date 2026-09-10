@@ -5,9 +5,10 @@ Revises: 20260901_add_buckets_table
 Create Date: 2026-09-05 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260905_owner_not_null"

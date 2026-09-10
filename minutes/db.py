@@ -1,9 +1,10 @@
 import os
 from contextlib import contextmanager
-from sqlalchemy import create_engine
+
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+
 from minutes.models import Base
-from sqlalchemy import text
 
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("BG_TASK_DB_URL")
 if not DATABASE_URL:

@@ -1,22 +1,24 @@
-import datetime
-import os
-import json
 import contextlib
-import wave
+import datetime
+import json
 import logging
+import os
+import wave
+
+import requests
 from requests.exceptions import ChunkedEncodingError, RequestException
-from minutes.celery_app import celery
+
 from minutes.audio import preprocess
-from minutes.transcribe import transcribe
-from minutes.ollama import format_minutes_from_raw, DEFAULT_SYSTEM_PROMPT
 from minutes.bg_store import (
     get_task,
-    update_task_success,
     update_task_failure,
-    update_task_status,
     update_task_progress,
+    update_task_status,
+    update_task_success,
 )
-import requests
+from minutes.celery_app import celery
+from minutes.ollama import DEFAULT_SYSTEM_PROMPT, format_minutes_from_raw
+from minutes.transcribe import transcribe
 
 
 def build_system_prompt(meta_obj):
@@ -47,10 +49,11 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
     This task is retryable by Celery if MinIO deletion fails.
     """
     logger = logging.getLogger("minutes.tasks")
+    from datetime import datetime
+
     from minutes.db import session_scope
     from minutes.minio_client import MinioService
-    from minutes.models import Task, TaskHistory, Bucket
-    from datetime import datetime
+    from minutes.models import Bucket, Task, TaskHistory
 
     with session_scope() as db:
         # normalize key

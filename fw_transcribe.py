@@ -1,4 +1,5 @@
 import sys
+
 from minutes.transcribe import transcribe
 
 

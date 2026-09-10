@@ -1,3 +1,4 @@
+import hashlib
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -8,9 +9,7 @@ from fastapi import Cookie, HTTPException, status
 from passlib.hash import pbkdf2_sha256
 
 from minutes.db import session_scope
-from minutes.models import User
-from minutes.models import ServiceToken
-import hashlib
+from minutes.models import ServiceToken, User
 
 # Configuration
 SECRET_KEY = (

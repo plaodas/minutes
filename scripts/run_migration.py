@@ -9,8 +9,9 @@ Usage:
 This script uses SQLAlchemy to obtain a connection and execute the SQL file.
 """
 
-import sys
 import os
+import sys
+
 from sqlalchemy import create_engine, text
 
 

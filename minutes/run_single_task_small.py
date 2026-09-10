@@ -1,10 +1,11 @@
 import os
 import sys
 import uuid
+
 from minutes.audio import preprocess
-from minutes.transcribe import transcribe
+from minutes.bg_store import update_task_failure, update_task_success
 from minutes.ollama import format_minutes_from_raw
-from minutes.bg_store import update_task_success, update_task_failure
+from minutes.transcribe import transcribe
 
 
 def run(upload_path: str, task_id: str):

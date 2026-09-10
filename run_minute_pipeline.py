@@ -1,8 +1,9 @@
-import sys
 import datetime
+import sys
+
 from minutes.audio import preprocess
-from minutes.transcribe import transcribe
 from minutes.ollama import format_minutes_from_raw
+from minutes.transcribe import transcribe
 
 
 def main():

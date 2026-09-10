@@ -6,9 +6,9 @@ Usage:
 If no args provided, reads from environment variables ADMIN_USER and ADMIN_PASS.
 """
 
+import argparse
 import os
 import sys
-import argparse
 from pathlib import Path
 
 # Ensure project root is on sys.path so `minutes` package can be imported
@@ -16,9 +16,9 @@ ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+from minutes.auth import get_password_hash
 from minutes.db import session_scope
 from minutes.models import User
-from minutes.auth import get_password_hash
 
 
 def main():

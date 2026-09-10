@@ -1,16 +1,17 @@
 import io
 import uuid
+
 from fastapi.testclient import TestClient
 
-from backend.app import app
-
 import minutes.tasks as tasks
+from backend.app import app
 from minutes.db import session_scope
 from minutes.models import Task
 
 
 def make_wav_bytes(duration_seconds: float = 0.02) -> bytes:
-    import wave, io
+    import io
+    import wave
 
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -38,8 +39,8 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
     )
 
     # ensure create_task writes a DB Task row with metadata so worker can read it
-    import minutes.bg_store as bg_store
     import minutes.api as api_mod
+    import minutes.bg_store as bg_store
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
         if db is None:

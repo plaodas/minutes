@@ -1,26 +1,30 @@
 import os
 import threading
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 _lock = threading.Lock()
+
+import logging
 
 # Always use DB-backed store. `minutes/db.py` already falls back to a
 # local sqlite file when `DATABASE_URL` is not set, so drop the file
 # JSON fallback to avoid split-brain between file and DB stores.
 import uuid
-from .db import engine, session_scope
 from contextlib import contextmanager
-import logging
+
+from .db import engine, session_scope
 
 logger = logging.getLogger("minutes.bg_store")
-from .models import Task, TaskHistory, Bucket, DUMMY_OWNER_ID, User
-from sqlalchemy.exc import NoResultFound, IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, NoResultFound, OperationalError
+
+from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory, User
 
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 except Exception:
     pg_insert = None
 from datetime import datetime
+
 from .summary import summarize_local
 
 # SSE publisher (minimal): publish events when history rows are recorded
@@ -218,7 +222,8 @@ def create_task(
             # If a user id was provided, ensure it exists in the users table
             if owner_val is not None:
                 try:
-                    from sqlalchemy import text, inspect as sa_inspect
+                    from sqlalchemy import inspect as sa_inspect
+                    from sqlalchemy import text
 
                     try:
                         dialect_name = (

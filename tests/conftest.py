@@ -8,8 +8,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./.pytest_sqlite.db")
 # Create tables for the in-memory SQLite so DB-backed code paths can run in tests.
 try:
     # Import lazily so pytest collection can proceed even if SQLAlchemy isn't installed
-    from minutes.models import Base
     from minutes.db import engine
+    from minutes.models import Base
 
     Base.metadata.create_all(bind=engine)
 except Exception:

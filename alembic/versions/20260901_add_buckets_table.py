@@ -5,9 +5,10 @@ Revises: 20260901_add_timestamps
 Create Date: 2026-09-01 00:05:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260901_add_buckets_table"

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-import sys, os, json, traceback
+import json
+import os
+import sys
+import traceback
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from minutes.minio_client import make_minio_client
 from minutes.bg_store import update_task_success
+from minutes.minio_client import make_minio_client
 
 TASK_ID = "3f5e8b0f-294a-4e10-a1e5-da8694898ed7"
 local_path = "/app/data/outputs/minutes_20260903145944.txt"

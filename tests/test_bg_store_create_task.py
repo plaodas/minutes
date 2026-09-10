@@ -1,4 +1,5 @@
 import uuid
+
 from minutes.bg_store import create_task
 from minutes.db import session_scope
 from minutes.models import Task
@@ -22,8 +23,9 @@ def test_create_task_with_external_id_and_owner():
     external = "external-123"
     create_task(external, metadata={"meta": "x"}, user_id=str(owner))
     # Use raw SQL to avoid SQLAlchemy UUID type conversions in SQLite tests
-    from minutes.db import engine
     from sqlalchemy import text
+
+    from minutes.db import engine
 
     conn = engine.connect()
     try:

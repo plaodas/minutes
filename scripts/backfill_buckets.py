@@ -17,11 +17,13 @@ docker compose exec -T minutes env PYTHONPATH=/app python3 /app/scripts/backfill
 
 import argparse
 import sys
-from minutes.minio_client import MinioService
-from minutes.db import session_scope
-from minutes.models import Bucket, DUMMY_OWNER_ID
-from sqlalchemy.exc import IntegrityError
 import uuid
+
+from sqlalchemy.exc import IntegrityError
+
+from minutes.db import session_scope
+from minutes.minio_client import MinioService
+from minutes.models import DUMMY_OWNER_ID, Bucket
 
 
 def parse_args():
