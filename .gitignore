@@ -108,4 +108,5 @@ data/bg_tasks.json
 # Frontend build outputs (generated)
 deploy/frontend_html/
 frontend/dist/
+.pytest_sqlite.db
 frontend/node_modules/
