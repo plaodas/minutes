@@ -8,7 +8,7 @@ _lock = threading.Lock()
 # local sqlite file when `DATABASE_URL` is not set, so drop the file
 # JSON fallback to avoid split-brain between file and DB stores.
 import uuid
-from .db import SessionLocal, engine, session_scope
+from .db import engine, session_scope
 from contextlib import contextmanager
 import logging
 
