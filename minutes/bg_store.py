@@ -157,7 +157,13 @@ def maybe_session(db=None):
             pass
 
 
-def record_history(task_id: str, event_type: str, payload: dict | None = None, db=None):
+def record_history(
+    task_id: str,
+    event_type: str,
+    payload: dict | None = None,
+    db=None,
+    emit_event: bool = True,
+):
     logger.debug(
         "record_history start: task_id=%s event=%s engine=%s",
         task_id,
@@ -186,6 +192,9 @@ def record_history(task_id: str, event_type: str, payload: dict | None = None, d
                 return
     except SQLAlchemyError:
         logger.exception("record_history DB error for %s", task_id)
+        return
+
+    if not emit_event:
         return
 
     # publish SSE event for live updates (non-blocking)
@@ -764,6 +773,7 @@ def update_task_progress(task_id: str, progress: float, db=None):
                                     "progress",
                                     {"progress": float(progress)},
                                     db=s,
+                                    emit_event=False,
                                 )
                         else:
                             record_history(
@@ -771,6 +781,7 @@ def update_task_progress(task_id: str, progress: float, db=None):
                                 "progress",
                                 {"progress": float(progress)},
                                 db=s,
+                                emit_event=False,
                             )
                     except SQLAlchemyError:
                         logger.exception(
@@ -778,6 +789,18 @@ def update_task_progress(task_id: str, progress: float, db=None):
                         )
             except SQLAlchemyError:
                 logger.exception('record_history("progress") failed for %s', task_id)
+
+            try:
+                publish_event(
+                    {
+                        "type": "task.event",
+                        "task_id": str(key),
+                        "event_type": "progress",
+                        "payload": {"progress": float(progress)},
+                    }
+                )
+            except (RuntimeError, OSError):
+                logger.exception("publish_event failed for %s", task_id)
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_task_progress failed for %s", task_id)
 

@@ -1,5 +1,6 @@
 import uuid
 
+from minutes import bg_store
 from minutes.bg_store import create_task
 from minutes.db import session_scope
 from minutes.models import Task
@@ -45,3 +46,15 @@ def test_create_task_with_external_id_and_owner():
         assert res.get("meta") == "x"
     finally:
         conn.close()
+
+
+def test_progress_updates_publish_when_history_is_coalesced(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    bg_store.update_task_progress(str(task_id), 10.0)
+    bg_store.update_task_progress(str(task_id), 20.0)
+
+    assert [event["payload"]["progress"] for event in published] == [10.0, 20.0]
