@@ -4,6 +4,8 @@ import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
 import { useTasks } from '../hooks/useTasks'
+import { toHistoryItem } from '../lib/taskState'
+import type { HistoryItem, TaskListItem } from '../lib/taskState'
 import { useToast } from './ToastProvider'
 const LoginForm = React.lazy(() => import('./LoginForm'))
 
@@ -14,7 +16,7 @@ const sampleMinutes = [
 ]
 
 export function HistoryView({ onCreate }: { onCreate: () => void }) {
-  const [items, setItems] = useState<Array<any>>([])
+  const [items, setItems] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(false)
   const [visibleCount, setVisibleCount] = useState<number>(5)
   const [modalTask, setModalTask] = useState<string | null>(null)
@@ -37,17 +39,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
 
   useEffect(() => {
     if (tasks && Array.isArray(tasks)) {
-      // map server shape to local UI shape if necessary
-      const arr = tasks.map((t: any) => ({
-        id: t.id,
-        name: t.name || t.result?.upload_filename || `task-${String(t.id).slice(0, 8)}`,
-        created_at: t.created_at,
-        status: t.status,
-        progress: t.progress,
-        result: t.result,
-        histories: (t.preview_events || t.histories || []).slice(0, 3),
-        event_count: t.event_count || 0,
-      }))
+      const arr = tasks.map(toHistoryItem)
       setItems(arr)
       // heuristics: if tasks length < page limit, assume no more
       const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
@@ -170,16 +162,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                     }
                     const res = await fetchWithRetry(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`)
               const j = await res.json()
-              const arr = (j.tasks || []).map((t: any) => ({
-                id: t.id,
-                name: t.name || t.result?.upload_filename || `task-${String(t.id).slice(0, 8)}`,
-                created_at: t.created_at,
-                status: t.status,
-                progress: t.progress,
-                result: t.result,
-                histories: (t.preview_events || []).slice(0, 3),
-                event_count: t.event_count || 0,
-              }))
+              const arr = ((j.tasks || []) as TaskListItem[]).map(toHistoryItem)
               setItems((prev) => [...prev, ...arr])
               setHasMore(arr.length >= limit)
             } catch (err) {
@@ -252,7 +235,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
 
                 <div className="mt-1 text-xs text-[var(--muted)]">
                   {item.histories && item.histories.length > 0 ? (
-                    item.histories.slice(0, 3).map((h: any, idx: number) => (
+                    item.histories.slice(0, 3).map((h, idx) => (
                       <div key={idx} className="truncate">
                         {h.event_ts ? new Date(h.event_ts).toLocaleString() + ' — ' : ''}
                         <strong>{h.event_type}</strong>
@@ -310,7 +293,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
               </div>
             </div>
             <div>
-              {(items.find((it) => it.id === modalTask)?.histories || []).map((h: any, idx: number) => (
+              {(items.find((it) => it.id === modalTask)?.histories || []).map((h, idx) => (
                 <div key={idx} className="mb-4 border-b pb-3">
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-[var(--muted)]">{h.event_ts ? new Date(h.event_ts).toLocaleString() : ''}</div>

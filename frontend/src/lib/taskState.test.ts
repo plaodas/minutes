@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEvent } from './taskEvents'
-import { applyTaskEvent, type TaskListItem } from './taskState'
+import { applyTaskEvent, toHistoryItem, type TaskListItem } from './taskState'
 
 const tasks: TaskListItem[] = [
   { id: 'task-1', status: 'transcribing', stage: 'transcribing', progress: 10 },
@@ -61,5 +61,29 @@ describe('applyTaskEvent', () => {
 
     expect(result.tasks).toBe(tasks)
     expect(result.shouldReload).toBe(true)
+  })
+})
+
+describe('toHistoryItem', () => {
+  it('uses the upload filename when the task has no explicit name', () => {
+    const item = toHistoryItem({
+      id: '123456789',
+      result: { upload_filename: 'planning.wav' },
+    })
+
+    expect(item.name).toBe('planning.wav')
+  })
+
+  it('supports legacy histories and limits previews to three events', () => {
+    const histories = [
+      { event_type: 'created' },
+      { event_type: 'status' },
+      { event_type: 'progress' },
+      { event_type: 'success' },
+    ]
+    const item = toHistoryItem({ id: 'task-1', histories })
+
+    expect(item.histories).toEqual(histories.slice(0, 3))
+    expect(item.event_count).toBe(0)
   })
 })

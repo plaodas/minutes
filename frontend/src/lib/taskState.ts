@@ -4,7 +4,14 @@ import type { TaskEvent, TaskStage } from './taskEvents'
 export type TaskHistoryPreview = {
   event_ts?: string | null
   event_type?: string
-  payload?: unknown
+  payload?: {
+    error?: string
+    result?: {
+      output_file?: string
+      [key: string]: unknown
+    }
+    [key: string]: unknown
+  }
   [key: string]: unknown
 }
 
@@ -23,9 +30,40 @@ export type TaskListItem = {
   [key: string]: unknown
 }
 
+export type HistoryItem = {
+  id: string
+  name: string
+  created_at?: string | null
+  status?: string
+  progress?: number | null
+  result?: unknown
+  histories: TaskHistoryPreview[]
+  event_count: number
+  latest?: TaskHistoryPreview
+}
+
 export type ApplyTaskEventResult = {
   tasks: TaskListItem[]
   shouldReload: boolean
+}
+
+function uploadFilename(result: unknown): string | undefined {
+  if (typeof result !== 'object' || result === null || Array.isArray(result)) return
+  const filename = (result as Record<string, unknown>).upload_filename
+  return typeof filename === 'string' && filename ? filename : undefined
+}
+
+export function toHistoryItem(task: TaskListItem): HistoryItem {
+  return {
+    id: task.id,
+    name: task.name || uploadFilename(task.result) || `task-${task.id.slice(0, 8)}`,
+    created_at: task.created_at,
+    status: task.status,
+    progress: task.progress,
+    result: task.result,
+    histories: (task.preview_events || task.histories || []).slice(0, 3),
+    event_count: task.event_count || 0,
+  }
 }
 
 export function applyTaskEvent(
