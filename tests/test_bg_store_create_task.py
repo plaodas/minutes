@@ -58,3 +58,5 @@ def test_progress_updates_publish_when_history_is_coalesced(monkeypatch):
     bg_store.update_task_progress(str(task_id), 20.0)
 
     assert [event["payload"]["progress"] for event in published] == [10.0, 20.0]
+    assert all(event["event_type"] == "progress" for event in published)
+    assert all(event["type"] == "task.event" for event in published)

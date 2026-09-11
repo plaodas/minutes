@@ -1,4 +1,5 @@
 import fetchWithRetry from '../lib/fetchWithRetry'
+import type { TaskStage } from '../lib/taskEvents'
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -94,10 +95,18 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
   return { xhr, promise }
 }
 
-export async function getBgStatus(taskId: string) {
+export type BgStatusResponse = {
+  task_id: string
+  status: string
+  stage?: TaskStage
+  error?: string | null
+  progress?: number | null
+}
+
+export async function getBgStatus(taskId: string): Promise<BgStatusResponse> {
   const res = await fetchWithRetry(`${BASE}/bg/status/${taskId}`, { credentials: 'same-origin', headers: getAuthHeaders() }, { retries: 3, timeoutMs: 10000 })
   if (!res.ok) throw new Error('status fetch failed')
-  return res.json()
+  return res.json() as Promise<BgStatusResponse>
 }
 
 export async function getBgResult(taskId: string) {

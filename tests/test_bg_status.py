@@ -22,6 +22,7 @@ def test_bg_status_uses_persisted_task_state(monkeypatch):
     assert response.status_code == 200
     assert response.json()["task_id"] == task_id
     assert response.json()["status"] == "formatting"
+    assert response.json()["stage"] == "formatting"
     assert response.json()["error"] is None
 
 

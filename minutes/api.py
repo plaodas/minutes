@@ -60,6 +60,8 @@ from minutes.schemas import (
     CreateTaskResponse,
     FormatRawRequest,
     FormatRawResponse,
+    TaskStage,
+    task_stage_from_status,
 )
 from minutes.transcribe import transcribe
 
@@ -209,15 +211,15 @@ BG_HISTORIES_BATCH_SIZE = int(os.environ.get("BG_HISTORIES_BATCH_SIZE", "200"))
 def _run_pipeline_background(input_path: str, task_id: str):
     try:
         # update intermediate status: preprocessing
-        update_task_status(task_id, "preprocess")
+        update_task_status(task_id, TaskStage.PREPROCESS)
         _mono, _norm, clean = preprocess(input_path)
 
         # update intermediate status: transcribing
-        update_task_status(task_id, "transcribing")
+        update_task_status(task_id, TaskStage.TRANSCRIBING)
         raw_text, _segments = transcribe(clean, model_size="medium", prompt=None)
 
         # update intermediate status: formatting
-        update_task_status(task_id, "formatting")
+        update_task_status(task_id, TaskStage.FORMATTING)
         final_minutes = format_minutes_from_raw(raw_text)
 
         # detect Ollama fallback (service-wide behavior: fallback responses are
@@ -1032,6 +1034,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                     "id": str(t.id),
                     "name": t.name,
                     "status": t.status,
+                    "stage": task_stage_from_status(t.status),
                     "progress": float(t.progress) if t.progress is not None else None,
                     "result": t.result,
                     "created_at": (

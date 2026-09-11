@@ -20,6 +20,7 @@ from minutes.bg_store import (
 )
 from minutes.celery_app import celery
 from minutes.ollama import DEFAULT_SYSTEM_PROMPT, format_minutes_from_raw
+from minutes.schemas import TaskStage
 from minutes.transcribe import transcribe
 
 
@@ -207,7 +208,7 @@ def process_audio(self, input_path: str):
             logger.debug(
                 "process_audio: setting task status 'preprocess' for %s", task_id
             )
-            update_task_status(task_id, "preprocess")
+            update_task_status(task_id, TaskStage.PREPROCESS)
             logger.debug("process_audio: update_task_status returned for %s", task_id)
 
         # Log input file presence and size before calling preprocess
@@ -328,7 +329,7 @@ def process_audio(self, input_path: str):
         inference_url = os.environ.get("INFERENCE_URL")
         # mark transcribing stage before calling inference/local transcribe
         if task_id:
-            update_task_status(task_id, "transcribing")
+            update_task_status(task_id, TaskStage.TRANSCRIBING)
 
         if inference_url:
             # Call inference endpoint and stream NDJSON lines for progress.
@@ -559,22 +560,7 @@ def process_audio(self, input_path: str):
 
         # mark formatting stage
         if task_id:
-            update_task_status(task_id, "formatting")
-            # proactively publish an SSE event so frontends update immediately
-            try:
-                from minutes.sse import publish_event
-
-                publish_event(
-                    {
-                        "type": "task.event",
-                        "task_id": str(task_id),
-                        "event_type": "status",
-                        "payload": {"status": "formatting"},
-                    }
-                )
-            except ImportError:
-                # SSE machinery not available in some environments
-                pass
+            update_task_status(task_id, TaskStage.FORMATTING)
 
         # Attempt to read task metadata to customize the formatting prompt
         meta = None

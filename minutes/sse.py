@@ -5,6 +5,8 @@ import os
 import threading
 from typing import Any
 
+from minutes.schemas import TaskEventData
+
 logger = logging.getLogger("minutes.sse")
 
 _lock = threading.Lock()
@@ -52,7 +54,7 @@ def _push_to_local_queues(event: dict[str, Any]):
                 logger.exception("failed to put event into queue without loop")
 
 
-def publish_event(event: dict[str, Any]):
+def publish_event(event: TaskEventData):
     """Publish an event locally and to Redis if configured.
 
     This function is safe to call from synchronous code.

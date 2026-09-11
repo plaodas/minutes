@@ -2,22 +2,12 @@ import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import ErrorModal from './ErrorModal'
 import sanitizeError from '../lib/sanitizeError'
+import { parseTaskEventData, taskStageFromStatus, taskStageToIndex } from '../lib/taskEvents'
 import { uploadAudioBgWithProgress, getBgStatus, getBgResult } from '../api/client'
 
 type Props = {
   setActiveIndex: (i: number) => void
   setResult: (r: any | null) => void
-}
-
-function mapStatusToIndex(status: string | undefined) {
-  if (!status) return 0
-  const s = status.toLowerCase()
-  if (s.includes('upload') || s.includes('queued')) return 0
-  if (s.includes('preprocess') || s.includes('pre-processing') || s.includes('pre')) return 1
-  if (s.includes('transcrib') || s.includes('recognize')) return 2
-  if (s.includes('format') || s.includes('formatting')) return 3
-  if (s.includes('done') || s.includes('finished') || s.includes('completed') || s.includes('success')) return 4
-  return 0
 }
 
 export default function Dropzone({ setActiveIndex, setResult }: Props) {
@@ -119,7 +109,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
             return
           }
 
-          const idx = mapStatusToIndex(status)
+          const idx = taskStageToIndex(st.stage ?? taskStageFromStatus(status))
           setActiveIndex(idx)
           if (status && idx >= 4) {
             const res = await getBgResult(id)
@@ -209,25 +199,18 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       const es = new EventSource(`${base}/bg/events`)
       esRef.current = es
       es.onmessage = (ev) => {
-        try {
-          const obj = JSON.parse(ev.data)
-          if (!obj || obj.type !== 'task.event') return
-          const tid = obj.task_id || obj.taskId || obj.id
-          if (!tid || tid !== taskId) return
-          const et = obj.event_type
-          if (et === 'progress' && obj.payload && typeof obj.payload.progress === 'number') {
-            setTranscribeProgress(Math.round(obj.payload.progress))
+        const event = parseTaskEventData(ev.data)
+        if (!event || event.task_id !== taskId) return
+        if (event.event_type === 'progress') {
+          setTranscribeProgress(Math.round(event.payload.progress))
+        }
+        if (event.event_type === 'status') {
+          const stage = event.stage ?? taskStageFromStatus(event.payload.status)
+          const idx = taskStageToIndex(stage)
+          setActiveIndex(idx)
+          if (idx >= 3) {
+            setTranscribeProgress(null)
           }
-          if (et === 'status' && obj.payload) {
-            const status = String(obj.payload.status || '')
-            const idx = mapStatusToIndex(status)
-            setActiveIndex(idx)
-            if (idx >= 3) {
-              setTranscribeProgress(null)
-            }
-          }
-        } catch (e) {
-          // ignore parse errors
         }
       }
       es.onerror = () => {

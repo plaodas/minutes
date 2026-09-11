@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import fetchWithRetry from '../lib/fetchWithRetry'
+import { parseTaskEventData } from '../lib/taskEvents'
 import { useToast } from '../components/ToastProvider'
 
 type TaskItem = any
@@ -62,8 +63,8 @@ export function useTasks() {
       if (typeof window !== 'undefined' && (window as any).EventSource) {
         es = new EventSource(`${BASE}/bg/events`)
         es.onmessage = (ev) => {
-          try {
-            const data = JSON.parse(ev.data)
+          const data = parseTaskEventData(ev.data)
+          if (!data) return
             // merge update into tasks list when available
             setTasks((prev) => {
               if (!prev) return prev
@@ -97,9 +98,6 @@ export function useTasks() {
               copy[idx] = item
               return copy
             })
-          } catch (err) {
-            // ignore malformed events
-          }
         }
         es.onerror = () => {
           // EventSource will auto-reconnect; nothing to do here

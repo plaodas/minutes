@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from minutes.bg_store import get_task
 from minutes.db import session_scope
 from minutes.models import TaskHistory
-from minutes.schemas import StatusResponse
+from minutes.schemas import StatusResponse, task_stage_from_status
 from minutes.sse import register_queue, unregister_queue
 
 router = APIRouter(prefix="/api/bg", tags=["background-tasks"])
@@ -22,6 +22,7 @@ def bg_status(task_id: str):
     return {
         "task_id": task_id,
         "status": task["status"],
+        "stage": task_stage_from_status(task["status"]),
         "error": task.get("error"),
         "progress": task.get("progress"),
     }

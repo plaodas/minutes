@@ -18,6 +18,7 @@ logger = logging.getLogger("minutes.bg_store")
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
 from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
+from .schemas import TaskEventType, TaskStage, build_task_event
 
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -200,12 +201,11 @@ def record_history(
     # publish SSE event for live updates (non-blocking)
     try:
         publish_event(
-            {
-                "type": "task.event",
-                "task_id": (str(key) if isinstance(key, uuid.UUID) else str(task_id)),
-                "event_type": event_type,
-                "payload": payload or {},
-            }
+            build_task_event(
+                str(key) if isinstance(key, uuid.UUID) else str(task_id),
+                event_type,
+                payload,
+            )
         )
     except (RuntimeError, OSError):
         logger.exception("publish_event failed for %s", task_id)
@@ -556,14 +556,11 @@ def update_task_success(task_id: str, result: Any, db=None):
                 # that listen for 'status' events to update task rows immediately).
                 try:
                     publish_event(
-                        {
-                            "type": "task.event",
-                            "task_id": (
-                                str(key) if isinstance(key, uuid.UUID) else str(task_id)
-                            ),
-                            "event_type": "status",
-                            "payload": {"status": "success"},
-                        }
+                        build_task_event(
+                            str(key) if isinstance(key, uuid.UUID) else str(task_id),
+                            TaskEventType.STATUS,
+                            {"status": "success"},
+                        )
                     )
                 except (RuntimeError, OSError):
                     logger.exception(
@@ -631,11 +628,12 @@ def update_task_cancelled(task_id: str, db=None):
             logger.exception("update_task_cancelled failed for %s", task_id)
 
 
-def update_task_status(task_id: str, status: str, db=None):
+def update_task_status(task_id: str, status: TaskStage | str, db=None):
     # Use a fresh short-lived session for status updates to avoid leaving a
     # caller-provided session in an open transaction. Treat the provided `db`
     # as advisory only; we will perform the update in an independent session
     # that is committed and closed immediately.
+    status_value = status.value if isinstance(status, TaskStage) else status
     with _lock:
         try:
             with session_scope() as s:
@@ -643,7 +641,7 @@ def update_task_status(task_id: str, status: str, db=None):
                 logger.debug(
                     "update_task_status start (isolated): task_id=%s status=%s",
                     task_id,
-                    status,
+                    status_value,
                 )
                 try:
                     t = s.get(Task, key)
@@ -664,13 +662,13 @@ def update_task_status(task_id: str, status: str, db=None):
                         )
                     # re-fetch after create to get ORM object in this session
                     t = s.get(Task, key)
-                t.status = status
+                t.status = status_value
                 try:
                     s.commit()
                     logger.debug(
                         "update_task_status commit ok: task_id=%s status=%s",
                         task_id,
-                        status,
+                        status_value,
                     )
                 except IntegrityError:
                     s.rollback()
@@ -682,7 +680,7 @@ def update_task_status(task_id: str, status: str, db=None):
             logger.exception("update_task_status failed for %s", task_id)
         # Record history using an independent session to ensure visibility
         try:
-            record_history(task_id, "status", {"status": status})
+            record_history(task_id, "status", {"status": status_value})
         except SQLAlchemyError:
             logger.exception('record_history("status") failed for %s', task_id)
 
@@ -792,12 +790,11 @@ def update_task_progress(task_id: str, progress: float, db=None):
 
             try:
                 publish_event(
-                    {
-                        "type": "task.event",
-                        "task_id": str(key),
-                        "event_type": "progress",
-                        "payload": {"progress": float(progress)},
-                    }
+                    build_task_event(
+                        str(key),
+                        TaskEventType.PROGRESS,
+                        {"progress": float(progress)},
+                    )
                 )
             except (RuntimeError, OSError):
                 logger.exception("publish_event failed for %s", task_id)
