@@ -1,6 +1,6 @@
 import fetchWithRetry from '../lib/fetchWithRetry'
-import { parseTaskListResponse } from '../lib/taskState'
-import type { TaskListItem } from '../lib/taskState'
+import { parseTaskHistoryResponse, parseTaskListResponse } from '../lib/taskState'
+import type { TaskHistoryPreview, TaskListItem } from '../lib/taskState'
 import type { TaskStage } from '../lib/taskEvents'
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -138,6 +138,38 @@ export async function getBgTasks(options: {
   const tasks = parseTaskListResponse(await res.json())
   if (!tasks) throw new Error('invalid task list response')
   return tasks
+}
+
+export async function getBgTaskEvents(taskId: string): Promise<TaskHistoryPreview[]> {
+  const res = await fetchWithRetry(
+    `${BASE}/bg/tasks/${encodeURIComponent(taskId)}/events`,
+    { credentials: 'same-origin', headers: getAuthHeaders() },
+    { retries: 2, timeoutMs: 10000 },
+  )
+  if (!res.ok) throw new Error('task events fetch failed')
+  const events = parseTaskHistoryResponse(await res.json())
+  if (!events) throw new Error('invalid task events response')
+  return events
+}
+
+export async function renameBgTask(taskId: string, name: string): Promise<void> {
+  const res = await fetchWithRetry(
+    `${BASE}/bg/task/${encodeURIComponent(taskId)}/rename`,
+    {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    },
+    { retries: 0, timeoutMs: 10000 },
+  )
+  if (res.ok) return
+  const body: unknown = await res.json().catch(() => null)
+  const message = typeof body === 'object' && body !== null && 'error' in body
+    && typeof body.error === 'string'
+    ? body.error
+    : 'Rename failed'
+  throw new Error(message)
 }
 
 async function _downloadBlob(url: string) {

@@ -37,6 +37,14 @@ test.describe('modal focus trap', () => {
       }
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(resp) })
     })
+    await page.route('**/bg/task/sample-1/rename', async (route) => {
+      const body = route.request().postDataJSON()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ task_id: 'sample-1', name: body.name }),
+      })
+    })
     await page.goto(process.env.E2E_PORT ? `http://localhost:${process.env.E2E_PORT}` : 'http://localhost:8080')
     // open the History view via the sidebar so the Recent minutes component is mounted
     await page.waitForSelector('button[aria-label="History"]', { state: 'attached', timeout: 10000 })
@@ -90,6 +98,12 @@ test.describe('modal focus trap', () => {
   test('escape closes modal', async ({ page }) => {
     await page.keyboard.press('Escape')
     await expect(page.locator('[role="dialog"]')).toHaveCount(0)
+  })
+
+  test('renames the task and updates the modal title', async ({ page }) => {
+    page.once('dialog', (dialog) => dialog.accept('Renamed task'))
+    await page.locator('button[data-testid="rename-sample-1"]').click()
+    await expect(page.getByRole('heading', { name: 'Full history for Renamed task' })).toBeVisible()
   })
 
   test('overlay click closes modal', async ({ page }) => {

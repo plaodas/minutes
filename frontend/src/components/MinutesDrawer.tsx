@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import Toast from './Toast'
 import ConfirmDialog from './ConfirmDialog'
-import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask, forceDeleteTask, getBgTasks } from '../api/client'
+import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask, forceDeleteTask, getBgTasks, renameBgTask } from '../api/client'
 import { useToast } from './ToastProvider'
 import startDownload from '../lib/download'
 
@@ -215,23 +215,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
               const newName = window.prompt('Enter new name for this task', taskName || '')
               if (!newName) return
               try {
-                const BASE = (import.meta.env.VITE_API_BASE || '/api')
-                const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
-                const res = await fetchWithRetry(`${BASE}/bg/task/${taskId}/rename`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ name: newName })
-                }, { retries: 0, timeoutMs: 10000 })
-                if (res.ok) {
-                  setTaskName(newName)
-                  toast.addToast('Renamed', { level: 'success' })
-                  try { window.dispatchEvent(new CustomEvent('app:task-changed', { detail: { taskId, action: 'renamed' } })) } catch (e) {}
-                } else {
-                  const j = await res.json().catch(() => ({}))
-                  toast.addToast(j?.error || 'Rename failed', { level: 'error' })
-                }
-              } catch (e) {
-                toast.addToast('Rename failed', { level: 'error' })
+                await renameBgTask(taskId, newName)
+                setTaskName(newName)
+                toast.addToast('Renamed', { level: 'success' })
+                try { window.dispatchEvent(new CustomEvent('app:task-changed', { detail: { taskId, action: 'renamed' } })) } catch (e) {}
+              } catch (e: any) {
+                toast.addToast(e?.message || 'Rename failed', { level: 'error' })
               }
             }} className="rounded bg-slate-100 px-2 py-1 text-sm">Rename</button>
           </div>

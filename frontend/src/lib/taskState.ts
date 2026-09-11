@@ -63,6 +63,19 @@ export function parseTaskListResponse(value: unknown): TaskListItem[] | null {
   return tasks as TaskListItem[]
 }
 
+export function parseTaskHistoryResponse(value: unknown): TaskHistoryPreview[] | null {
+  if (!isRecord(value) || typeof value.task_id !== 'string' || !Array.isArray(value.events)) {
+    return null
+  }
+  const valid = value.events.every((event) => (
+    isRecord(event)
+    && typeof event.event_type === 'string'
+    && (event.event_ts === undefined || event.event_ts === null || typeof event.event_ts === 'string')
+    && (event.payload === undefined || isRecord(event.payload))
+  ))
+  return valid ? value.events as TaskHistoryPreview[] : null
+}
+
 function uploadFilename(result: unknown): string | undefined {
   if (typeof result !== 'object' || result === null || Array.isArray(result)) return
   const filename = (result as Record<string, unknown>).upload_filename

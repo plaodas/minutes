@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEvent } from './taskEvents'
-import { applyTaskEvent, parseTaskListResponse, toHistoryItem, type TaskListItem } from './taskState'
+import { applyTaskEvent, parseTaskHistoryResponse, parseTaskListResponse, toHistoryItem, type TaskListItem } from './taskState'
 
 const tasks: TaskListItem[] = [
   { id: 'task-1', status: 'transcribing', stage: 'transcribing', progress: 10 },
@@ -97,5 +97,17 @@ describe('parseTaskListResponse', () => {
   it('rejects malformed task lists', () => {
     expect(parseTaskListResponse({ tasks: [{ status: 'pending' }] })).toBeNull()
     expect(parseTaskListResponse({ tasks: 'invalid' })).toBeNull()
+  })
+})
+
+describe('parseTaskHistoryResponse', () => {
+  it('accepts a typed task events response', () => {
+    const events = [{ event_ts: null, event_type: 'created', payload: {} }]
+    expect(parseTaskHistoryResponse({ task_id: 'task-1', events })).toEqual(events)
+  })
+
+  it('rejects malformed event entries', () => {
+    expect(parseTaskHistoryResponse({ task_id: 'task-1', events: 'invalid' })).toBeNull()
+    expect(parseTaskHistoryResponse({ task_id: 'task-1', events: [{ payload: {} }] })).toBeNull()
   })
 })

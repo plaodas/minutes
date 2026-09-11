@@ -4,7 +4,7 @@ import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
 import { useTasks } from '../hooks/useTasks'
-import { getBgTasks } from '../api/client'
+import { getBgTaskEvents, getBgTasks, renameBgTask } from '../api/client'
 import { toHistoryItem } from '../lib/taskState'
 import type { HistoryItem } from '../lib/taskState'
 import { useToast } from './ToastProvider'
@@ -66,16 +66,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
     setModalTask(id)
     // fetch full events for this task once (modal will display full events)
     ;(async () => {
-      const BASE = (import.meta.env.VITE_API_BASE || '/api')
       try {
         setLoadingPerTask((s) => ({ ...s, [id]: true }))
-        const res = await fetch(`${BASE}/bg/tasks/${id}/events`)
-        if (res.ok) {
-          const j = await res.json()
-          const ev = j.events || []
-          setItems((prev) => prev.map((it) => it.id === id ? ({ ...it, histories: ev }) : it))
-          setHasMorePerTask((s) => ({ ...s, [id]: false }))
-        }
+        const events = await getBgTaskEvents(id)
+        setItems((prev) => prev.map((it) => it.id === id ? ({ ...it, histories: events }) : it))
+        setHasMorePerTask((s) => ({ ...s, [id]: false }))
       } catch (e) {
         // ignore
       } finally {
@@ -275,16 +270,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   const newName = window.prompt('Enter new name for this task', items.find((it) => it.id === modalTask)?.name || '')
                   if (!newName) return
                     try {
-                      const BASE = (import.meta.env.VITE_API_BASE || '/api')
-                      // use fetchWithRetry but with zero retries to get timeout/abort behavior without unsafe POST retries
-                      const res = await fetchWithRetry(`${BASE}/bg/task/${modalTask}/rename`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: newName })
-                      }, { retries: 0, timeoutMs: 10000 })
-                      if (res.ok) {
-                        setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, name: newName }) : it))
-                      }
+                      await renameBgTask(modalTask, newName)
+                      setItems((prev) => prev.map((it) => it.id === modalTask ? ({ ...it, name: newName }) : it))
                     } catch (e) {
                       // ignore
                     }
