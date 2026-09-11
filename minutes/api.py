@@ -1414,7 +1414,9 @@ def bg_force_delete(task_id: str):
             if not obj:
                 return JSONResponse({"error": "unknown task"}, status_code=404)
 
-        # attempt to remove any MinIO cached object referenced in result
+        # attempt to remove any MinIO cached object referenced in result and any
+        # local output file. Do best-effort cleanup; even if object removal
+        # fails, continue to remove DB rows below so the UI can reflect deletion.
         try:
             res = obj.result or {}
             if isinstance(res, dict):
@@ -1432,7 +1434,7 @@ def bg_force_delete(task_id: str):
                             svc.client.remove_object(
                                 minio_info["bucket"], minio_info["object"]
                             )
-                        except S3Error:
+                        except (S3Error, OSError):
                             logging.getLogger("minutes.api").debug(
                                 "MinIO remove_object failed for %s/%s",
                                 minio_info.get("bucket"),
@@ -1465,21 +1467,45 @@ def bg_force_delete(task_id: str):
                             task_id,
                             exc_info=True,
                         )
-        except (SQLAlchemyError, S3Error, OSError):
+        except (
+            ImportError,
+            OSError,
+            RuntimeError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ):
+            logging.getLogger("minutes.api").exception(
+                "unexpected error while attempting MinIO/file cleanup for %s",
+                task_id,
+            )
 
-            # delete history and task rows
-            try:
-                db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
-            except SQLAlchemyError:
-                logging.getLogger("minutes.api").exception(
-                    "failed to delete TaskHistory for %s", key
-                )
-            try:
-                db.delete(obj)
-                db.commit()
-            except SQLAlchemyError:
-                db.rollback()
-                return JSONResponse({"error": "failed to delete task"}, status_code=500)
+        # Finally, remove TaskHistory and Task rows from the DB so UI and APIs
+        # observe the task as deleted regardless of object-cleanup outcome.
+        try:
+            with session_scope() as db:
+                try:
+                    db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
+                except SQLAlchemyError:
+                    logging.getLogger("minutes.api").exception(
+                        "failed to delete TaskHistory for %s", key
+                    )
+                try:
+                    t = db.get(Task, key)
+                    if t:
+                        db.delete(t)
+                        db.commit()
+                except SQLAlchemyError:
+                    db.rollback()
+                    logging.getLogger("minutes.api").exception(
+                        "failed to delete Task %s", key
+                    )
+                    return JSONResponse(
+                        {"error": "failed to delete task"}, status_code=500
+                    )
+        except (SQLAlchemyError, OSError, RuntimeError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
         return {"task_id": task_id, "deleted": True}
     except (SQLAlchemyError, OSError, RuntimeError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
