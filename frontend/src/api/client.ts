@@ -100,6 +100,8 @@ export type BgStatusResponse = {
   status: string
   stage?: TaskStage
   error?: string | null
+  detail?: string | null
+  message?: string | null
   progress?: number | null
 }
 

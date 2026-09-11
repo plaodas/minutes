@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import fetchWithRetry from '../lib/fetchWithRetry'
-import { parseTaskEventData } from '../lib/taskEvents'
 import { useToast } from '../components/ToastProvider'
+import { useTaskEvents } from '../events/TaskEventsProvider'
 
 type TaskItem = any
 
@@ -50,68 +50,47 @@ export function useTasks() {
     }
   }, [addToast])
 
+  useTaskEvents((data) => {
+    setTasks((prev) => {
+      if (!prev) return prev
+      const id = data.task_id
+      const idx = prev.findIndex((task: any) => String(task.id) === String(id))
+      if (idx === -1) {
+        setTimeout(() => load(), 0)
+        return prev
+      }
+      const copy = prev.slice()
+      const item = Object.assign({}, copy[idx])
+      if (data.event_type === 'progress') {
+        item.progress = data.payload.progress
+      }
+      if (data.event_type === 'status') {
+        item.status = data.payload.status
+        item.stage = data.stage
+      }
+      if (data.event_type === 'success') {
+        item.status = 'success'
+        item.stage = data.stage ?? 'success'
+        item.progress = 100.0
+        if (data.payload.result) {
+          item.result = data.payload.result
+        }
+        setTimeout(() => load(), 0)
+      }
+      copy[idx] = item
+      return copy
+    })
+  })
+
   useEffect(() => {
     load()
     const onTaskChanged = () => load()
     window.addEventListener('app:task-changed', onTaskChanged)
     const onOnline = () => load()
     window.addEventListener('online', onOnline)
-    // Subscribe to server-sent events for live task updates
-    const BASE = (import.meta.env.VITE_API_BASE || '/api')
-    let es: EventSource | null = null
-    try {
-      if (typeof window !== 'undefined' && (window as any).EventSource) {
-        es = new EventSource(`${BASE}/bg/events`)
-        es.onmessage = (ev) => {
-          const data = parseTaskEventData(ev.data)
-          if (!data) return
-            // merge update into tasks list when available
-            setTasks((prev) => {
-              if (!prev) return prev
-              const id = data.task_id
-              const idx = prev.findIndex((t: any) => String(t.id) === String(id))
-              if (idx === -1) {
-                // unknown task — reload full list asynchronously
-                setTimeout(() => {
-                  load()
-                }, 0)
-                return prev
-              }
-              const copy = prev.slice()
-              const item = Object.assign({}, copy[idx])
-              // apply common event types
-              if (data.event_type === 'progress' && data.payload && typeof data.payload.progress !== 'undefined') {
-                item.progress = Number(data.payload.progress)
-              }
-              if (data.event_type === 'status' && data.payload && data.payload.status) {
-                item.status = data.payload.status
-              }
-              if (data.event_type === 'success') {
-                item.status = 'success'
-                item.progress = 100.0
-                if (data.payload && data.payload.result) {
-                  item.result = data.payload.result
-                }
-                // On success, reload the task list to pick up server-side name/title changes
-                setTimeout(() => { load() }, 0)
-              }
-              copy[idx] = item
-              return copy
-            })
-        }
-        es.onerror = () => {
-          // EventSource will auto-reconnect; nothing to do here
-        }
-      }
-    } catch (err) {
-      // ignore EventSource errors
-    }
     return () => {
       window.removeEventListener('online', onOnline)
       window.removeEventListener('app:task-changed', onTaskChanged)
-      try {
-        if (es) es.close()
-      } catch (e) {}
     }
   }, [load])
 

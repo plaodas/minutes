@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { Button } from 'react'
 import { applyServiceWorkerUpdate } from '../serviceWorkerRegistration'
 
 export default function UpdateToast() {

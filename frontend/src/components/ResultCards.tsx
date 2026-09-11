@@ -94,7 +94,7 @@ const PresignedButton: React.FC<{ info: any }> = ({ info }) => {
     try {
       window.open(info.url, '_blank', 'noopener')
     } catch {
-      addToast('Unable to open link, trying direct download', { level: 'warn' })
+      addToast('Unable to open link, trying direct download', { level: 'info' })
       // fallback: open backend download endpoint
       try {
         const parts = info.object ? info.object.split('/') : []
@@ -181,7 +181,7 @@ export default function ResultCards({ result }: { result: any | null }) {
         onFocus={() => { setFocusedTitle('Transcript'); setFocusedContent(transcript) }}
         onBlur={() => { /* allow footer interaction */ }}
         onDelete={handleDelete}
-        presignedUrl={data?.minio?.url || null}
+        presignedInfo={data?.minio || null}
       >{transcript}</Card>
 
       <Card
@@ -189,7 +189,7 @@ export default function ResultCards({ result }: { result: any | null }) {
         onDownload={() => downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)}
         onFocus={() => { setFocusedTitle('Summary'); setFocusedContent(summary) }}
         onDelete={handleDelete}
-        presignedUrl={data?.minio?.url || null}
+        presignedInfo={data?.minio || null}
       >{summary}</Card>
 
       <Card
@@ -197,7 +197,7 @@ export default function ResultCards({ result }: { result: any | null }) {
         onDownload={() => downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)}
         onFocus={() => { setFocusedTitle('Action Items'); setFocusedContent(actions) }}
         onDelete={handleDelete}
-        presignedUrl={data?.minio?.url || null}
+        presignedInfo={data?.minio || null}
       >{actions}</Card>
 
       {/* Desktop: single-card delete icon in corner */}

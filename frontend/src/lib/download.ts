@@ -1,5 +1,3 @@
-import { type } from 'os'
-
 export type Runner = () => Promise<{ blob: Blob; headers?: any }>
 
 export async function startDownload(runner: Runner, filename: string, addToast: (msg: string, opts?: any) => string, successMsg = 'Download started') {

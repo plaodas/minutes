@@ -2,7 +2,8 @@ import React, { useCallback, useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import ErrorModal from './ErrorModal'
 import sanitizeError from '../lib/sanitizeError'
-import { parseTaskEventData, taskStageFromStatus, taskStageToIndex } from '../lib/taskEvents'
+import { taskStageFromStatus, taskStageToIndex } from '../lib/taskEvents'
+import { useTaskEvents } from '../events/TaskEventsProvider'
 import { uploadAudioBgWithProgress, getBgStatus, getBgResult } from '../api/client'
 
 type Props = {
@@ -23,8 +24,21 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   const pollRef = useRef<number | null>(0)
   const [running, setRunning] = useState(false)
   const [transcribeProgress, setTranscribeProgress] = useState<number | null>(null)
-  const esRef = useRef<EventSource | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+
+  useTaskEvents((event) => {
+    if (event.event_type === 'progress') {
+      setTranscribeProgress(Math.round(event.payload.progress))
+    }
+    if (event.event_type === 'status') {
+      const stage = event.stage ?? taskStageFromStatus(event.payload.status)
+      const idx = taskStageToIndex(stage)
+      setActiveIndex(idx)
+      if (idx >= 3) {
+        setTranscribeProgress(null)
+      }
+    }
+  }, running ? taskId : null)
 
   const onDrop = useCallback(async (files: FileList | null) => {
     setError(null)
@@ -180,49 +194,12 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       clearTimeout(pollRef.current)
       pollRef.current = 0
     }
-    if (esRef.current) {
-      try { esRef.current.close() } catch {}
-      esRef.current = null
-    }
     setRunning(false)
     setUploadProgress(null)
     setTaskId(null)
     setActiveIndex(-1)
     window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'info', message: 'Upload cancelled' } }))
   }, [setActiveIndex])
-
-  useEffect(() => {
-    // Open EventSource when a task is running to receive progress updates
-    if (!taskId || !running) return
-    try {
-      const base = (import.meta.env.VITE_API_BASE || '/api')
-      const es = new EventSource(`${base}/bg/events`)
-      esRef.current = es
-      es.onmessage = (ev) => {
-        const event = parseTaskEventData(ev.data)
-        if (!event || event.task_id !== taskId) return
-        if (event.event_type === 'progress') {
-          setTranscribeProgress(Math.round(event.payload.progress))
-        }
-        if (event.event_type === 'status') {
-          const stage = event.stage ?? taskStageFromStatus(event.payload.status)
-          const idx = taskStageToIndex(stage)
-          setActiveIndex(idx)
-          if (idx >= 3) {
-            setTranscribeProgress(null)
-          }
-        }
-      }
-      es.onerror = () => {
-        // ignore transient errors
-      }
-    } catch (e) {
-      // ignore EventSource setup failures
-    }
-    return () => {
-      try { if (esRef.current) { esRef.current.close(); esRef.current = null } } catch {}
-    }
-  }, [taskId, running])
 
   return (
     <div>
