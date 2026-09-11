@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import { getBuckets, createBucket, adminUploadsCleanupGet, adminUploadsCleanupPost } from '../api/client'
-import UserIdWidget from './UserIdWidget'
 
 // BucketsAdmin also hosts other admin tools (service tokens, user id helper)
 
@@ -98,8 +97,6 @@ export default function BucketsAdmin() {
         <h2 className="text-lg font-semibold">Admin Tools</h2>
         <p className="text-sm text-[var(--muted)]">Manage buckets, service tokens, and admin helpers.</p>
       </div>
-
-      {(!features || features.authenticated === false) && <div className="mb-4"><UserIdWidget /></div>}
 
       <form onSubmit={handleCreate} className="mb-4 flex gap-2">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="bucket-name" className="rounded border px-2 py-1" />
