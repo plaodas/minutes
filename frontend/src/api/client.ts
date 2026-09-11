@@ -146,6 +146,25 @@ export async function getUserFeatures() {
   return res.json()
 }
 
+export async function adminUploadsCleanupGet(opts: { dir?: string; pattern?: string; older_than?: number; limit?: number } = {}) {
+  const params = new URLSearchParams()
+  if (opts.dir) params.set('dir', opts.dir)
+  if (opts.pattern) params.set('pattern', opts.pattern)
+  if (opts.older_than) params.set('older_than', String(opts.older_than))
+  if (opts.limit) params.set('limit', String(opts.limit))
+  const headers = { ...getAuthHeaders(), 'X-Admin': '1' }
+  const res = await fetch(`${BASE}/admin/uploads/cleanup?${params.toString()}`, { credentials: 'same-origin', headers })
+  if (!res.ok) throw new Error('cleanup preview failed')
+  return res.json()
+}
+
+export async function adminUploadsCleanupPost(payload: { dir?: string; pattern?: string; older_than?: number; limit?: number }) {
+  const headers = { 'Content-Type': 'application/json', ...getAuthHeaders(), 'X-Admin': '1' }
+  const res = await fetch(`${BASE}/admin/uploads/cleanup`, { method: 'POST', credentials: 'same-origin', headers, body: JSON.stringify(payload) })
+  if (!res.ok) throw new Error('cleanup run failed')
+  return res.json()
+}
+
 export async function login(username: string, password: string) {
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
