@@ -684,16 +684,15 @@ def process_audio(self, input_path: str):
                             expires_sec = int(
                                 os.environ.get("MINIO_PRESIGNED_EXPIRES", "3600")
                             )
-                            url = svc.presigned_get(
-                                bucket, object_name, expires=expires_sec
-                            )
-                            # use module-level datetime to avoid UnboundLocalError when
-                            # a local import shadows the name
                             from datetime import timedelta
 
+                            expires_td = timedelta(seconds=expires_sec)
+                            url = svc.presigned_get(
+                                bucket, object_name, expires=expires_td
+                            )
                             expires_at = (
                                 datetime.datetime.now(tz=datetime.timezone.utc)
-                                + timedelta(seconds=expires_sec)
+                                + expires_td
                             ).isoformat() + "Z"
                         except (ValueError, S3Error):
                             url = None

@@ -382,9 +382,15 @@ async def startup_reconciler():
 
     # store the task so it can be cancelled on shutdown
     app.state.reconcile_task = asyncio.create_task(reconcile_loop())
-    # start Redis-backed SSE relay if configured
+    # start Redis-backed SSE relay if configured. Use REDIS_URL or fall back
+    # to common broker env vars (CELERY_BROKER_URL / BROKER_URL) so that
+    # workers publishing via the broker are relayed to API instances.
     try:
-        redis_url = os.environ.get("REDIS_URL")
+        redis_url = (
+            os.environ.get("REDIS_URL")
+            or os.environ.get("CELERY_BROKER_URL")
+            or os.environ.get("BROKER_URL")
+        )
         if redis_url:
             try:
                 from minutes.sse import start_redis_listener

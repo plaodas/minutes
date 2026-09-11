@@ -723,12 +723,11 @@ def update_task_progress(task_id: str, progress: float, db=None):
                     if last_progress is not None:
                         delta = abs(float(progress) - last_progress)
                         now = _now_utc()
-                        last_evt = last.event_ts or now
-                        if getattr(last_evt, "tzinfo", None) is None:
-                            try:
-                                last_evt = last_evt.replace(tzinfo=timezone.utc)
-                            except (AttributeError, TypeError, ValueError):
-                                last_evt = now
+                        # normalize last.event_ts to timezone-aware UTC for safe arithmetic
+                        try:
+                            last_evt = _ensure_aware(last.event_ts) or now
+                        except (AttributeError, TypeError, ValueError):
+                            last_evt = now
                         age = (now - last_evt).total_seconds()
                         if delta < 5.0 and age < 5.0:
                             should_record = False
@@ -740,18 +739,16 @@ def update_task_progress(task_id: str, progress: float, db=None):
                             24 * 3600
                         )  # keep one day's worth of updates consolidated
                         now = _now_utc()
-                        last_age = (
-                            (
-                                now
-                                - (
-                                    last.event_ts
-                                    if getattr(last, "event_ts", None)
-                                    else now
-                                )
-                            ).total_seconds()
-                            if last
-                            else None
-                        )
+                        # normalize last.event_ts before subtraction to avoid mixing
+                        # offset-naive and offset-aware datetimes
+                        if last and getattr(last, "event_ts", None):
+                            try:
+                                le = _ensure_aware(last.event_ts) or now
+                                last_age = (now - le).total_seconds()
+                            except (AttributeError, TypeError, ValueError):
+                                last_age = None
+                        else:
+                            last_age = None
                         if last and last_age is not None and last_age < recent_seconds:
                             # update existing row
                             try:

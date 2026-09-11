@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import timedelta
 
 from minio import Minio
 from minio.error import S3Error
@@ -70,6 +71,9 @@ class MinioService:
         return list(self.client.list_objects(name, prefix=prefix, recursive=True))
 
     def presigned_get(self, bucket: str, obj: str, expires: int = 3600):
+        # Accept either an int (seconds) or a timedelta for expires.
+        if isinstance(expires, (int, float)):
+            expires = timedelta(seconds=int(expires))
         return self.client.get_presigned_url("GET", bucket, obj, expires=expires)
 
     def delete_object(self, bucket: str, obj: str, ignore_missing: bool = True):
