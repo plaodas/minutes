@@ -68,4 +68,8 @@ test('live status advances processing steps and closes transcription progress', 
   await emit('status', { status: 'formatting' })
   await expect(page.locator('section[aria-label="Processing status"] > div > span')).toHaveText('Step 4 of 4')
   await expect(page.getByText('Transcribing: 100%')).toHaveCount(0)
+
+  await emit('failure', { error: 'transcription failed' })
+  await expect(page.getByText('Error: transcription failed')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0)
 })

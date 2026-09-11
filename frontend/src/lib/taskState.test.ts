@@ -52,6 +52,37 @@ describe('applyTaskEvent', () => {
     expect(result.shouldReload).toBe(true)
   })
 
+  it('applies failure and preserves the reported error', () => {
+    const result = applyTaskEvent(tasks, event({
+      task_id: 'task-1',
+      event_type: 'failure',
+      stage: 'failed',
+      payload: { error: 'transcription failed' },
+    }))
+
+    expect(result.tasks[0]).toMatchObject({
+      status: 'failed',
+      stage: 'failed',
+      error: 'transcription failed',
+    })
+    expect(result.shouldReload).toBe(true)
+  })
+
+  it('applies cancellation and requests server reconciliation', () => {
+    const result = applyTaskEvent(tasks, event({
+      task_id: 'task-1',
+      event_type: 'cancelled',
+      stage: 'cancelled',
+      payload: {},
+    }))
+
+    expect(result.tasks[0]).toMatchObject({
+      status: 'cancelled',
+      stage: 'cancelled',
+    })
+    expect(result.shouldReload).toBe(true)
+  })
+
   it('keeps the list unchanged and requests reload for an unknown task', () => {
     const result = applyTaskEvent(tasks, event({
       task_id: 'unknown',

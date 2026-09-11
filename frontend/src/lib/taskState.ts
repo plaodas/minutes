@@ -22,6 +22,7 @@ export type TaskListItem = {
   stage?: TaskStage
   progress?: number | null
   result?: unknown
+  error?: string | null
   created_at?: string | null
   last_success_ts?: string | null
   preview_events?: TaskHistoryPreview[]
@@ -122,6 +123,21 @@ export function applyTaskEvent(
       stage: event.stage ?? 'success',
       progress: 100,
       ...(event.payload.result !== undefined ? { result: event.payload.result } : {}),
+    }
+    shouldReload = true
+  } else if (event.event_type === 'failure') {
+    task = {
+      ...task,
+      status: 'failed',
+      stage: event.stage ?? 'failed',
+      error: event.payload.error,
+    }
+    shouldReload = true
+  } else if (event.event_type === 'cancelled') {
+    task = {
+      ...task,
+      status: 'cancelled',
+      stage: event.stage ?? 'cancelled',
     }
     shouldReload = true
   } else {

@@ -38,6 +38,28 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         setTranscribeProgress(null)
       }
     }
+    if (event.event_type === 'failure') {
+      const message = event.payload.error || 'Task failed'
+      if (pollRef.current) {
+        clearTimeout(pollRef.current)
+        pollRef.current = 0
+      }
+      setError(message)
+      setLastErrorDetails(sanitizeError(message))
+      setActiveIndex(-1)
+      setTranscribeProgress(null)
+      setRunning(false)
+      window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message } }))
+    }
+    if (event.event_type === 'cancelled') {
+      if (pollRef.current) {
+        clearTimeout(pollRef.current)
+        pollRef.current = 0
+      }
+      setActiveIndex(-1)
+      setTranscribeProgress(null)
+      setRunning(false)
+    }
   }, running ? taskId : null)
 
   const onDrop = useCallback(async (files: FileList | null) => {
