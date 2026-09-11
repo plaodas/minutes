@@ -8,6 +8,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from minutes.bg_store import get_task
 from minutes.db import session_scope
 from minutes.models import TaskHistory
+from minutes.routers.background_task_artifacts import router as artifacts_router
+from minutes.routers.background_task_catalog import router as catalog_router
+from minutes.routers.background_task_lifecycle import router as lifecycle_router
 from minutes.schemas import StatusResponse, task_stage_from_status
 from minutes.sse import register_queue, unregister_queue
 
@@ -98,3 +101,8 @@ def bg_task_events(task_id: str):
             for row in rows
         ]
     return {"task_id": task_id, "events": events}
+
+
+router.include_router(catalog_router)
+router.include_router(lifecycle_router)
+router.include_router(artifacts_router)
