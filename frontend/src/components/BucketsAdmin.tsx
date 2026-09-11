@@ -89,6 +89,8 @@ export default function BucketsAdmin() {
       try {
         const res = await adminUploadsCleanupPost({ dir: uploadsDir || undefined, pattern: uploadsPattern, older_than: olderThan || 0, limit })
         setRunResult(res)
+        // clear preview after a successful run so UI reflects current state
+        setPreview(null)
         try { window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'success', message: `Deleted ${res.count || 0} files` } })) } catch {}
       } catch (err: any) {
         const msg = err?.message || String(err || 'cleanup failed')
