@@ -229,13 +229,19 @@ def bg_undelete(task_id: str):
             if not obj:
                 return JSONResponse({"error": "unknown task"}, status_code=404)
             previous = obj.status
-            obj.status = "success" if obj.result else "pending"
+            restored_status = "success" if obj.result else "pending"
+            obj.status = restored_status
             obj.deleted = False
             obj.deleted_at = None
             db.add(obj)
             db.commit()
             try:
-                record_history(task_id, "undeleted", {"previous": previous}, db=db)
+                record_history(
+                    task_id,
+                    "undeleted",
+                    {"previous": previous, "status": restored_status},
+                    db=db,
+                )
             except SQLAlchemyError:
                 logging.getLogger(__name__).exception(
                     "record_history failed while undeleting task %s", task_id

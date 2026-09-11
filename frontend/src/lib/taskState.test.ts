@@ -83,6 +83,33 @@ describe('applyTaskEvent', () => {
     expect(result.shouldReload).toBe(true)
   })
 
+  it('applies soft deletion and requests server reconciliation', () => {
+    const result = applyTaskEvent(tasks, event({
+      task_id: 'task-1',
+      event_type: 'deleted',
+      stage: 'deleted',
+      payload: { previous: 'transcribing' },
+    }))
+
+    expect(result.tasks[0]).toMatchObject({ status: 'deleted', stage: 'deleted' })
+    expect(result.shouldReload).toBe(true)
+  })
+
+  it('restores the status carried by an undelete event', () => {
+    const deletedTasks: TaskListItem[] = [
+      { id: 'task-1', status: 'deleted', stage: 'deleted', progress: 10 },
+    ]
+    const result = applyTaskEvent(deletedTasks, event({
+      task_id: 'task-1',
+      event_type: 'undeleted',
+      stage: 'pending',
+      payload: { previous: 'deleted', status: 'pending' },
+    }))
+
+    expect(result.tasks[0]).toMatchObject({ status: 'pending', stage: 'pending' })
+    expect(result.shouldReload).toBe(true)
+  })
+
   it('keeps the list unchanged and requests reload for an unknown task', () => {
     const result = applyTaskEvent(tasks, event({
       task_id: 'unknown',

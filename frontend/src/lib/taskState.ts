@@ -140,6 +140,22 @@ export function applyTaskEvent(
       stage: event.stage ?? 'cancelled',
     }
     shouldReload = true
+  } else if (event.event_type === 'deleted') {
+    task = {
+      ...task,
+      status: 'deleted',
+      stage: event.stage ?? 'deleted',
+    }
+    shouldReload = true
+  } else if (event.event_type === 'undeleted') {
+    const status = event.payload.status
+    if (!status) return { tasks, shouldReload: true }
+    task = {
+      ...task,
+      status,
+      stage: event.stage ?? taskStageFromStatus(status) ?? task.stage,
+    }
+    shouldReload = true
   } else {
     return { tasks, shouldReload: false }
   }

@@ -2,10 +2,11 @@ import uuid
 
 from fastapi.testclient import TestClient
 
+from minutes import bg_store
 from minutes.api import app
 from minutes.bg_store import create_task
 from minutes.db import session_scope
-from minutes.models import Task
+from minutes.models import Task, TaskHistory
 from minutes.routers import background_task_lifecycle
 
 
@@ -28,9 +29,11 @@ def test_cancel_marks_task_cancelled_when_celery_revoke_fails(monkeypatch):
     assert cancelled == [task_id]
 
 
-def test_undelete_restores_soft_deleted_task():
+def test_undelete_restores_soft_deleted_task(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
     client = TestClient(app)
 
     delete_response = client.post(f"/api/bg/delete/{task_id}")
@@ -44,3 +47,14 @@ def test_undelete_restores_soft_deleted_task():
         assert task.status == "pending"
         assert task.deleted is False
         assert task.deleted_at is None
+        undeleted = (
+            session.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "undeleted",
+            )
+            .one()
+        )
+        assert undeleted.payload == {"previous": "deleted", "status": "pending"}
+    assert [event["event_type"] for event in published] == ["deleted", "undeleted"]
+    assert [event["stage"] for event in published] == ["deleted", "pending"]
