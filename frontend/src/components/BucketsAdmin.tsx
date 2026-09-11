@@ -165,15 +165,15 @@ export default function BucketsAdmin() {
           </ul>
         )}
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title="Confirm"
+        message={confirmMessage}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={() => { if (confirmAction) confirmAction() }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
-    <ConfirmModal
-      open={confirmOpen}
-      title="Confirm"
-      message={confirmMessage}
-      confirmLabel="Delete"
-      cancelLabel="Cancel"
-      onConfirm={() => { if (confirmAction) confirmAction() }}
-      onCancel={() => setConfirmOpen(false)}
-    />
   )
 }
