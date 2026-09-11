@@ -1,4 +1,6 @@
 import fetchWithRetry from '../lib/fetchWithRetry'
+import { parseTaskListResponse } from '../lib/taskState'
+import type { TaskListItem } from '../lib/taskState'
 import type { TaskStage } from '../lib/taskEvents'
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -115,6 +117,27 @@ export async function getBgResult(taskId: string) {
   const res = await fetchWithRetry(`${BASE}/bg/result/${taskId}`, { credentials: 'same-origin', headers: getAuthHeaders() }, { retries: 3, timeoutMs: 10000 })
   if (!res.ok) throw new Error('result fetch failed')
   return res.json()
+}
+
+export async function getBgTasks(options: {
+  limit?: number
+  offset?: number
+  retries?: number
+  timeoutMs?: number
+} = {}): Promise<TaskListItem[]> {
+  const params = new URLSearchParams()
+  if (options.limit !== undefined) params.set('limit', String(options.limit))
+  if (options.offset !== undefined) params.set('offset', String(options.offset))
+  const query = params.toString()
+  const res = await fetchWithRetry(
+    `${BASE}/bg/tasks${query ? `?${query}` : ''}`,
+    { credentials: 'same-origin', headers: getAuthHeaders() },
+    { retries: options.retries ?? 3, timeoutMs: options.timeoutMs ?? 10000 },
+  )
+  if (!res.ok) throw new Error('task list fetch failed')
+  const tasks = parseTaskListResponse(await res.json())
+  if (!tasks) throw new Error('invalid task list response')
+  return tasks
 }
 
 async function _downloadBlob(url: string) {

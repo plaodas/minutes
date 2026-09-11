@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskEvent } from './taskEvents'
-import { applyTaskEvent, toHistoryItem, type TaskListItem } from './taskState'
+import { applyTaskEvent, parseTaskListResponse, toHistoryItem, type TaskListItem } from './taskState'
 
 const tasks: TaskListItem[] = [
   { id: 'task-1', status: 'transcribing', stage: 'transcribing', progress: 10 },
@@ -85,5 +85,17 @@ describe('toHistoryItem', () => {
 
     expect(item.histories).toEqual(histories.slice(0, 3))
     expect(item.event_count).toBe(0)
+  })
+})
+
+describe('parseTaskListResponse', () => {
+  it('accepts wrapped API responses and legacy cached arrays', () => {
+    expect(parseTaskListResponse({ tasks: [{ id: 'api-task' }] })).toEqual([{ id: 'api-task' }])
+    expect(parseTaskListResponse([{ id: 'cached-task' }])).toEqual([{ id: 'cached-task' }])
+  })
+
+  it('rejects malformed task lists', () => {
+    expect(parseTaskListResponse({ tasks: [{ status: 'pending' }] })).toBeNull()
+    expect(parseTaskListResponse({ tasks: 'invalid' })).toBeNull()
   })
 })

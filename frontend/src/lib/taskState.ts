@@ -47,6 +47,22 @@ export type ApplyTaskEventResult = {
   shouldReload: boolean
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function parseTaskListResponse(value: unknown): TaskListItem[] | null {
+  const tasks = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(value.tasks)
+      ? value.tasks
+      : null
+  if (!tasks || !tasks.every((task) => isRecord(task) && typeof task.id === 'string')) {
+    return null
+  }
+  return tasks as TaskListItem[]
+}
+
 function uploadFilename(result: unknown): string | undefined {
   if (typeof result !== 'object' || result === null || Array.isArray(result)) return
   const filename = (result as Record<string, unknown>).upload_filename

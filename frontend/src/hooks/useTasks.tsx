@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import fetchWithRetry from '../lib/fetchWithRetry'
-import { applyTaskEvent } from '../lib/taskState'
+import { getBgTasks } from '../api/client'
+import { applyTaskEvent, parseTaskListResponse } from '../lib/taskState'
 import type { TaskListItem } from '../lib/taskState'
 import { useToast } from '../components/ToastProvider'
 import { useTaskEvents } from '../events/TaskEventsProvider'
@@ -15,13 +15,10 @@ export function useTasks() {
     setLoading(true)
     setError(null)
     try {
-      const BASE = (import.meta.env.VITE_API_BASE || '/api')
-      const res = await fetchWithRetry(`${BASE}/bg/tasks`, { credentials: 'same-origin' }, { retries: 3, timeoutMs: 10000 })
-      const data = await res.json()
-      const payload = (data && data.tasks) ? data.tasks : data
-      setTasks(payload)
+      const nextTasks = await getBgTasks()
+      setTasks(nextTasks)
       try {
-        localStorage.setItem('cached_tasks', JSON.stringify(payload))
+        localStorage.setItem('cached_tasks', JSON.stringify(nextTasks))
       } catch (e) {
         // ignore
       }
@@ -31,8 +28,8 @@ export function useTasks() {
         try {
           const cached = localStorage.getItem('cached_tasks')
           if (cached) {
-            const parsed = JSON.parse(cached)
-            setTasks(parsed && parsed.tasks ? parsed.tasks : parsed)
+            const parsed = parseTaskListResponse(JSON.parse(cached))
+            if (parsed) setTasks(parsed)
           }
         } catch (err) {
           // ignore

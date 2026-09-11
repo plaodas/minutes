@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import Toast from './Toast'
 import ConfirmDialog from './ConfirmDialog'
-import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask, forceDeleteTask } from '../api/client'
+import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload, deleteTask, undeleteTask, forceDeleteTask, getBgTasks } from '../api/client'
 import { useToast } from './ToastProvider'
 import startDownload from '../lib/download'
 
@@ -46,12 +46,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null, onCl
     }
     ;(async () => {
       try {
-        const BASE = (import.meta.env.VITE_API_BASE || '/api')
-        const fetchWithRetry = (await import('../lib/fetchWithRetry')).default
-        const res = await fetchWithRetry(`${BASE}/bg/tasks`, { credentials: 'same-origin' }, { retries: 1, timeoutMs: 8000 })
-        if (!res.ok) return
-        const j = await res.json().catch(() => ({}))
-        const found = (j.tasks || []).find((t: any) => t.id === taskId)
+        const tasks = await getBgTasks({ retries: 1, timeoutMs: 8000 })
+        const found = tasks.find((task) => task.id === taskId)
         if (found) setTaskName(found.name || null)
       } catch (e) {
         // ignore

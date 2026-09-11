@@ -4,8 +4,9 @@ import fetchWithRetry from '../lib/fetchWithRetry'
 import { MinutesDrawer } from './MinutesDrawer'
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react'
 import { useTasks } from '../hooks/useTasks'
+import { getBgTasks } from '../api/client'
 import { toHistoryItem } from '../lib/taskState'
-import type { HistoryItem, TaskListItem } from '../lib/taskState'
+import type { HistoryItem } from '../lib/taskState'
 import { useToast } from './ToastProvider'
 const LoginForm = React.lazy(() => import('./LoginForm'))
 
@@ -152,7 +153,6 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
           setLoadingMore(true)
                 ;(async () => {
                   try {
-                    const BASE = (import.meta.env.VITE_API_BASE || '/api')
                     const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20)
                     const offset = items.length
                     // If offset is 0 the initial page is already loaded via `useTasks`.
@@ -160,9 +160,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                     if (offset === 0) {
                       return
                     }
-                    const res = await fetchWithRetry(`${BASE}/bg/tasks?limit=${limit}&offset=${offset}`)
-              const j = await res.json()
-              const arr = ((j.tasks || []) as TaskListItem[]).map(toHistoryItem)
+                    const tasks = await getBgTasks({ limit, offset })
+                    const arr = tasks.map(toHistoryItem)
               setItems((prev) => [...prev, ...arr])
               setHasMore(arr.length >= limit)
             } catch (err) {
