@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -50,13 +49,18 @@ from minutes.minio_client import MinioService
 from minutes.models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
 from minutes.ollama import format_minutes_from_raw
 from minutes.reconcile_bg_tasks import reconcile_once
+from minutes.routers.background_tasks import (
+    bg_result,
+    bg_task_events,
+)
+from minutes.routers.background_tasks import (
+    router as background_tasks_router,
+)
 from minutes.schemas import (
     CreateTaskResponse,
     FormatRawRequest,
     FormatRawResponse,
-    StatusResponse,
 )
-from minutes.sse import register_queue, unregister_queue
 from minutes.transcribe import transcribe
 
 # Allowed upload file types
@@ -314,6 +318,7 @@ def _run_pipeline_background(input_path: str, task_id: str):
 
 
 app = FastAPI(title="Minutes Service (prototype)")
+app.include_router(background_tasks_router)
 
 # Admin token for simple admin API protection (optional)
 ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
@@ -527,7 +532,6 @@ def admin_list_buckets():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/admin/buckets", dependencies=[Depends(require_admin)])
 def api_admin_list_buckets():
     return admin_list_buckets()
 
@@ -562,7 +566,6 @@ def admin_create_bucket(payload: dict[str, typing.Any]):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/admin/buckets", dependencies=[Depends(require_admin)])
 def api_admin_create_bucket(payload: dict[str, typing.Any]):
     return admin_create_bucket(payload)
 
@@ -588,7 +591,6 @@ def admin_delete_bucket(name: str, force: bool = False):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.delete("/api/admin/buckets/{name}", dependencies=[Depends(require_admin)])
 def api_admin_delete_bucket(name: str, force: bool = False):
     return admin_delete_bucket(name, force=force)
 
@@ -676,7 +678,6 @@ def format_raw(payload: FormatRawRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/format-raw", response_model=FormatRawResponse)
 def api_format_raw(payload: FormatRawRequest):
     return format_raw(payload)
 
@@ -687,7 +688,6 @@ def task_status(task_id: str):
     return {"task_id": task_id, "status": res.status, "info": str(res.info)}
 
 
-@app.get("/api/status/{task_id}")
 def api_task_status(task_id: str):
     return task_status(task_id)
 
@@ -704,7 +704,6 @@ def task_result(task_id: str):
     return JSONResponse({"status": "success", "result": res.result})
 
 
-@app.get("/api/result/{task_id}")
 def api_task_result(task_id: str):
     return task_result(task_id)
 
@@ -819,7 +818,6 @@ def root_transcribe_upload(
     )
 
 
-@app.post("/api/transcribe-upload", response_model=CreateTaskResponse)
 def api_transcribe_upload(
     file: UploadFile = File(...),  # noqa: B008
     x_user_id: str | None = Header(None),
@@ -837,39 +835,6 @@ def api_transcribe_upload(
     )
 
 
-@app.get("/api/bg/status/{task_id}", response_model=StatusResponse)
-def bg_status(task_id: str):
-    t = get_task(task_id)
-    if not t:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    return {
-        "task_id": task_id,
-        "status": t["status"],
-        "error": t.get("error"),
-        "progress": t.get("progress"),
-    }
-
-
-@app.get(
-    "/api/bg/result/{task_id}",
-    responses={
-        200: {"description": "success", "content": {"application/json": {}}},
-        202: {"description": "pending or failed"},
-        404: {"description": "unknown task"},
-    },
-)
-def bg_result(task_id: str):
-    t = get_task(task_id)
-    if not t:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    if t["status"] != "success":
-        return JSONResponse(
-            {"status": t["status"], "error": t.get("error")}, status_code=202
-        )
-    return {"status": "success", "result": t.get("result")}
-
-
-@app.get("/api/bg/result/{task_id}")
 def api_bg_result(task_id: str):
     return bg_result(task_id)
 
@@ -903,30 +868,25 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
         return {"task_id": task_id, "history": out}
 
 
-@app.get("/api/bg/history/{task_id}")
 def api_bg_history(task_id: str, limit: int = 100, offset: int = 0):
     return bg_history(task_id, limit=limit, offset=offset)
 
 
-@app.get("/api/bg/tasks")
 def api_bg_tasks(limit: int = 50, offset: int = 0):
     """Compatibility wrapper for `/api/bg/tasks`."""
     return bg_tasks(limit=limit, offset=offset)
 
 
-@app.post("/api/bg/task/{task_id}/rename")
 def api_bg_task_rename(task_id: str, payload: dict[str, str]):
     """Compatibility wrapper for `/api/bg/task/{task_id}/rename`."""
     return bg_task_rename(task_id, payload)
 
 
-@app.post("/api/bg/task/{task_id}/regenerate-name")
 def api_bg_task_regenerate_name(task_id: str):
     """Compatibility wrapper for `/api/bg/task/{task_id}/regenerate-name`."""
     return bg_task_regenerate_name(task_id)
 
 
-@app.get("/api/bg/tasks/{task_id}/events")
 def api_bg_task_events(task_id: str):
     """Compatibility wrapper for `/api/bg/tasks/{task_id}/events`."""
     return bg_task_events(task_id)
@@ -1089,70 +1049,8 @@ def bg_tasks(limit: int = 50, offset: int = 0):
         return {"tasks": out}
 
 
-@app.get("/api/bg/tasks")
 def api_bg_tasks_alias(limit: int = 50, offset: int = 0):
     return bg_tasks(limit=limit, offset=offset)
-
-
-@app.get("/api/bg/events")
-async def bg_events(request: Request):
-    """Server-Sent Events endpoint streaming task events to clients.
-
-    Clients should connect with EventSource to receive JSON `data` payloads.
-    """
-    q = register_queue()
-
-    async def event_generator():
-        try:
-            while True:
-                # if client disconnected, stop
-                if await request.is_disconnected():
-                    break
-                try:
-                    ev = await q.get()
-                except asyncio.CancelledError:
-                    break
-                try:
-                    payload = json.dumps(ev, default=str)
-                except (TypeError, ValueError):
-                    payload = json.dumps(
-                        {"type": "error", "error": "serialization_failed"}
-                    )
-                # SSE message (data lines, blank line terminator)
-                yield f"data: {payload}\n\n"
-        finally:
-            unregister_queue(q)
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-
-@app.get("/api/bg/tasks/{task_id}/events")
-def bg_task_events(task_id: str):
-    """Return all events for a task (descending by timestamp). This is intended for the "View full events" modal.
-
-    Returns: { task_id, events: [ { event_ts, event_type, payload }, ... ] }
-    """
-    with session_scope() as session:
-        try:
-            key = uuid.UUID(task_id)
-        except (ValueError, TypeError):
-            return JSONResponse({"error": "invalid task id"}, status_code=400)
-        rows = (
-            session.query(TaskHistory)
-            .filter(TaskHistory.task_id == key)
-            .order_by(TaskHistory.event_ts.desc())
-            .all()
-        )
-        out = []
-        for r in rows:
-            out.append(
-                {
-                    "event_ts": r.event_ts.isoformat() + "Z" if r.event_ts else None,
-                    "event_type": r.event_type,
-                    "payload": r.payload,
-                }
-            )
-        return {"task_id": task_id, "events": out}
 
 
 class IdList(BaseModel):
@@ -1285,7 +1183,6 @@ def bg_histories(payload: IdList):
         return resp
 
 
-@app.post("/api/bg/histories")
 def api_bg_histories(payload: IdList):
     """Compatibility wrapper for `/api/bg/histories`."""
     return bg_histories(payload)
@@ -1315,7 +1212,6 @@ def bg_cancel(task_id: str):
     return {"task_id": task_id, "cancelled": True}
 
 
-@app.post("/api/bg/cancel/{task_id}")
 def api_bg_cancel(task_id: str):
     """Compatibility wrapper for `/api/bg/cancel/{task_id}`."""
     return bg_cancel(task_id)
@@ -1394,7 +1290,6 @@ def bg_delete(task_id: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post("/api/bg/delete/{task_id}")
 def api_bg_delete(task_id: str):
     """Compatibility wrapper: support frontend calling /api/bg/delete/{task_id}
 
@@ -1404,7 +1299,6 @@ def api_bg_delete(task_id: str):
     return bg_delete(task_id)
 
 
-@app.post("/api/bg/force-delete/{task_id}")
 def api_bg_force_delete(task_id: str):
     """Compatibility wrapper: support frontend calling /api/bg/force-delete/{task_id}
 
@@ -1592,7 +1486,6 @@ def bg_undelete(task_id: str):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post("/api/bg/undelete/{task_id}")
 def api_bg_undelete(task_id: str):
     """Compatibility wrapper for `/api/bg/undelete/{task_id}`."""
     return bg_undelete(task_id)
@@ -1620,7 +1513,6 @@ def bg_hard_delete(task_id: str, request: Request = None):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
-@app.post("/api/bg/hard-delete/{task_id}")
 def api_bg_hard_delete(task_id: str, request: Request = None):
     return bg_hard_delete(task_id, request=request)
 
@@ -1786,7 +1678,6 @@ def _stream_minio_object(
     return StreamingResponse(iterfile(), media_type=media_type, headers=headers)
 
 
-@app.get("/api/bg/minutes/{task_id}")
 def api_bg_minutes(task_id: str):
     """Compatibility wrapper for frontend `/api/bg/minutes/{task_id}`."""
     return bg_minutes_file(task_id)
@@ -2184,7 +2075,6 @@ def api_list_buckets(
         return {"buckets": out}
 
 
-@app.get("/admin/uploads/cleanup")
 def _list_uploads_candidates(
     uploads_dir: str, pattern: str, older_than: int, limit: int
 ):
@@ -2415,7 +2305,6 @@ def bg_transcript(task_id: str, format: str = "txt"):
     return Response(content=text, media_type=media)
 
 
-@app.get("/api/bg/transcript/{task_id}")
 def api_bg_transcript(task_id: str, format: str = "txt"):
     """Compatibility wrapper for frontend `/api/bg/transcript/{task_id}`."""
     return bg_transcript(task_id, format=format)
