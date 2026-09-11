@@ -45,3 +45,22 @@ def test_cleanup_post_delete(monkeypatch, tmp_path):
     data = r.json()
     assert data["count"] == 1
     assert not f.exists()
+
+
+def test_cleanup_rejects_unauthenticated_request(tmp_path):
+    response = TestClient(app).get(
+        "/admin/uploads/cleanup", params={"dir": str(tmp_path)}
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "forbidden"}
+
+
+def test_cleanup_accepts_force_admin_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("FORCE_ADMIN", "true")
+
+    response = TestClient(app).get(
+        "/admin/uploads/cleanup", params={"dir": str(tmp_path)}
+    )
+
+    assert response.status_code == 200

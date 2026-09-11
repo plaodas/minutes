@@ -428,6 +428,38 @@ def create_task(
             logger.exception("create_task failed for %s", task_id)
 
 
+def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> None:
+    if not isinstance(result, dict):
+        return
+    minio_info = result.get("minio") or (result.get("result") or {}).get("minio")
+    if not isinstance(minio_info, dict) or not minio_info.get("bucket"):
+        return
+
+    bucket_name = str(minio_info["bucket"])
+    try:
+        existing = (
+            session.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
+        )
+        if existing:
+            return
+        session.add(
+            Bucket(
+                name=bucket_name,
+                owner_id=getattr(task, "user_id", None) or DUMMY_OWNER_ID,
+                bucket_metadata=minio_info.get("metadata") or {},
+            )
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        logger.debug("Bucket row already exists for %s", bucket_name)
+    except SQLAlchemyError:
+        session.rollback()
+        logger.exception(
+            "failed to ensure bucket row for %s (task %s)", bucket_name, task_id
+        )
+
+
 def update_task_success(task_id: str, result: Any, db=None):
     with _lock, maybe_session(db) as (s, _created):
         try:
@@ -477,95 +509,23 @@ def update_task_success(task_id: str, result: Any, db=None):
                 s.commit()
             except IntegrityError:
                 s.rollback()
-                # If the result references a MinIO cached object, ensure the bucket is recorded
-                try:
-                    logger.debug(
-                        "update_task_success checking for minio info for task %s",
-                        task_id,
+            _ensure_result_bucket(s, t, result, task_id)
+            try:
+                record_history(task_id, "success", {"result": result}, db=s)
+            except SQLAlchemyError:
+                logger.exception('record_history("success") failed for %s', task_id)
+            try:
+                publish_event(
+                    build_task_event(
+                        str(key) if isinstance(key, uuid.UUID) else str(task_id),
+                        TaskEventType.STATUS,
+                        {"status": "success"},
                     )
-                    minio_info = None
-                    if isinstance(result, dict):
-                        minio_info = result.get("minio") or (
-                            result.get("result") or {}
-                        ).get("minio")
-                    if isinstance(minio_info, dict) and minio_info.get("bucket"):
-                        bucket_name = str(minio_info.get("bucket"))
-                        logger.info(
-                            "update_task_success detected minio info for task %s: bucket=%s",
-                            task_id,
-                            bucket_name,
-                        )
-                        try:
-                            existing = (
-                                s.query(Bucket)
-                                .filter(Bucket.name == bucket_name)
-                                .one_or_none()
-                            )
-                            if existing:
-                                logger.info(
-                                    "Bucket row already exists for %s (task %s)",
-                                    bucket_name,
-                                    task_id,
-                                )
-                            else:
-                                logger.info(
-                                    "Inserting Bucket row for %s (task %s)",
-                                    bucket_name,
-                                    task_id,
-                                )
-                                # Prefer task.user_id as owner if available, otherwise use DUMMY_OWNER_ID
-                                try:
-                                    owner = (
-                                        getattr(t, "user_id", None) or DUMMY_OWNER_ID
-                                    )
-                                except AttributeError:
-                                    owner = DUMMY_OWNER_ID
-                                b = Bucket(
-                                    name=bucket_name,
-                                    owner_id=owner,
-                                    bucket_metadata=minio_info.get("metadata") or {},
-                                )
-                                s.add(b)
-                                try:
-                                    s.commit()
-                                    logger.info(
-                                        "Bucket row committed for %s (task %s)",
-                                        bucket_name,
-                                        task_id,
-                                    )
-                                except IntegrityError:
-                                    logger.exception(
-                                        "IntegrityError committing bucket row for %s (task %s)",
-                                        bucket_name,
-                                        task_id,
-                                    )
-                                    s.rollback()
-                        except SQLAlchemyError:
-                            logger.exception(
-                                "failed to ensure bucket row for %s (task %s)",
-                                bucket_name,
-                                task_id,
-                            )
-                except (SQLAlchemyError, OperationalError, OSError):
-                    logger.exception("bucket persistence check failed for %s", task_id)
-                try:
-                    record_history(task_id, "success", {"result": result}, db=s)
-                except SQLAlchemyError:
-                    logger.exception('record_history("success") failed for %s', task_id)
-                # Publish an explicit status event for frontends to consume (helps UIs
-                # that listen for 'status' events to update task rows immediately).
-                try:
-                    publish_event(
-                        build_task_event(
-                            str(key) if isinstance(key, uuid.UUID) else str(task_id),
-                            TaskEventType.STATUS,
-                            {"status": "success"},
-                        )
-                    )
-                except (RuntimeError, OSError):
-                    logger.exception(
-                        "publish_event failed for success status for %s", task_id
-                    )
+                )
+            except (RuntimeError, OSError):
+                logger.exception(
+                    "publish_event failed for success status for %s", task_id
+                )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_task_success failed for %s", task_id)
 
