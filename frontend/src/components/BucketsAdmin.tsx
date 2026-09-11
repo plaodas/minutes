@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { getBuckets, createBucket, adminUploadsCleanupGet, adminUploadsCleanupPost } from '../api/client'
+import ConfirmModal from './ConfirmModal'
 
 // BucketsAdmin also hosts other admin tools (service tokens, user id helper)
 
@@ -18,6 +19,10 @@ export default function BucketsAdmin() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [runLoading, setRunLoading] = useState(false)
   const [runResult, setRunResult] = useState<any | null>(null)
+  // confirm modal state
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmMessage, setConfirmMessage] = useState('')
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -75,20 +80,25 @@ export default function BucketsAdmin() {
   const handleRun = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
     setError(null)
-    if (!confirm('Are you sure you want to delete matching upload files? This cannot be undone.')) return
-    setRunLoading(true)
-    setRunResult(null)
-    try {
-      const res = await adminUploadsCleanupPost({ dir: uploadsDir || undefined, pattern: uploadsPattern, older_than: olderThan || 0, limit })
-      setRunResult(res)
-      try { window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'success', message: `Deleted ${res.count || 0} files` } })) } catch {}
-    } catch (err: any) {
-      const msg = err?.message || String(err || 'cleanup failed')
-      setError(msg)
-      try { window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message: msg } })) } catch {}
-    } finally {
-      setRunLoading(false)
-    }
+    // open confirmation modal instead of native confirm
+    setConfirmMessage('Are you sure you want to delete matching upload files? This cannot be undone.')
+    setConfirmAction(() => async () => {
+      setConfirmOpen(false)
+      setRunLoading(true)
+      setRunResult(null)
+      try {
+        const res = await adminUploadsCleanupPost({ dir: uploadsDir || undefined, pattern: uploadsPattern, older_than: olderThan || 0, limit })
+        setRunResult(res)
+        try { window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'success', message: `Deleted ${res.count || 0} files` } })) } catch {}
+      } catch (err: any) {
+        const msg = err?.message || String(err || 'cleanup failed')
+        setError(msg)
+        try { window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message: msg } })) } catch {}
+      } finally {
+        setRunLoading(false)
+      }
+    })
+    setConfirmOpen(true)
   }
 
   return (
@@ -97,13 +107,6 @@ export default function BucketsAdmin() {
         <h2 className="text-lg font-semibold">Admin Tools</h2>
         <p className="text-sm text-[var(--muted)]">Manage buckets, service tokens, and admin helpers.</p>
       </div>
-
-      <form onSubmit={handleCreate} className="mb-4 flex gap-2">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="bucket-name" className="rounded border px-2 py-1" />
-        <button className="rounded bg-[var(--accent)] px-3 py-1 text-white" disabled={!name}>Create</button>
-      </form>
-
-      {error && <div className="mb-2 text-sm text-red-600">{error}</div>}
 
       {/* Uploads cleanup admin UI */}
       <div className="mb-4 rounded border p-3">
@@ -141,7 +144,14 @@ export default function BucketsAdmin() {
         )}
       </div>
 
-      <div>
+      <form onSubmit={handleCreate} className="mb-4 flex gap-2">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="bucket-name" className="rounded border px-2 py-1" />
+        <button className="rounded bg-[var(--accent)] px-3 py-1 text-white" disabled={!name}>Create</button>
+      </form>
+
+      {error && <div className="mb-2 text-sm text-red-600">{error}</div>}
+
+     <div>
         {loading ? (
           <div className="text-sm text-[var(--muted)]">Loading…</div>
         ) : (
@@ -156,5 +166,14 @@ export default function BucketsAdmin() {
         )}
       </div>
     </div>
+    <ConfirmModal
+      open={confirmOpen}
+      title="Confirm"
+      message={confirmMessage}
+      confirmLabel="Delete"
+      cancelLabel="Cancel"
+      onConfirm={() => { if (confirmAction) confirmAction() }}
+      onCancel={() => setConfirmOpen(false)}
+    />
   )
 }

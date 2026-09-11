@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { listServiceTokens, createServiceToken, revokeServiceToken } from '../api/client'
 import { useToast } from './ToastProvider'
+import ConfirmModal from './ConfirmModal'
 
 export default function ServiceTokensAdmin() {
   const [tokens, setTokens] = useState<any[]>([])
@@ -8,6 +9,10 @@ export default function ServiceTokensAdmin() {
   const [name, setName] = useState('')
   const [userId, setUserId] = useState('')
   const { addToast } = useToast()
+  // confirm modal for revocation
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmMessage, setConfirmMessage] = useState('')
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -40,14 +45,19 @@ export default function ServiceTokensAdmin() {
   }
 
   const handleRevoke = async (id: string) => {
-    if (!confirm('Revoke this token?')) return
-    try {
-      await revokeServiceToken(id)
-      addToast('Token revoked', { level: 'success' })
-      await load()
-    } catch (e: any) {
-      addToast(e.message || 'revoke failed', { level: 'error' })
-    }
+    // open confirmation modal instead of native confirm
+    setConfirmMessage('Revoke this token?')
+    setConfirmAction(() => async () => {
+      setConfirmOpen(false)
+      try {
+        await revokeServiceToken(id)
+        addToast('Token revoked', { level: 'success' })
+        await load()
+      } catch (e: any) {
+        addToast(e.message || 'revoke failed', { level: 'error' })
+      }
+    })
+    setConfirmOpen(true)
   }
 
   return (
@@ -83,6 +93,15 @@ export default function ServiceTokensAdmin() {
           </ul>
         )}
       </div>
+      <ConfirmModal
+        open={confirmOpen}
+        title="Confirm"
+        message={confirmMessage}
+        confirmLabel="Revoke"
+        cancelLabel="Cancel"
+        onConfirm={() => { if (confirmAction) confirmAction() }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }
