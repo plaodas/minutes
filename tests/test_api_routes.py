@@ -73,3 +73,17 @@ def test_background_artifact_routes_return_404_for_unknown_task(monkeypatch, pat
 
     assert response.status_code == 404
     assert response.json() == {"error": "unknown task"}
+
+
+def test_background_history_rejects_invalid_task_id():
+    response = TestClient(app).get("/api/bg/history/not-a-uuid")
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "invalid task id"}
+
+
+def test_background_rename_requires_name():
+    response = TestClient(app).post("/api/bg/task/not-a-uuid/rename", json={"name": ""})
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "missing name"}

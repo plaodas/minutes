@@ -230,6 +230,8 @@ def bg_undelete(task_id: str):
                 return JSONResponse({"error": "unknown task"}, status_code=404)
             previous = obj.status
             obj.status = "success" if obj.result else "pending"
+            obj.deleted = False
+            obj.deleted_at = None
             db.add(obj)
             db.commit()
             try:
