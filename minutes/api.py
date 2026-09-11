@@ -692,11 +692,6 @@ def api_task_status(task_id: str):
     return task_status(task_id)
 
 
-@app.get("/api/bg/status/{task_id}")
-def api_bg_status(task_id: str):
-    return task_status(task_id)
-
-
 @app.get("/api/result/{task_id}")
 def task_result(task_id: str):
     res = AsyncResult(task_id, app=celery)

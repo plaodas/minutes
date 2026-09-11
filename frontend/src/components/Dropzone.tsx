@@ -42,6 +42,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     const f = files[0]
     setLastFile(f)
     setFileName(f.name)
+    setTranscribeProgress(null)
 
     // abort any previous operations
     if (xhrRef.current) {
@@ -217,8 +218,13 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
           if (et === 'progress' && obj.payload && typeof obj.payload.progress === 'number') {
             setTranscribeProgress(Math.round(obj.payload.progress))
           }
-          if (et === 'status' && obj.payload && (String(obj.payload.status || '').toLowerCase().includes('success'))) {
-            setTranscribeProgress(100)
+          if (et === 'status' && obj.payload) {
+            const status = String(obj.payload.status || '')
+            const idx = mapStatusToIndex(status)
+            setActiveIndex(idx)
+            if (idx >= 3) {
+              setTranscribeProgress(null)
+            }
           }
         } catch (e) {
           // ignore parse errors
