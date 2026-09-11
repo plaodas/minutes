@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import fetchWithRetry from '../lib/fetchWithRetry'
+import { applyTaskEvent } from '../lib/taskState'
+import type { TaskListItem } from '../lib/taskState'
 import { useToast } from '../components/ToastProvider'
 import { useTaskEvents } from '../events/TaskEventsProvider'
 
-type TaskItem = any
-
 export function useTasks() {
-  const [tasks, setTasks] = useState<TaskItem[] | null>(null)
+  const [tasks, setTasks] = useState<TaskListItem[] | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<any>(null)
   const { addToast } = useToast()
@@ -53,32 +53,9 @@ export function useTasks() {
   useTaskEvents((data) => {
     setTasks((prev) => {
       if (!prev) return prev
-      const id = data.task_id
-      const idx = prev.findIndex((task: any) => String(task.id) === String(id))
-      if (idx === -1) {
-        setTimeout(() => load(), 0)
-        return prev
-      }
-      const copy = prev.slice()
-      const item = Object.assign({}, copy[idx])
-      if (data.event_type === 'progress') {
-        item.progress = data.payload.progress
-      }
-      if (data.event_type === 'status') {
-        item.status = data.payload.status
-        item.stage = data.stage
-      }
-      if (data.event_type === 'success') {
-        item.status = 'success'
-        item.stage = data.stage ?? 'success'
-        item.progress = 100.0
-        if (data.payload.result) {
-          item.result = data.payload.result
-        }
-        setTimeout(() => load(), 0)
-      }
-      copy[idx] = item
-      return copy
+      const result = applyTaskEvent(prev, data)
+      if (result.shouldReload) setTimeout(() => load(), 0)
+      return result.tasks
     })
   })
 
