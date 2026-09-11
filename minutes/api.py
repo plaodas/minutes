@@ -330,12 +330,52 @@ def _get_admin_token_from_request(req: Request | None):
 
 
 def require_admin(req: Request = None):
+    """FastAPI dependency that requires an admin-authenticated user.
+
+    Accepts:
+    - a matching `ADMIN_API_TOKEN` via `X-Admin-Token`/Authorization header (legacy)
+    - a JWT access token (Bearer) that decodes to a `User` with `is_admin=True`
+    - a service token (Bearer) that maps to a `User` with `is_admin=True`
+    - a `minutes_session` cookie containing a JWT for an admin user
+    """
+    # 1) Legacy admin API token (explicit override)
     token = _get_admin_token_from_request(req)
-    if not ADMIN_API_TOKEN:
-        raise HTTPException(status_code=403, detail="admin API not enabled")
-    if token != ADMIN_API_TOKEN:
+    if ADMIN_API_TOKEN and token == ADMIN_API_TOKEN:
+        return True
+
+    # 2) Cookie-based JWT (minutes_session)
+    try:
+        from minutes.auth import get_current_user_from_cookie
+
+        if req:
+            cookie = req.cookies.get("minutes_session")
+            if cookie:
+                try:
+                    user = get_current_user_from_cookie(cookie)
+                    if user and getattr(user, "is_admin", False):
+                        return True
+                except (HTTPException, ValueError, TypeError) as e:
+                    logging.getLogger("minutes.api").debug("cookie auth failed: %s", e)
+    except (ImportError, ModuleNotFoundError) as e:
+        logging.getLogger("minutes.api").debug(
+            "get_current_user_from_cookie not available: %s", e
+        )
+
+    # 3) Header-based JWT or service token
+    try:
+        auth = req.headers.get("Authorization") if req else None
+        if not auth:
+            raise HTTPException(status_code=403, detail="forbidden")
+        # delegate to _is_request_admin which understands JWT/service token
+        if _is_request_admin(None, auth):
+            return True
+    except HTTPException:
+        raise
+    except (ImportError, ValueError, TypeError, SQLAlchemyError) as e:
+        logging.getLogger("minutes.api").debug("header auth check failed: %s", e)
         raise HTTPException(status_code=403, detail="forbidden")
-    return True
+
+    raise HTTPException(status_code=403, detail="forbidden")
 
 
 # CORS: allow local dev origins used by the frontend and Playwright
@@ -1933,13 +1973,70 @@ def api_revoke_service_token(token_id: str):
         return {"revoked": True}
 
 
-def _is_request_admin(x_admin: str | None) -> bool:
+def _is_request_admin(x_admin: str | None, authorization: str | None = None) -> bool:
+    """Return True when the request is considered admin.
+
+    Logic:
+    - Honor FORCE_ADMIN or legacy X-Admin header for backward compatibility.
+    - Otherwise, require a valid JWT (access token) or a verified service token
+      that maps to a `User` with `is_admin=True`.
+    """
     try:
-        force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
+        force = os.environ.get("FORCE_ADMIN", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
         header_admin = x_admin == "1" or (
             isinstance(x_admin, str) and x_admin.lower() == "true"
         )
-        return bool(force or header_admin)
+        if force or header_admin:
+            return True
+
+        # Try to resolve Authorization header: accept JWT or service token
+        if not authorization:
+            return False
+
+        token = authorization
+        if isinstance(token, str) and token.lower().startswith("bearer "):
+            token = token.split(" ", 1)[1]
+
+        # Try JWT first
+        try:
+            from minutes.auth import decode_access_token, get_user_by_id
+
+            try:
+                payload = decode_access_token(token)
+                sub = payload.get("sub")
+                if sub:
+                    u = get_user_by_id(str(sub))
+                    if u and getattr(u, "is_admin", False):
+                        return True
+            except (HTTPException, ValueError, TypeError) as e:
+                logging.getLogger("minutes.api").debug(
+                    "JWT decode/lookup failed: %s", e
+                )
+        except (ImportError, ModuleNotFoundError) as e:
+            logging.getLogger("minutes.api").debug(
+                "decode_access_token not available: %s", e
+            )
+
+        # Try verifying service token and check associated user
+        try:
+            from sqlalchemy.exc import SQLAlchemyError
+
+            from minutes.auth import get_user_by_id, verify_service_token
+
+            user_id = verify_service_token(token)
+            if user_id:
+                u = get_user_by_id(str(user_id))
+                if u and getattr(u, "is_admin", False):
+                    return True
+        except (ImportError, SQLAlchemyError, TypeError, ValueError):
+            # verification failed or DB error; treat as non-admin
+            return False
+
+        return False
     except (ValueError, AttributeError, TypeError):
         return False
 
@@ -2007,7 +2104,7 @@ def api_create_bucket(
     - If the request contains `X-User-Id: <uuid>`, that user becomes the owner.
     - Admins (via `X-Admin`) can create buckets as well. Non-admins must supply `X-User-Id`.
     """
-    is_admin = _is_request_admin(x_admin)
+    is_admin = _is_request_admin(x_admin, authorization)
     user_uuid = _get_user_id_from_header(x_user_id, authorization)
     if not is_admin and not user_uuid:
         return JSONResponse(
@@ -2069,7 +2166,7 @@ def api_list_buckets(
     authorization: str | None = Header(None),
 ):
     """List buckets. Admins see all; non-admins see only their own buckets."""
-    is_admin = _is_request_admin(x_admin)
+    is_admin = _is_request_admin(x_admin, authorization)
     user_uuid = _get_user_id_from_header(x_user_id, authorization)
     with session_scope() as db:
         q = db.query(Bucket)
@@ -2093,19 +2190,43 @@ def api_list_buckets(
 
 
 @app.get("/admin/uploads/cleanup")
+def _list_uploads_candidates(
+    uploads_dir: str, pattern: str, older_than: int, limit: int
+):
+    now = int(time.time())
+    candidates: list[dict[str, int | str]] = []
+    files = [
+        f
+        for f in os.listdir(uploads_dir)
+        if os.path.isfile(os.path.join(uploads_dir, f))
+    ]
+    for f in files:
+        if pattern and not f.startswith(pattern):
+            continue
+        full = os.path.join(uploads_dir, f)
+        try:
+            mtime = int(os.path.getmtime(full))
+        except OSError:
+            continue
+        age = now - mtime
+        if older_than and age < older_than:
+            continue
+        candidates.append({"path": full, "name": f, "age_seconds": age})
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+@app.get("/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
 def admin_uploads_cleanup_get(
     dir: str | None = None,
     pattern: str = "",
     older_than: int = 0,
     limit: int = 100,
     dry_run: bool = True,
-    x_admin: str | None = Header(None),
     request: Request = None,
 ):
-    """Return files that would be deleted. Admin-only."""
-    if not _is_request_admin(x_admin):
-        return JSONResponse({"error": "forbidden"}, status_code=403)
-
+    """Return files that would be deleted. Admin-only (JWT/service-token required)."""
     uploads_dir = (
         dir
         or (request.query_params.get("dir") if request else None)
@@ -2115,42 +2236,20 @@ def admin_uploads_cleanup_get(
     if not os.path.isdir(uploads_dir):
         return JSONResponse({"error": "dir not found"}, status_code=404)
 
-    now = int(time.time())
-    candidates = []
     try:
-        files = [
-            f
-            for f in os.listdir(uploads_dir)
-            if os.path.isfile(os.path.join(uploads_dir, f))
-        ]
-        for f in files:
-            if pattern and not f.startswith(pattern):
-                continue
-            full = os.path.join(uploads_dir, f)
-            try:
-                mtime = int(os.path.getmtime(full))
-            except OSError:
-                continue
-            age = now - mtime
-            if older_than and age < older_than:
-                continue
-            candidates.append({"path": full, "name": f, "age_seconds": age})
-            if len(candidates) >= limit:
-                break
+        candidates = _list_uploads_candidates(uploads_dir, pattern, older_than, limit)
     except OSError as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
     return {"candidates": candidates, "count": len(candidates)}
 
 
-@app.post("/admin/uploads/cleanup")
-def admin_uploads_cleanup_post(
-    payload: dict, x_admin: str | None = Header(None), request: Request = None
-):
-    """Perform deletion of files. payload keys: dir, pattern, older_than, limit"""
-    if not _is_request_admin(x_admin):
-        return JSONResponse({"error": "forbidden"}, status_code=403)
+@app.post("/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
+def admin_uploads_cleanup_post(payload: dict, request: Request = None):
+    """Perform deletion of files. payload keys: dir, pattern, older_than, limit
 
+    Protected by `require_admin` when mounted at `/admin/...` or `/api/admin/...`.
+    """
     uploads_dir = (
         payload.get("dir")
         or (
@@ -2201,32 +2300,33 @@ def admin_uploads_cleanup_post(
     return {"deleted": deleted, "errors": errors, "count": len(deleted)}
 
 
-@app.get("/api/admin/uploads/cleanup")
+@app.get("/api/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
 def api_admin_uploads_cleanup_get(
     dir: str | None = None,
     pattern: str = "",
     older_than: int = 0,
     limit: int = 100,
     dry_run: bool = True,
-    x_admin: str | None = Header(None),
     request: Request = None,
 ):
-    return admin_uploads_cleanup_get(
-        dir=dir,
-        pattern=pattern,
-        older_than=older_than,
-        limit=limit,
-        dry_run=dry_run,
-        x_admin=x_admin,
-        request=request,
+    uploads_dir = (
+        dir
+        or (request.query_params.get("dir") if request else None)
+        or os.environ.get("UPLOADS_DIR")
+        or "uploads"
     )
+    if not os.path.isdir(uploads_dir):
+        return JSONResponse({"error": "dir not found"}, status_code=404)
+    try:
+        candidates = _list_uploads_candidates(uploads_dir, pattern, older_than, limit)
+    except OSError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return {"candidates": candidates, "count": len(candidates)}
 
 
-@app.post("/api/admin/uploads/cleanup")
-def api_admin_uploads_cleanup_post(
-    payload: dict, x_admin: str | None = Header(None), request: Request = None
-):
-    return admin_uploads_cleanup_post(payload=payload, x_admin=x_admin, request=request)
+@app.post("/api/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
+def api_admin_uploads_cleanup_post(payload: dict, request: Request = None):
+    return admin_uploads_cleanup_post(payload=payload, request=request)
 
 
 def _read_minio_object_text(bucket: str, object_name: str) -> str:
