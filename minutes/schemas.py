@@ -319,6 +319,17 @@ class ResultPendingResponse(BaseModel):
     error: str | None = None
 
 
+class ActionItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    text: str | None = None
+
+
+class ActionItemsResponse(BaseModel):
+    task_id: str
+    items: list[ActionItem]
+
+
 class TaskCancelledResponse(BaseModel):
     task_id: str
     cancelled: bool

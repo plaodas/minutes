@@ -87,6 +87,19 @@ def test_task_read_routes_publish_typed_openapi_responses():
         assert _json_schema_ref(paths, artifact_path, "get", 404) == (
             "#/components/schemas/ErrorResponse"
         )
+    minutes_200 = paths["/api/bg/minutes/{task_id}"]["get"]["responses"]["200"][
+        "content"
+    ]
+    assert "application/json" not in minutes_200
+    assert minutes_200["text/plain"]["schema"] == {"type": "string"}
+    transcript_200 = paths["/api/bg/transcript/{task_id}"]["get"]["responses"]["200"][
+        "content"
+    ]
+    assert "application/json" not in transcript_200
+    assert set(transcript_200) == {"text/plain", "text/markdown"}
+    assert _json_schema_ref(paths, "/api/bg/action-items/{task_id}", "get", 200) == (
+        "#/components/schemas/ActionItemsResponse"
+    )
     assert _json_schema_ref(paths, "/api/admin/buckets", "get", 200) == (
         "#/components/schemas/AdminBucketListResponse"
     )
@@ -469,6 +482,25 @@ def test_background_artifact_routes_return_202_when_pending(monkeypatch):
 
     assert response.status_code == 202
     assert response.json() == {"status": "transcribing", "error": None}
+
+
+def test_action_items_json_matches_schema(monkeypatch):
+    monkeypatch.setattr(
+        background_task_artifacts,
+        "get_task",
+        lambda _task_id: {
+            "status": "success",
+            "result": {"action_items": [{"text": "Send report"}]},
+        },
+    )
+
+    response = TestClient(app).get("/api/bg/action-items/task-1")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": "task-1",
+        "items": [{"text": "Send report"}],
+    }
 
 
 def test_background_history_rejects_invalid_task_id():

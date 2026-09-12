@@ -551,6 +551,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionItem */
+        ActionItem: {
+            /** Text */
+            text?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ActionItemsResponse */
+        ActionItemsResponse: {
+            /** Items */
+            items: components["schemas"]["ActionItem"][];
+            /** Task Id */
+            task_id: string;
+        };
         /** AdminBucketItem */
         AdminBucketItem: {
             /** Created At */
@@ -1341,13 +1355,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Action items as JSON, CSV, or plain text */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ActionItemsResponse"];
+                    "text/csv": string;
+                    "text/plain": string;
                 };
             };
             /** @description Task has not completed successfully */
@@ -1709,13 +1725,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Minutes text */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "text/plain": string;
                 };
             };
             /** @description Task has not completed successfully */
@@ -1867,13 +1883,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Artifact text */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "text/markdown": string;
+                    "text/plain": string;
                 };
             };
             /** @description Task has not completed successfully */
@@ -2119,13 +2136,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Artifact text */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "text/markdown": string;
+                    "text/plain": string;
                 };
             };
             /** @description Task has not completed successfully */

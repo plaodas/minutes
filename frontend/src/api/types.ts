@@ -8,6 +8,7 @@ export type TaskEvent = ApiSchemas['TaskEvent'];
 export type StatusResponse = ApiSchemas['StatusResponse'];
 export type ResultSuccess = ApiSchemas['ResultSuccess'];
 export type ResultPendingResponse = ApiSchemas['ResultPendingResponse'];
+export type ActionItemsResponse = ApiSchemas['ActionItemsResponse'];
 export type CreateTaskResponse = ApiSchemas['CreateTaskResponse'];
 export type AuthFeaturesResponse = ApiSchemas['AuthFeaturesResponse'];
 export type AuthLoginResponse = ApiSchemas['AuthLoginResponse'];

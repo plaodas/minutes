@@ -11,11 +11,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from minutes.bg_store import get_task
 from minutes.http_errors import error_json
 from minutes.minio_client import MinioService
-from minutes.schemas import JSON_ERROR_RESPONSES, ResultPendingResponse
+from minutes.schemas import ActionItemsResponse, JSON_ERROR_RESPONSES, ResultPendingResponse
 from minutes.summary import summarize_local
 
 router = APIRouter()
 
+_TEXT_SCHEMA = {"schema": {"type": "string"}}
 _ARTIFACT_ERROR_RESPONSES = {
     202: {
         "model": ResultPendingResponse,
@@ -31,6 +32,16 @@ _ARTIFACT_DOWNLOAD_RESPONSES = {
 _ARTIFACT_FORMAT_RESPONSES = {
     **_ARTIFACT_ERROR_RESPONSES,
     400: JSON_ERROR_RESPONSES[400],
+}
+_ARTIFACT_TEXT_RESPONSES = {
+    200: {
+        "description": "Artifact text",
+        "content": {
+            "text/plain": _TEXT_SCHEMA,
+            "text/markdown": _TEXT_SCHEMA,
+        },
+    },
+    **_ARTIFACT_FORMAT_RESPONSES,
 }
 
 
@@ -151,7 +162,17 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
                 )
 
 
-@router.get("/minutes/{task_id}", responses=_ARTIFACT_DOWNLOAD_RESPONSES)
+@router.get(
+    "/minutes/{task_id}",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Minutes text",
+            "content": {"text/plain": _TEXT_SCHEMA},
+        },
+        **_ARTIFACT_DOWNLOAD_RESPONSES,
+    },
+)
 def bg_minutes_file(task_id: str):
     task, error = _successful_task_or_response(task_id)
     if error:
@@ -188,7 +209,11 @@ def bg_minutes_file(task_id: str):
         return error_json(str(exc), 500)
 
 
-@router.get("/transcript/{task_id}", responses=_ARTIFACT_FORMAT_RESPONSES)
+@router.get(
+    "/transcript/{task_id}",
+    response_class=Response,
+    responses=_ARTIFACT_TEXT_RESPONSES,
+)
 def bg_transcript(task_id: str, format: str = "txt"):
     task, error = _successful_task_or_response(task_id)
     if error:
@@ -231,7 +256,11 @@ def bg_transcript(task_id: str, format: str = "txt"):
     )
 
 
-@router.get("/summary/{task_id}", responses=_ARTIFACT_FORMAT_RESPONSES)
+@router.get(
+    "/summary/{task_id}",
+    response_class=Response,
+    responses=_ARTIFACT_TEXT_RESPONSES,
+)
 def bg_summary(task_id: str, format: str = "txt"):
     task, error = _successful_task_or_response(task_id)
     if error:
@@ -274,7 +303,20 @@ def bg_summary(task_id: str, format: str = "txt"):
     )
 
 
-@router.get("/action-items/{task_id}", responses=_ARTIFACT_FORMAT_RESPONSES)
+@router.get(
+    "/action-items/{task_id}",
+    response_model=ActionItemsResponse,
+    responses={
+        200: {
+            "description": "Action items as JSON, CSV, or plain text",
+            "content": {
+                "text/csv": _TEXT_SCHEMA,
+                "text/plain": _TEXT_SCHEMA,
+            },
+        },
+        **_ARTIFACT_FORMAT_RESPONSES,
+    },
+)
 def bg_action_items(task_id: str, format: str = "json"):
     task, error = _successful_task_or_response(task_id)
     if error:
@@ -308,7 +350,7 @@ def bg_action_items(task_id: str, format: str = "json"):
     if not items:
         items = []
     if format == "json":
-        return JSONResponse({"task_id": task_id, "items": items})
+        return {"task_id": task_id, "items": items}
     if format == "csv":
         buffer = io.StringIO()
         writer = csv.writer(buffer)
