@@ -9,8 +9,8 @@ from minutes import bg_store
 from minutes.api import app
 from minutes.bg_store import create_task
 from minutes.db import SessionLocal, session_scope
-from minutes.models import Bucket, Task, TaskHistory
-from minutes.routers import admin_buckets, background_task_artifacts
+from minutes.models import Bucket, ServiceToken, Task, TaskHistory
+from minutes.routers import admin_buckets, background_task_artifacts, service_tokens
 
 
 def test_http_method_and_path_pairs_are_unique():
@@ -85,6 +85,51 @@ def test_admin_bucket_routes_are_owned_by_router_module():
     )
 
 
+def test_service_token_routes_are_owned_by_router_module():
+    expected_routes = {
+        ("POST", "/api/service-tokens"),
+        ("GET", "/api/service-tokens"),
+        ("DELETE", "/api/service-tokens/{token_id}"),
+    }
+    routes = [
+        route for route in app.routes if route.path.startswith("/api/service-tokens")
+    ]
+    actual_routes = {
+        (method, route.path)
+        for route in routes
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert actual_routes == expected_routes
+    assert all(
+        route.endpoint.__module__ == "minutes.routers.service_tokens"
+        for route in routes
+    )
+
+
+def test_upload_cleanup_routes_are_owned_by_router_module():
+    expected_routes = {
+        ("GET", "/admin/uploads/cleanup"),
+        ("POST", "/admin/uploads/cleanup"),
+        ("GET", "/api/admin/uploads/cleanup"),
+        ("POST", "/api/admin/uploads/cleanup"),
+    }
+    routes = [route for route in app.routes if route.path.endswith("/uploads/cleanup")]
+    actual_routes = {
+        (method, route.path)
+        for route in routes
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert actual_routes == expected_routes
+    assert all(
+        route.endpoint.__module__ == "minutes.routers.upload_cleanup"
+        for route in routes
+    )
+
+
 def test_admin_bucket_creation_commits_once(monkeypatch):
     bucket_name = f"test-{uuid.uuid4()}"
     commits = []
@@ -113,6 +158,40 @@ def test_admin_bucket_creation_commits_once(monkeypatch):
         )
         assert bucket == (bucket_name, True)
         session.query(Bucket).filter(Bucket.name == bucket_name).delete()
+
+
+def test_service_token_revocation_commits_once():
+    token_id = uuid.uuid4()
+    with session_scope() as session:
+        session.add(
+            ServiceToken(
+                id=token_id,
+                name="route-test",
+                token_hash=uuid.uuid4().hex,
+            )
+        )
+
+    commits = []
+
+    def track_commit(_session):
+        commits.append("commit")
+
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    try:
+        result = service_tokens.revoke_token(str(token_id))
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert result == {"revoked": True}
+    assert commits == ["commit"]
+    with session_scope() as session:
+        revoked = (
+            session.query(ServiceToken.revoked)
+            .filter(ServiceToken.id == token_id)
+            .scalar()
+        )
+        assert revoked is True
+        session.query(ServiceToken).filter(ServiceToken.id == token_id).delete()
 
 
 @pytest.mark.parametrize(

@@ -44,6 +44,8 @@ from minutes.routers.admin_buckets import router as admin_buckets_router
 from minutes.routers.background_tasks import (
     router as background_tasks_router,
 )
+from minutes.routers.service_tokens import router as service_tokens_router
+from minutes.routers.upload_cleanup import router as upload_cleanup_router
 from minutes.schemas import (
     CreateTaskResponse,
     FormatRawRequest,
@@ -380,6 +382,8 @@ def require_admin(req: Request = None):
 
 
 app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
+app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
+app.include_router(upload_cleanup_router, dependencies=[Depends(require_admin)])
 
 
 # CORS: allow local dev origins used by the frontend and Playwright
@@ -834,58 +838,6 @@ def api_auth_logout(response: Response):
     return auth_logout(response)
 
 
-class CreateServiceTokenReq(BaseModel):
-    name: str | None = None
-    user_id: str | None = None
-
-
-@app.post("/api/service-tokens", dependencies=[Depends(require_admin)])
-def api_create_service_token(payload: CreateServiceTokenReq):
-    """Create a new service token (admin only). Returns plaintext token and id."""
-    from minutes.auth import create_service_token
-
-    token, token_id = create_service_token(name=payload.name, user_id=payload.user_id)
-    return {"token": token, "id": token_id}
-
-
-@app.get("/api/service-tokens", dependencies=[Depends(require_admin)])
-def api_list_service_tokens():
-    from minutes.models import ServiceToken
-
-    out = []
-    with session_scope() as db:
-        rows = db.query(ServiceToken).all()
-        for r in rows:
-            out.append(
-                {
-                    "id": str(r.id),
-                    "name": r.name,
-                    "user_id": str(r.user_id) if r.user_id else None,
-                    "revoked": bool(r.revoked),
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                }
-            )
-    return {"tokens": out}
-
-
-@app.delete("/api/service-tokens/{token_id}", dependencies=[Depends(require_admin)])
-def api_revoke_service_token(token_id: str):
-    from minutes.models import ServiceToken
-
-    try:
-        key = uuid.UUID(token_id)
-    except (ValueError, TypeError):
-        return JSONResponse({"error": "invalid token id"}, status_code=400)
-    with session_scope() as db:
-        st = db.get(ServiceToken, key)
-        if not st:
-            return JSONResponse({"error": "not found"}, status_code=404)
-        st.revoked = True
-        db.add(st)
-        db.commit()
-        return {"revoked": True}
-
-
 def _is_request_admin(x_admin: str | None, authorization: str | None = None) -> bool:
     """Return True when the request is considered admin.
 
@@ -1100,142 +1052,3 @@ def api_list_buckets(
                 }
             )
         return {"buckets": out}
-
-
-def _list_uploads_candidates(
-    uploads_dir: str, pattern: str, older_than: int, limit: int
-):
-    now = int(time.time())
-    candidates: list[dict[str, int | str]] = []
-    files = [
-        f
-        for f in os.listdir(uploads_dir)
-        if os.path.isfile(os.path.join(uploads_dir, f))
-    ]
-    for f in files:
-        if pattern and not f.startswith(pattern):
-            continue
-        full = os.path.join(uploads_dir, f)
-        try:
-            mtime = int(os.path.getmtime(full))
-        except OSError:
-            continue
-        age = now - mtime
-        if older_than and age < older_than:
-            continue
-        candidates.append({"path": full, "name": f, "age_seconds": age})
-        if len(candidates) >= limit:
-            break
-    return candidates
-
-
-@app.get("/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
-def admin_uploads_cleanup_get(
-    dir: str | None = None,
-    pattern: str = "",
-    older_than: int = 0,
-    limit: int = 100,
-    dry_run: bool = True,
-    request: Request = None,
-):
-    """Return files that would be deleted. Admin-only (JWT/service-token required)."""
-    uploads_dir = (
-        dir
-        or (request.query_params.get("dir") if request else None)
-        or os.environ.get("UPLOADS_DIR")
-        or "uploads"
-    )
-    if not os.path.isdir(uploads_dir):
-        return JSONResponse({"error": "dir not found"}, status_code=404)
-
-    try:
-        candidates = _list_uploads_candidates(uploads_dir, pattern, older_than, limit)
-    except OSError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-    return {"candidates": candidates, "count": len(candidates)}
-
-
-@app.post("/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
-def admin_uploads_cleanup_post(payload: dict, request: Request = None):
-    """Perform deletion of files. payload keys: dir, pattern, older_than, limit
-
-    Protected by `require_admin` when mounted at `/admin/...` or `/api/admin/...`.
-    """
-    uploads_dir = (
-        payload.get("dir")
-        or (
-            request.query_params.get("dir")
-            if request and request.query_params.get("dir")
-            else None
-        )
-        or os.environ.get("UPLOADS_DIR")
-        or "uploads"
-    )
-    pattern = payload.get("pattern") or ""
-    older_than = int(payload.get("older_than") or 0)
-    limit = int(payload.get("limit") or 100)
-
-    if not os.path.isdir(uploads_dir):
-        return JSONResponse({"error": "dir not found"}, status_code=404)
-
-    now = int(time.time())
-    deleted = []
-    errors = []
-    try:
-        files = [
-            f
-            for f in os.listdir(uploads_dir)
-            if os.path.isfile(os.path.join(uploads_dir, f))
-        ]
-        for f in files:
-            if pattern and not f.startswith(pattern):
-                continue
-            full = os.path.join(uploads_dir, f)
-            try:
-                mtime = int(os.path.getmtime(full))
-            except OSError:
-                continue
-            age = now - mtime
-            if older_than and age < older_than:
-                continue
-            try:
-                os.remove(full)
-                deleted.append(full)
-            except OSError as e:
-                errors.append({"path": full, "error": str(e)})
-            if len(deleted) >= limit:
-                break
-    except OSError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-    return {"deleted": deleted, "errors": errors, "count": len(deleted)}
-
-
-@app.get("/api/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
-def api_admin_uploads_cleanup_get(
-    dir: str | None = None,
-    pattern: str = "",
-    older_than: int = 0,
-    limit: int = 100,
-    dry_run: bool = True,
-    request: Request = None,
-):
-    uploads_dir = (
-        dir
-        or (request.query_params.get("dir") if request else None)
-        or os.environ.get("UPLOADS_DIR")
-        or "uploads"
-    )
-    if not os.path.isdir(uploads_dir):
-        return JSONResponse({"error": "dir not found"}, status_code=404)
-    try:
-        candidates = _list_uploads_candidates(uploads_dir, pattern, older_than, limit)
-    except OSError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-    return {"candidates": candidates, "count": len(candidates)}
-
-
-@app.post("/api/admin/uploads/cleanup", dependencies=[Depends(require_admin)])
-def api_admin_uploads_cleanup_post(payload: dict, request: Request = None):
-    return admin_uploads_cleanup_post(payload=payload, request=request)
