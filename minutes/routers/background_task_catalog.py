@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import record_and_publish
@@ -281,44 +281,60 @@ def bg_histories(payload: IdList):
                     valid_ids[uuid.UUID(task_id)] = task_id
                 except (ValueError, TypeError):
                     continue
-            for task_uuid, original_id in valid_ids.items():
-                offset = int(offsets.get(original_id, 0))
-                row_number = (
-                    func.row_number()
-                    .over(
-                        partition_by=TaskHistory.task_id,
-                        order_by=TaskHistory.event_ts.desc(),
-                    )
-                    .label("rn")
+            if not valid_ids:
+                continue
+
+            row_number = (
+                func.row_number()
+                .over(
+                    partition_by=TaskHistory.task_id,
+                    order_by=(
+                        TaskHistory.event_ts.desc(),
+                        TaskHistory.id.desc(),
+                    ),
                 )
-                subquery = (
-                    select(
-                        TaskHistory.id,
-                        TaskHistory.task_id,
-                        TaskHistory.event_ts,
-                        TaskHistory.event_type,
-                        TaskHistory.payload,
-                        row_number,
-                    )
-                    .where(TaskHistory.task_id == task_uuid)
-                    .subquery()
+                .label("rn")
+            )
+            subquery = (
+                select(
+                    TaskHistory.id,
+                    TaskHistory.task_id,
+                    TaskHistory.event_ts,
+                    TaskHistory.event_type,
+                    TaskHistory.payload,
+                    row_number,
                 )
-                query = (
-                    select(subquery)
-                    .where(subquery.c.rn > offset)
-                    .where(subquery.c.rn <= offset + limit)
-                    .order_by(subquery.c.task_id, subquery.c.rn)
+                .where(TaskHistory.task_id.in_(list(valid_ids)))
+                .subquery()
+            )
+            offset_by_task = {
+                task_uuid: int(offsets.get(original_id, 0))
+                for task_uuid, original_id in valid_ids.items()
+            }
+            task_offset = case(
+                *[
+                    (subquery.c.task_id == task_uuid, offset)
+                    for task_uuid, offset in offset_by_task.items()
+                ],
+                else_=0,
+            )
+            query = (
+                select(subquery)
+                .where(subquery.c.rn > task_offset)
+                .where(subquery.c.rn <= task_offset + limit)
+                .order_by(subquery.c.task_id, subquery.c.rn)
+            )
+            for row in session.execute(query).all():
+                original_id = valid_ids[row.task_id]
+                histories[original_id].append(
+                    {
+                        "event_ts": (
+                            row.event_ts.isoformat() + "Z" if row.event_ts else None
+                        ),
+                        "event_type": row.event_type,
+                        "payload": row.payload,
+                    }
                 )
-                for row in session.execute(query).all():
-                    histories.setdefault(str(row.task_id), []).append(
-                        {
-                            "event_ts": (
-                                row.event_ts.isoformat() + "Z" if row.event_ts else None
-                            ),
-                            "event_type": row.event_type,
-                            "payload": row.payload,
-                        }
-                    )
     response: dict[str, Any] = {"histories": histories}
     if warnings:
         response["warnings"] = warnings
