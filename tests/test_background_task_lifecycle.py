@@ -3,8 +3,9 @@ import uuid
 from fastapi.testclient import TestClient
 
 from minutes import bg_store
+from minutes import tasks as task_workers
 from minutes.api import app
-from minutes.bg_store import create_task
+from minutes.bg_store import create_task, get_task
 from minutes.db import session_scope
 from minutes.models import Task, TaskHistory
 from minutes.routers import background_task_lifecycle
@@ -58,3 +59,41 @@ def test_undelete_restores_soft_deleted_task(monkeypatch):
         assert undeleted.payload == {"previous": "deleted", "status": "pending"}
     assert [event["event_type"] for event in published] == ["deleted", "undeleted"]
     assert [event["stage"] for event in published] == ["deleted", "pending"]
+
+
+def test_hard_delete_removes_task_and_publishes_event(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    result = task_workers.hard_delete_task.run(str(task_id), None)
+
+    assert result == {"deleted": True}
+    assert get_task(str(task_id)) is None
+    assert published[-1]["event_type"] == "deleted_hard"
+    assert published[-1]["task_id"] == str(task_id)
+
+
+def test_force_delete_publishes_hard_delete_event(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(
+        background_task_lifecycle.celery.control,
+        "revoke",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        background_task_lifecycle,
+        "emit_task_event",
+        lambda task_id, event_type, payload: published.append(
+            (task_id, event_type, payload)
+        ),
+    )
+
+    response = TestClient(app).post(f"/api/bg/force-delete/{task_id}")
+
+    assert response.status_code == 200
+    assert get_task(str(task_id)) is None
+    assert published == [(str(task_id), "deleted_hard", {})]

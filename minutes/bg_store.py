@@ -198,15 +198,17 @@ def record_history(
     if not emit_event:
         return
 
-    # publish SSE event for live updates (non-blocking)
+    emit_task_event(task_id, event_type, payload)
+
+
+def emit_task_event(
+    task_id: str,
+    event_type: TaskEventType | str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Publish a typed task event without requiring a history row."""
     try:
-        publish_event(
-            build_task_event(
-                str(key) if isinstance(key, uuid.UUID) else str(task_id),
-                event_type,
-                payload,
-            )
-        )
+        publish_event(build_task_event(str(task_id), event_type, payload))
     except (RuntimeError, OSError):
         logger.exception("publish_event failed for %s", task_id)
 

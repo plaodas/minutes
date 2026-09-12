@@ -105,6 +105,13 @@ export function applyTaskEvent(tasks: TaskListItem[], event: TaskEvent): ApplyTa
     return { tasks, shouldReload: true };
   }
 
+  if (event.event_type === 'deleted_hard') {
+    return {
+      tasks: tasks.filter((task) => String(task.id) !== String(event.task_id)),
+      shouldReload: true,
+    };
+  }
+
   let task = tasks[index];
   let shouldReload = false;
 

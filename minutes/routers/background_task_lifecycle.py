@@ -4,10 +4,12 @@ import os
 from celery.exceptions import CeleryError
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from kombu.exceptions import KombuError
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import (
     _parse_key,
+    emit_task_event,
     get_task,
     record_history,
     update_task_cancelled,
@@ -35,7 +37,7 @@ def _get_admin_token(request: Request | None) -> str | None:
 def bg_cancel(task_id: str):
     try:
         celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
-    except CeleryError:
+    except (CeleryError, KombuError):
         logging.getLogger(__name__).debug(
             "celery.revoke failed for %s", task_id, exc_info=True
         )
@@ -112,7 +114,7 @@ def bg_delete(task_id: str):
 def bg_force_delete(task_id: str):
     try:
         celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
-    except CeleryError:
+    except (CeleryError, KombuError):
         pass
 
     try:
@@ -209,6 +211,7 @@ def bg_force_delete(task_id: str):
                     )
         except (SQLAlchemyError, OSError, RuntimeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
+        emit_task_event(task_id, "deleted_hard", {})
         return {"task_id": task_id, "deleted": True}
     except (SQLAlchemyError, OSError, RuntimeError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

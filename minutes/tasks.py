@@ -52,7 +52,7 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
     This task is retryable by Celery if MinIO deletion fails.
     """
     logger = logging.getLogger("minutes.tasks")
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     from minutes.db import session_scope
     from minutes.minio_client import MinioService
@@ -160,25 +160,16 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
                 "hard_delete_task: failed to cleanup bucket row for %s", task_id
             )
 
-        # record audit history row
-        try:
-            from minutes.bg_store import record_history
+    from minutes.bg_store import emit_task_event
 
-            record_history(
-                task_id,
-                "deleted_hard",
-                {
-                    "requester": requester or None,
-                    "deleted_at": datetime.datetime.now(
-                        tz=datetime.timezone.utc
-                    ).isoformat(),
-                },
-            )
-        except SQLAlchemyError:
-            logger.exception(
-                "hard_delete_task: failed to record deletion history for %s", task_id
-            )
-    # session_scope will commit/close automatically
+    emit_task_event(
+        task_id,
+        "deleted_hard",
+        {
+            "requester": requester or None,
+            "deleted_at": datetime.now(tz=timezone.utc).isoformat(),
+        },
+    )
     logger.info("hard_delete_task completed for %s", task_id)
     return {"deleted": True}
 

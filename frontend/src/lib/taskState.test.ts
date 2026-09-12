@@ -138,6 +138,20 @@ describe('applyTaskEvent', () => {
     expect(result.shouldReload).toBe(true);
   });
 
+  it('removes a hard-deleted task and requests server reconciliation', () => {
+    const result = applyTaskEvent(
+      tasks,
+      event({
+        task_id: 'task-1',
+        event_type: 'deleted_hard',
+        payload: {},
+      })
+    );
+
+    expect(result.tasks).toEqual([tasks[1]]);
+    expect(result.shouldReload).toBe(true);
+  });
+
   it('keeps the list unchanged and requests reload for an unknown task', () => {
     const result = applyTaskEvent(
       tasks,
