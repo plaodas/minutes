@@ -26,6 +26,32 @@ def test_bg_status_uses_persisted_task_state(monkeypatch):
     assert response.json()["error"] is None
 
 
+def test_bg_status_splits_legacy_status_detail(monkeypatch):
+    task_id = "dd3a1d68-07f0-413a-b337-9f39c2d3ce76"
+    monkeypatch.setattr(
+        background_tasks,
+        "get_task",
+        lambda requested_id: {
+            "id": requested_id,
+            "status": "transcribing:48.3s",
+            "progress": 50.0,
+            "error": None,
+        },
+    )
+
+    response = TestClient(api.app).get(f"/api/bg/status/{task_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": task_id,
+        "status": "transcribing",
+        "stage": "transcribing",
+        "detail": "48.3s",
+        "error": None,
+        "progress": 50.0,
+    }
+
+
 def test_bg_result_uses_persisted_task_state(monkeypatch):
     task_id = "dd3a1d68-07f0-413a-b337-9f39c2d3ce76"
     monkeypatch.setattr(

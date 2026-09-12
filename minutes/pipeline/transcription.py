@@ -9,8 +9,10 @@ from typing import Any
 from requests.exceptions import ChunkedEncodingError, RequestException
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.schemas import TaskStage
+
 Transcriber = Callable[..., tuple[str, object]]
-StatusUpdater = Callable[[str], None]
+StatusUpdater = Callable[[TaskStage, str | None], None]
 ProgressUpdater = Callable[[float], None]
 HttpPost = Callable[..., Any]
 Sleeper = Callable[[float], None]
@@ -31,7 +33,7 @@ def _report_progress(
 ) -> None:
     try:
         end_seconds = float(end or 0.0)
-        update_status(f"transcribing:{end_seconds:.1f}s")
+        update_status(TaskStage.TRANSCRIBING, f"{end_seconds:.1f}s")
         if duration_seconds and duration_seconds > 0:
             update_progress(min(100.0, (end_seconds / duration_seconds) * 100.0))
     except (ValueError, TypeError, SQLAlchemyError):

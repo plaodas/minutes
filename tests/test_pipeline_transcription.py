@@ -7,6 +7,7 @@ from minutes.pipeline.transcription import (
     transcribe_locally,
     transcribe_remotely,
 )
+from minutes.schemas import TaskStage
 
 
 def test_transcribe_locally_reports_segment_and_completion_progress():
@@ -23,7 +24,7 @@ def test_transcribe_locally_reports_segment_and_completion_progress():
         "clean.wav",
         duration_seconds=10.0,
         transcriber=transcriber,
-        update_status=statuses.append,
+        update_status=lambda stage, detail: statuses.append((stage, detail)),
         update_progress=progress.append,
     )
 
@@ -31,7 +32,7 @@ def test_transcribe_locally_reports_segment_and_completion_progress():
         raw_text="raw transcript",
         segments=[{"end": 5.0}],
     )
-    assert statuses == ["transcribing:5.0s"]
+    assert statuses == [(TaskStage.TRANSCRIBING, "5.0s")]
     assert progress == [50.0, 100.0]
 
 
@@ -46,7 +47,7 @@ def test_transcribe_locally_skips_percentage_without_duration():
         "clean.wav",
         duration_seconds=None,
         transcriber=transcriber,
-        update_status=lambda _status: None,
+        update_status=lambda _stage, _detail: None,
         update_progress=progress.append,
     )
 
@@ -85,12 +86,12 @@ def test_transcribe_remotely_parses_streamed_segments(tmp_path):
         inference_url="http://inference/transcribe",
         duration_seconds=5.0,
         post=lambda *_args, **_kwargs: response,
-        update_status=statuses.append,
+        update_status=lambda stage, detail: statuses.append((stage, detail)),
         update_progress=progress.append,
     )
 
     assert result == TranscriptionResult("hello", [{"end": 2.5}])
-    assert statuses == ["transcribing:2.5s"]
+    assert statuses == [(TaskStage.TRANSCRIBING, "2.5s")]
     assert progress == [50.0, 100.0]
 
 
@@ -113,7 +114,7 @@ def test_transcribe_remotely_falls_back_after_chunk_error(tmp_path):
         inference_url="http://inference/transcribe",
         duration_seconds=None,
         post=post,
-        update_status=lambda _status: None,
+        update_status=lambda _stage, _detail: None,
         update_progress=lambda _progress: None,
         sleep=lambda _seconds: None,
     )

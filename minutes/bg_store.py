@@ -73,8 +73,12 @@ def update_task_cancelled(task_id: str):
     update_cancelled(task_id, emit_task_event)
 
 
-def update_task_status(task_id: str, status: TaskStage | str):
-    update_status(task_id, status, emit_task_event)
+def update_task_status(
+    task_id: str,
+    status: TaskStage | str,
+    detail: str | None = None,
+):
+    update_status(task_id, status, emit_task_event, detail)
 
 
 def update_task_progress(task_id: str, progress: float):

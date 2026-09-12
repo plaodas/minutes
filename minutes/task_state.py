@@ -11,7 +11,13 @@ from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
 from .db import session_scope
 from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
-from .schemas import TaskEventType, TaskStage
+from .schemas import (
+    TaskEventType,
+    TaskStage,
+    is_task_stage_transition_allowed,
+    normalize_task_status,
+    task_stage_from_status,
+)
 from .summary import summarize_local
 
 logger = logging.getLogger("minutes.task_state")
@@ -98,6 +104,17 @@ def _get_or_create_task(session, task_id: str) -> tuple[uuid.UUID, Task] | None:
     return key, task
 
 
+def _set_task_stage(task: Task, target: TaskStage) -> None:
+    current = task_stage_from_status(task.status)
+    if current is None:
+        raise ValueError(f"unknown current task stage: {task.status!r}")
+    if not is_task_stage_transition_allowed(current, target):
+        raise ValueError(
+            f"task stage transition is not allowed: {current.value} -> {target.value}"
+        )
+    task.status = target.value
+
+
 def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> None:
     if not isinstance(result, dict):
         return
@@ -136,7 +153,7 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
                 if not resolved:
                     return
                 key, task = resolved
-                task.status = "success"
+                _set_task_stage(task, TaskStage.SUCCESS)
                 task.result = result
                 task.progress = 100.0
                 task.fail_count = 0
@@ -192,7 +209,7 @@ def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> No
                 if not resolved:
                     return
                 key, task = resolved
-                task.status = "failed"
+                _set_task_stage(task, TaskStage.FAILED)
                 task.result = None
                 task.fail_count = (task.fail_count or 0) + 1
                 task.last_failure_ts = _now_utc()
@@ -218,7 +235,7 @@ def update_cancelled(task_id: str, emit_event: EventEmitter) -> None:
                 if not resolved:
                     return
                 key, task = resolved
-                task.status = "cancelled"
+                _set_task_stage(task, TaskStage.CANCELLED)
                 task.result = None
                 session.add(
                     TaskHistory(task_id=key, event_type="cancelled", payload={})
@@ -234,8 +251,12 @@ def update_status(
     task_id: str,
     status: TaskStage | str,
     emit_event: EventEmitter,
+    detail: str | None = None,
 ) -> None:
-    status_value = status.value if isinstance(status, TaskStage) else status
+    stage, status_detail = normalize_task_status(status, detail)
+    payload: dict[str, Any] = {"status": stage.value}
+    if status_detail is not None:
+        payload["detail"] = status_detail
     with _lock:
         try:
             with session_scope() as session:
@@ -243,19 +264,19 @@ def update_status(
                 if not resolved:
                     return
                 key, task = resolved
-                task.status = status_value
+                _set_task_stage(task, stage)
                 session.add(
                     TaskHistory(
                         task_id=key,
                         event_type="status",
-                        payload={"status": status_value},
+                        payload=payload,
                     )
                 )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_status failed for %s", task_id)
             return
 
-    emit_event(task_id, TaskEventType.STATUS, {"status": status_value})
+    emit_event(task_id, TaskEventType.STATUS, payload)
 
 
 def update_progress(task_id: str, progress: float, emit_event: EventEmitter) -> None:

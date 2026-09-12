@@ -33,22 +33,14 @@
 - 説明: 生テキストからフォーマット済み議事録を返す（API 経由でフォーマッタを呼び出す）。
 - レスポンス: `FormatRawResponse` {"minutes": string}
 
-### /status/{task_id}
-- Method: GET
-- 説明: Celery 経由のタスクステータスを返す（`celery.AsyncResult` を参照）。
-
-### /result/{task_id}
-- Method: GET
-- 説明: Celery タスクの結果を返す（未完了なら 202、失敗なら 500）。
-
 ### /bg/status/{task_id}
 - Method: GET
-- 説明: ローカル bg store（`minutes/bg_store.py`）からタスクの状態を返す。
-- レスポンス: `StatusResponse` (task_id, status, error?)
+- 説明: DB に永続化されたタスク状態を返す、唯一の状態取得 API。
+- レスポンス: `StatusResponse` (task_id, status, stage, detail?, error?, progress?)
 
 ### /bg/result/{task_id}
 - Method: GET
-- 説明: bg store の結果を返す。成功であれば `result` を含む JSON を返す。
+- 説明: DB に永続化された結果を返す。成功であれば `result` を含む JSON を返す。
 
 ### /bg/cancel/{task_id}
 - Method: POST

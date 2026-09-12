@@ -1,6 +1,7 @@
 import uuid
 from contextlib import contextmanager
 
+import pytest
 from sqlalchemy import event
 
 from minutes import bg_store, task_repository
@@ -200,6 +201,61 @@ def test_status_update_creates_missing_task_atomically(monkeypatch):
         assert task.status == "transcribing"
         assert history.payload == {"status": "transcribing"}
     assert published[-1]["stage"] == "transcribing"
+
+
+def test_status_update_splits_legacy_detail(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    bg_store.update_task_status(str(task_id), "transcribing:48.3s")
+
+    with session_scope() as db:
+        task = db.get(Task, task_id)
+        history = (
+            db.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "status",
+            )
+            .one()
+        )
+        assert task.status == "transcribing"
+        assert history.payload == {"status": "transcribing", "detail": "48.3s"}
+    assert published[-1]["payload"] == {
+        "status": "transcribing",
+        "detail": "48.3s",
+    }
+
+
+def test_status_update_rejects_backward_transition(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    monkeypatch.setattr(bg_store, "publish_event", lambda _event: None)
+    bg_store.update_task_success(str(task_id), {"summary": "done"})
+
+    with pytest.raises(
+        ValueError,
+        match="task stage transition is not allowed: success -> transcribing",
+    ):
+        bg_store.update_task_status(str(task_id), "transcribing")
+
+    with session_scope() as db:
+        task = db.get(Task, task_id)
+        assert task.status == "success"
+        status_payloads = [
+            row.payload
+            for row in (
+                db.query(TaskHistory)
+                .filter(
+                    TaskHistory.task_id == task_id,
+                    TaskHistory.event_type == "status",
+                )
+                .all()
+            )
+        ]
+        assert {"status": "transcribing"} not in status_payloads
 
 
 def test_success_records_history_and_publishes_status(monkeypatch):

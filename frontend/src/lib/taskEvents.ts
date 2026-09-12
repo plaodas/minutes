@@ -28,6 +28,7 @@ export type TaskEventType = (typeof taskEventTypes)[number];
 
 export type TaskEventPayload = {
   status?: string;
+  detail?: string;
   progress?: number;
   result?: unknown;
   error?: string;

@@ -203,8 +203,6 @@ def test_pipeline_routes_are_owned_by_router_module():
     expected_routes = {
         ("GET", "/api/health"),
         ("POST", "/api/format-raw"),
-        ("GET", "/api/status/{task_id}"),
-        ("GET", "/api/result/{task_id}"),
     }
     routes = [
         route
@@ -225,6 +223,20 @@ def test_pipeline_routes_are_owned_by_router_module():
     assert all(
         route.endpoint.__module__ == "minutes.routers.pipeline" for route in routes
     )
+
+
+def test_task_status_and_result_have_only_db_backed_routes():
+    route_keys = {
+        (method, route.path)
+        for route in app.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert ("GET", "/api/status/{task_id}") not in route_keys
+    assert ("GET", "/api/result/{task_id}") not in route_keys
+    assert ("GET", "/api/bg/status/{task_id}") in route_keys
+    assert ("GET", "/api/bg/result/{task_id}") in route_keys
 
 
 def test_admin_bucket_creation_commits_once(monkeypatch):

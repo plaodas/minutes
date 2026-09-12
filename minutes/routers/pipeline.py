@@ -1,8 +1,6 @@
-from celery.result import AsyncResult
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from minutes.celery_app import celery
 from minutes.ollama import format_minutes_from_raw
 from minutes.schemas import FormatRawRequest, FormatRawResponse
 
@@ -23,26 +21,3 @@ def format_raw(payload: FormatRawRequest):
         return {"minutes": format_minutes_from_raw(payload.raw)}
     except (RuntimeError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/status/{task_id}")
-def task_status(task_id: str):
-    result = AsyncResult(task_id, app=celery)
-    return {
-        "task_id": task_id,
-        "status": result.status,
-        "info": str(result.info),
-    }
-
-
-@router.get("/result/{task_id}")
-def task_result(task_id: str):
-    result = AsyncResult(task_id, app=celery)
-    if not result.ready():
-        return JSONResponse({"status": result.status}, status_code=202)
-    if result.failed():
-        return JSONResponse(
-            {"status": "failed", "info": str(result.info)},
-            status_code=500,
-        )
-    return JSONResponse({"status": "success", "result": result.result})

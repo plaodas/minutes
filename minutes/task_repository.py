@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .db import engine, session_scope
 from .models import Task, TaskHistory
-from .schemas import TaskEventType
+from .schemas import TaskEventType, normalize_task_status
 from .task_state import EventEmitter, parse_task_key
 
 logger = logging.getLogger("minutes.task_repository")
@@ -14,6 +14,7 @@ logger = logging.getLogger("minutes.task_repository")
 
 class TaskSnapshot(TypedDict):
     status: str
+    detail: str | None
     result: Any
     error: str | None
     progress: float | None
@@ -70,8 +71,27 @@ def get_task_snapshot(task_id: str) -> TaskSnapshot | None:
         task = session.get(Task, key)
         if not task:
             return None
+        detail = None
+        latest_status = (
+            session.query(TaskHistory.payload)
+            .filter(
+                TaskHistory.task_id == task.id,
+                TaskHistory.event_type == TaskEventType.STATUS.value,
+            )
+            .order_by(TaskHistory.event_ts.desc(), TaskHistory.id.desc())
+            .limit(1)
+            .scalar()
+        )
+        if isinstance(latest_status, dict):
+            detail = latest_status.get("detail")
+        if detail is None:
+            try:
+                _, detail = normalize_task_status(task.status)
+            except ValueError:
+                pass
         return {
             "status": task.status,
+            "detail": detail,
             "result": task.result,
             "error": None,
             "progress": (float(task.progress) if task.progress is not None else None),

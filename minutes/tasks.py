@@ -104,8 +104,8 @@ def process_audio(self, input_path: str):
                 inference_url=inference_url,
                 duration_seconds=audio_duration,
                 post=requests.post,
-                update_status=lambda status: (
-                    update_task_status(task_id, status) if task_id else None
+                update_status=lambda stage, detail=None: (
+                    update_task_status(task_id, stage, detail) if task_id else None
                 ),
                 update_progress=lambda progress: (
                     update_task_progress(task_id, progress) if task_id else None
@@ -116,8 +116,8 @@ def process_audio(self, input_path: str):
                 clean,
                 duration_seconds=audio_duration,
                 transcriber=transcribe,
-                update_status=lambda status: (
-                    update_task_status(task_id, status) if task_id else None
+                update_status=lambda stage, detail=None: (
+                    update_task_status(task_id, stage, detail) if task_id else None
                 ),
                 update_progress=lambda progress: (
                     update_task_progress(task_id, progress) if task_id else None

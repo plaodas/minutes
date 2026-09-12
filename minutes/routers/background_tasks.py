@@ -11,7 +11,11 @@ from minutes.models import TaskHistory
 from minutes.routers.background_task_artifacts import router as artifacts_router
 from minutes.routers.background_task_catalog import router as catalog_router
 from minutes.routers.background_task_lifecycle import router as lifecycle_router
-from minutes.schemas import StatusResponse, task_stage_from_status
+from minutes.schemas import (
+    StatusResponse,
+    normalize_task_status,
+    task_stage_from_status,
+)
 from minutes.sse import register_queue, unregister_queue
 
 router = APIRouter(prefix="/api/bg", tags=["background-tasks"])
@@ -22,10 +26,18 @@ def bg_status(task_id: str):
     task = get_task(task_id)
     if not task:
         return JSONResponse({"error": "unknown task"}, status_code=404)
+    stage = task_stage_from_status(task["status"])
+    status = task["status"]
+    detail = task.get("detail")
+    if stage is not None:
+        stage, legacy_detail = normalize_task_status(status)
+        status = stage.value
+        detail = detail or legacy_detail
     return {
         "task_id": task_id,
-        "status": task["status"],
-        "stage": task_stage_from_status(task["status"]),
+        "status": status,
+        "stage": stage,
+        "detail": detail,
         "error": task.get("error"),
         "progress": task.get("progress"),
     }
