@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 
 from minutes.models import Task
+from minutes.schemas import TaskStage
 from minutes.task_event_service import TaskEventService
 from minutes.task_events import emit_task_event
+from minutes.task_state import set_task_stage
 
 
 class _TaskNotFoundError(Exception):
@@ -16,7 +18,7 @@ def mark_task_deleted(task_id: str) -> bool:
             raise _TaskNotFoundError
 
         previous_status = task.status
-        task.status = "deleted"
+        set_task_stage(task, TaskStage.DELETED)
         task.deleted = True
         task.deleted_at = datetime.now(tz=timezone.utc)
         session.add(task)
@@ -40,13 +42,13 @@ def restore_task(task_id: str) -> bool:
         if not task:
             raise _TaskNotFoundError
 
-        restored_status = "success" if task.result else "pending"
+        restored_stage = TaskStage.SUCCESS if task.result else TaskStage.PENDING
         previous_status = task.status
-        task.status = restored_status
+        set_task_stage(task, restored_stage)
         task.deleted = False
         task.deleted_at = None
         session.add(task)
-        return previous_status, restored_status
+        return previous_status, restored_stage.value
 
     try:
         TaskEventService(emit_task_event).record_and_publish(

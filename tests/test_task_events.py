@@ -69,6 +69,8 @@ def test_history_record_normalizes_legacy_status_payload():
         (TaskStage.FORMATTING, TaskStage.SUCCESS, True),
         (TaskStage.SUCCESS, TaskStage.TRANSCRIBING, False),
         (TaskStage.CANCELLED, TaskStage.SUCCESS, False),
+        (TaskStage.SUCCESS, TaskStage.DELETED, True),
+        (TaskStage.DELETED, TaskStage.PENDING, True),
         (TaskStage.DELETED, TaskStage.SUCCESS, True),
     ],
 )

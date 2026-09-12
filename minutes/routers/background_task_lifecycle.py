@@ -52,12 +52,18 @@ def bg_cancel(task_id: str):
 @router.post(
     "/delete/{task_id}",
     response_model=TaskDeletedResponse,
-    responses={404: JSON_ERROR_RESPONSES[404], 500: JSON_ERROR_RESPONSES[500]},
+    responses={
+        404: JSON_ERROR_RESPONSES[404],
+        409: JSON_ERROR_RESPONSES[409],
+        500: JSON_ERROR_RESPONSES[500],
+    },
 )
 def bg_delete(task_id: str):
     try:
         if not mark_task_deleted(task_id):
             return error_json("unknown task", 404)
+    except ValueError as exc:
+        return error_json(str(exc), 409)
     except SQLAlchemyError as exc:
         logging.getLogger(__name__).exception("soft delete failed for %s", task_id)
         return error_json(str(exc), 500)
@@ -91,12 +97,18 @@ def bg_force_delete(task_id: str):
 @router.post(
     "/undelete/{task_id}",
     response_model=TaskUndeletedResponse,
-    responses={404: JSON_ERROR_RESPONSES[404], 500: JSON_ERROR_RESPONSES[500]},
+    responses={
+        404: JSON_ERROR_RESPONSES[404],
+        409: JSON_ERROR_RESPONSES[409],
+        500: JSON_ERROR_RESPONSES[500],
+    },
 )
 def bg_undelete(task_id: str):
     try:
         if not restore_task(task_id):
             return error_json("unknown task", 404)
+    except ValueError as exc:
+        return error_json(str(exc), 409)
     except SQLAlchemyError as exc:
         logging.getLogger(__name__).exception("undelete failed for %s", task_id)
         return error_json(str(exc), 500)

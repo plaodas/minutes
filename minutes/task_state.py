@@ -86,7 +86,7 @@ def _get_or_create_task(session, task_id: str) -> tuple[uuid.UUID, Task] | None:
     return key, task
 
 
-def _set_task_stage(task: Task, target: TaskStage) -> None:
+def set_task_stage(task: Task, target: TaskStage) -> None:
     current = task_stage_from_status(task.status)
     if current is None:
         raise ValueError(f"unknown current task stage: {task.status!r}")
@@ -133,7 +133,7 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
         if not resolved:
             return
         _, task = resolved
-        _set_task_stage(task, TaskStage.SUCCESS)
+        set_task_stage(task, TaskStage.SUCCESS)
         task.result = result
         task.progress = 100.0
         task.fail_count = 0
@@ -185,7 +185,7 @@ def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> No
         if not resolved:
             return
         _, task = resolved
-        _set_task_stage(task, TaskStage.FAILED)
+        set_task_stage(task, TaskStage.FAILED)
         task.result = None
         task.fail_count = (task.fail_count or 0) + 1
         task.last_failure_ts = _now_utc()
@@ -208,7 +208,7 @@ def update_cancelled(task_id: str, emit_event: EventEmitter) -> None:
         if not resolved:
             return
         _, task = resolved
-        _set_task_stage(task, TaskStage.CANCELLED)
+        set_task_stage(task, TaskStage.CANCELLED)
         task.result = None
 
     with _lock:
@@ -238,7 +238,7 @@ def update_status(
         if not resolved:
             return
         _, task = resolved
-        _set_task_stage(task, stage)
+        set_task_stage(task, stage)
 
     with _lock:
         try:

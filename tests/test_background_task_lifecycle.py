@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from minutes import task_deletion, task_event_service, task_events
 from minutes import tasks as task_workers
 from minutes.api import app
-from minutes.bg_store import create_task, get_task
+from minutes.bg_store import create_task, get_task, update_task_success
 from minutes.db import SessionLocal, session_scope
 from minutes.models import Task, TaskHistory
 from minutes.routers import background_task_lifecycle
@@ -77,6 +77,51 @@ def test_undelete_restores_soft_deleted_task(monkeypatch):
         assert undeleted.payload == {"previous": "deleted", "status": "pending"}
     assert [event["event_type"] for event in published] == ["deleted", "undeleted"]
     assert [event["stage"] for event in published] == ["deleted", "pending"]
+
+
+def test_undelete_restores_successful_task_to_success(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    monkeypatch.setattr(task_events, "publish_event", lambda _event: None)
+    update_task_success(str(task_id), {"summary": "done"})
+    client = TestClient(app)
+
+    assert client.post(f"/api/bg/delete/{task_id}").status_code == 200
+    response = client.post(f"/api/bg/undelete/{task_id}")
+
+    assert response.status_code == 200
+    with session_scope() as session:
+        task = session.get(Task, task_id)
+        assert task is not None
+        assert task.status == "success"
+        assert task.deleted is False
+        undeleted = (
+            session.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "undeleted",
+            )
+            .one()
+        )
+        assert undeleted.payload == {"previous": "deleted", "status": "success"}
+
+
+def test_soft_delete_rejects_unknown_task_stage(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(task_events, "publish_event", published.append)
+    with session_scope() as session:
+        task = session.get(Task, task_id)
+        assert task is not None
+        task.status = "not-a-stage"
+
+    response = TestClient(app).post(f"/api/bg/delete/{task_id}")
+
+    assert response.status_code == 409
+    assert response.json() == {"error": "unknown current task stage: 'not-a-stage'"}
+    assert published == []
+    assert get_task(str(task_id))["status"] == "not-a-stage"
 
 
 def test_soft_delete_db_failure_does_not_mark_task_success(monkeypatch):
