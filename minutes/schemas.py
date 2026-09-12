@@ -262,6 +262,15 @@ class TaskHistoryRecord(BaseModel):
     payload: TaskEventPayload
 
 
+def task_history_record_dict(row: Any) -> dict[str, Any]:
+    event_ts = getattr(row, "event_ts", None)
+    return {
+        "event_ts": event_ts.isoformat() + "Z" if event_ts is not None else None,
+        "event_type": row.event_type,
+        "payload": row.payload,
+    }
+
+
 class TaskEventsResponse(BaseModel):
     task_id: str
     events: list[TaskHistoryRecord]
@@ -287,6 +296,13 @@ class TaskListItemResponse(BaseModel):
 
 class TaskListResponse(BaseModel):
     tasks: list[TaskListItemResponse]
+
+
+class IdList(BaseModel):
+    ids: list[str]
+    limit: int | None = 1
+    offset: int | None = 0
+    offsets: dict[str, int] | None = None
 
 
 class BulkTaskHistoriesResponse(BaseModel):

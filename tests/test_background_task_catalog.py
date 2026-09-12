@@ -5,7 +5,8 @@ from sqlalchemy import event
 
 from minutes.db import engine, session_scope
 from minutes.models import Task, TaskHistory
-from minutes.routers.background_task_catalog import IdList, bg_histories, bg_tasks
+from minutes.routers.background_task_catalog import bg_histories, bg_tasks
+from minutes.schemas import IdList
 
 
 def test_bg_tasks_loads_history_previews_in_one_bulk_query():

@@ -4,7 +4,6 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter
-from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -15,10 +14,12 @@ from minutes.models import Task, TaskHistory
 from minutes.schemas import (
     JSON_ERROR_RESPONSES,
     BulkTaskHistoriesResponse,
+    IdList,
     RenameTaskRequest,
     TaskHistoryResponse,
     TaskListResponse,
     TaskNameResponse,
+    task_history_record_dict,
     task_stage_from_status,
     task_status_value,
 )
@@ -30,13 +31,6 @@ router = APIRouter()
 MAX_IDS_PER_REQUEST = int(os.environ.get("MAX_BG_HISTORIES_IDS", "500"))
 HARD_IDS_LIMIT = int(os.environ.get("MAX_BG_HISTORIES_HARD_LIMIT", "5000"))
 BG_HISTORIES_BATCH_SIZE = int(os.environ.get("BG_HISTORIES_BATCH_SIZE", "200"))
-
-
-class IdList(BaseModel):
-    ids: list[str]
-    limit: int | None = 1
-    offset: int | None = 0
-    offsets: dict[str, int] | None = None
 
 
 class _TaskNotFoundError(Exception):
@@ -68,14 +62,7 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
             .limit(int(limit))
             .all()
         )
-        history = [
-            {
-                "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
-                "event_type": row.event_type,
-                "payload": row.payload,
-            }
-            for row in rows
-        ]
+        history = [task_history_record_dict(row) for row in rows]
     return {"task_id": task_id, "history": history}
 
 
@@ -223,17 +210,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                     .order_by(history_window.c.task_id, history_window.c.rn)
                 ).all()
                 for row in history_rows:
-                    previews_by_task[row.task_id].append(
-                        {
-                            "event_ts": (
-                                row.event_ts.isoformat() + "Z"
-                                if row.event_ts
-                                else None
-                            ),
-                            "event_type": row.event_type,
-                            "payload": row.payload,
-                        }
-                    )
+                    previews_by_task[row.task_id].append(task_history_record_dict(row))
                     counts_by_task[row.task_id] = int(row.event_count)
             except SQLAlchemyError:
                 logging.getLogger(__name__).exception(
@@ -355,15 +332,7 @@ def bg_histories(payload: IdList):
             )
             for row in session.execute(query).all():
                 original_id = valid_ids[row.task_id]
-                histories[original_id].append(
-                    {
-                        "event_ts": (
-                            row.event_ts.isoformat() + "Z" if row.event_ts else None
-                        ),
-                        "event_type": row.event_type,
-                        "payload": row.payload,
-                    }
-                )
+                histories[original_id].append(task_history_record_dict(row))
     response: dict[str, Any] = {"histories": histories}
     if warnings:
         response["warnings"] = warnings

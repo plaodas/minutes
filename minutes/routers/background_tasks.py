@@ -20,6 +20,7 @@ from minutes.schemas import (
     TaskEvent,
     TaskEventsResponse,
     normalize_task_status,
+    task_history_record_dict,
     task_stage_from_status,
 )
 from minutes.sse import register_queue, unregister_queue
@@ -155,14 +156,7 @@ def bg_task_events(task_id: str):
             .order_by(TaskHistory.event_ts.desc())
             .all()
         )
-        events = [
-            {
-                "event_ts": row.event_ts.isoformat() + "Z" if row.event_ts else None,
-                "event_type": row.event_type,
-                "payload": row.payload,
-            }
-            for row in rows
-        ]
+        events = [task_history_record_dict(row) for row in rows]
     return {"task_id": task_id, "events": events}
 
 

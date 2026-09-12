@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from minutes.schemas import (
@@ -7,6 +9,7 @@ from minutes.schemas import (
     TaskStage,
     build_task_event,
     is_task_stage_transition_allowed,
+    task_history_record_dict,
     task_stage_from_status,
 )
 
@@ -32,6 +35,22 @@ def test_task_stage_from_status(status, expected):
 @pytest.mark.parametrize("alias,stage", list(STATUS_STAGE_ALIASES.items()))
 def test_status_stage_aliases(alias, stage):
     assert task_stage_from_status(alias) == stage
+
+
+def test_task_history_record_dict_formats_event_ts():
+    class Row:
+        event_ts = datetime(2026, 8, 29, 12, 1, tzinfo=timezone.utc)
+        event_type = "success"
+        payload = {"result": {}}
+
+    assert task_history_record_dict(Row()) == {
+        "event_ts": "2026-08-29T12:01:00+00:00Z",
+        "event_type": "success",
+        "payload": {"result": {}},
+    }
+    missing = Row()
+    missing.event_ts = None
+    assert task_history_record_dict(missing)["event_ts"] is None
 
 
 def test_build_status_event_adds_normalized_stage():

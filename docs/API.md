@@ -1,19 +1,19 @@
-# API: /bg/histories
+# API: `/api/bg/histories`
 
-Endpoint: `POST /bg/histories`
+Canonical endpoint: `POST /api/bg/histories`
 
-Summary:
-- Returns recent event histories for multiple background tasks (task IDs).
-- Supports per-task pagination via `offsets` map while remaining backward-compatible with the single `offset` field.
+Unprefixed `/bg/histories` is not registered. The request and response models live in `minutes.schemas` (`IdList`, `BulkTaskHistoriesResponse`, `TaskHistoryRecord`). OpenAPI is the source of truth.
 
-Request body (JSON):
+## Request
 
-- `ids`: string[] — list of task ids to fetch histories for.
-- `limit`?: number — number of events to return per task (default server-side limit applies).
-- `offset`?: number — legacy single offset applied to all `ids` (backwards compatibility).
-- `offsets`?: Record<string, number> — optional per-id offset map. When present, the server uses `offsets[id]` for that id. If `offsets` is absent, the server falls back to `offset` for all ids.
+JSON body (`IdList`):
 
-Example request (per-id offsets):
+- `ids`: string[] — task ids to fetch
+- `limit`?: number — events per task (default `1`)
+- `offset`?: number — shared offset applied to every id when `offsets` is omitted
+- `offsets`?: Record<string, number> — per-id offsets. When present, `offsets[id]` is used; ids missing from the map start at `0`
+
+If both `offsets` and `offset` are provided, `offsets` wins and the shared `offset` is ignored.
 
 ```json
 {
@@ -23,29 +23,33 @@ Example request (per-id offsets):
 }
 ```
 
-Response body (JSON):
+## Response
 
-- `histories`: Record<string, Array<object>> — map from task id to an array of history events (newest-first or server-determined order).
-- `hasMore`: Record<string, boolean> — whether there are more events available for a given id (useful for client-side "Load more").
+JSON body (`BulkTaskHistoriesResponse`):
 
-Example response:
+- `histories`: Record<string, TaskHistoryRecord[]> — newest-first events for each requested id. Unknown or invalid ids map to `[]`
+- `warnings`?: string[] — present only when the server splits a large `ids` list into internal batches
+
+There is no `hasMore` field. Clients that need more events send the next `offsets` themselves (`offset + returned length`).
 
 ```json
 {
   "histories": {
     "task-1": [
-      {"event_ts":"2026-08-29T12:00:00Z","event_type":"START","payload":{}},
-      {"event_ts":"2026-08-29T12:01:00Z","event_type":"PROCESS","payload":{}}
+      {
+        "event_ts": "2026-08-29T12:01:00Z",
+        "event_type": "success",
+        "payload": {}
+      }
     ],
     "task-2": []
-  },
-  "hasMore": {"task-1": false, "task-2": false}
+  }
 }
 ```
 
-Notes and compatibility:
-- If both `offsets` and `offset` are provided, `offsets` takes precedence for ids present in the map; `offset` is used for ids not present in the map.
-- The server may enforce `BG_HISTORIES_BATCH_SIZE` to split requests into internal chunks. Clients should chunk large `ids` lists to avoid very large requests.
-- This endpoint is intended to be called by the UI in a chunked, on-scroll fashion. Clients should maintain per-id counts (used as offsets) and send them in subsequent `offsets` requests when requesting more history for a specific task.
+## Limits
 
-See `minutes/api.py` for the server implementation details and FastAPI schema (`IdList` model).
+- `MAX_BG_HISTORIES_IDS` (default 500) — above this, the handler still runs but adds a `warnings` entry and processes `ids` in chunks of `BG_HISTORIES_BATCH_SIZE` (default 200)
+- `MAX_BG_HISTORIES_HARD_LIMIT` (default 5000) — above this, the API returns `{ "error": "..." }` with HTTP 413
+
+Implementation: `minutes/routers/background_task_catalog.py`.
