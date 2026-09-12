@@ -13,6 +13,7 @@ from minutes.routers.background_task_catalog import router as catalog_router
 from minutes.routers.background_task_lifecycle import router as lifecycle_router
 from minutes.schemas import (
     StatusResponse,
+    TaskEventsResponse,
     normalize_task_status,
     task_stage_from_status,
 )
@@ -89,7 +90,11 @@ async def bg_events(request: Request):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@router.get("/tasks/{task_id}/events")
+@router.get(
+    "/tasks/{task_id}/events",
+    response_model=TaskEventsResponse,
+    response_model_exclude_none=True,
+)
 def bg_task_events(task_id: str):
     """Return all stored events for a task, newest first."""
     try:

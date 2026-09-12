@@ -2,6 +2,7 @@ import pytest
 
 from minutes.schemas import (
     TaskEventType,
+    TaskHistoryRecord,
     TaskStage,
     build_task_event,
     is_task_stage_transition_allowed,
@@ -45,6 +46,17 @@ def test_build_terminal_event_infers_stage():
     event = build_task_event("task-id", TaskEventType.SUCCESS, {"result": {}})
 
     assert event["stage"] == "success"
+
+
+def test_history_record_normalizes_legacy_status_payload():
+    record = TaskHistoryRecord(
+        event_ts=None,
+        event_type=TaskEventType.STATUS,
+        payload={"status": "transcribing:48.3s"},
+    )
+
+    assert record.payload.status == TaskStage.TRANSCRIBING
+    assert record.payload.detail == "48.3s"
 
 
 @pytest.mark.parametrize(

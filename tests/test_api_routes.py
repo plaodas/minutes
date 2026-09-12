@@ -30,6 +30,29 @@ def test_http_method_and_path_pairs_are_unique():
     assert duplicates == {}
 
 
+def test_task_read_routes_publish_typed_openapi_responses():
+    paths = app.openapi()["paths"]
+
+    assert (
+        paths["/api/bg/tasks"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+        == "#/components/schemas/TaskListResponse"
+    )
+    assert (
+        paths["/api/bg/tasks/{task_id}/events"]["get"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/TaskEventsResponse"
+    )
+    assert (
+        paths["/api/bg/histories"]["post"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+        == "#/components/schemas/BulkTaskHistoriesResponse"
+    )
+
+
 def test_background_task_routes_are_owned_by_router_modules():
     expected_routes = {
         ("GET", "/api/bg/status/{task_id}"),

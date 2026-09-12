@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Literal, TypedDict, cast
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from typing_extensions import NotRequired
 
 
@@ -106,6 +106,24 @@ class TaskEventPayload(BaseModel):
     error: str | None = None
     name: str | None = None
     previous: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_status(cls, value):
+        if not isinstance(value, dict) or not isinstance(value.get("status"), str):
+            return value
+        stage = task_stage_from_status(value["status"])
+        if stage is None:
+            return value
+        normalized = dict(value)
+        stage, detail = normalize_task_status(
+            value["status"],
+            value.get("detail"),
+        )
+        normalized["status"] = stage
+        if detail is not None:
+            normalized["detail"] = detail
+        return normalized
 
 
 class TaskEvent(BaseModel):
@@ -227,6 +245,44 @@ class StatusResponse(BaseModel):
     detail: str | None = None
     error: str | None = None
     progress: float | None = None
+
+
+class TaskHistoryRecord(BaseModel):
+    event_ts: str | None = None
+    event_type: TaskEventType
+    payload: TaskEventPayload
+
+
+class TaskEventsResponse(BaseModel):
+    task_id: str
+    events: list[TaskHistoryRecord]
+
+
+class TaskHistoryResponse(BaseModel):
+    task_id: str
+    history: list[TaskHistoryRecord]
+
+
+class TaskListItemResponse(BaseModel):
+    id: str
+    name: str | None = None
+    status: str
+    stage: TaskStage | None = None
+    progress: float | None = None
+    result: Any = None
+    created_at: str | None = None
+    last_success_ts: str | None = None
+    preview_events: list[TaskHistoryRecord]
+    event_count: int
+
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskListItemResponse]
+
+
+class BulkTaskHistoriesResponse(BaseModel):
+    histories: dict[str, list[TaskHistoryRecord]]
+    warnings: list[str] | None = None
 
 
 class ResultSuccess(BaseModel):

@@ -12,7 +12,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from minutes.bg_store import record_and_publish
 from minutes.db import session_scope
 from minutes.models import Task, TaskHistory
-from minutes.schemas import task_stage_from_status
+from minutes.schemas import (
+    BulkTaskHistoriesResponse,
+    TaskHistoryResponse,
+    TaskListResponse,
+    task_stage_from_status,
+)
 from minutes.summary import summarize_local
 
 router = APIRouter()
@@ -37,7 +42,11 @@ class _TaskOutputUnavailableError(Exception):
     pass
 
 
-@router.get("/history/{task_id}")
+@router.get(
+    "/history/{task_id}",
+    response_model=TaskHistoryResponse,
+    response_model_exclude_none=True,
+)
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return paginated history events for a task."""
     with session_scope() as session:
@@ -147,7 +156,11 @@ def bg_task_regenerate_name(task_id: str):
     return {"task_id": task_id, "name": short}
 
 
-@router.get("/tasks")
+@router.get(
+    "/tasks",
+    response_model=TaskListResponse,
+    response_model_exclude_none=True,
+)
 def bg_tasks(limit: int = 50, offset: int = 0):
     """Return a paginated task list with recent history previews."""
     with session_scope() as session:
@@ -243,7 +256,11 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     return {"tasks": tasks}
 
 
-@router.post("/histories")
+@router.post(
+    "/histories",
+    response_model=BulkTaskHistoriesResponse,
+    response_model_exclude_none=True,
+)
 def bg_histories(payload: IdList):
     ids = payload.ids or []
     limit = int(payload.limit or 1)
