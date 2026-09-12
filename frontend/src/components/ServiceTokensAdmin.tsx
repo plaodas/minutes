@@ -1,17 +1,18 @@
 import React, { useEffect, useState } from 'react';
 
 import { listServiceTokens, createServiceToken, revokeServiceToken } from '../api/client';
+import type { ServiceTokenItem } from '../api/types';
+import { errorMessage } from '../lib/errorMessage';
 
 import { useToast } from './ToastProvider';
 import ConfirmModal from './ConfirmModal';
 
 export default function ServiceTokensAdmin() {
-  const [tokens, setTokens] = useState<any[]>([]);
+  const [tokens, setTokens] = useState<ServiceTokenItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
   const [userId, setUserId] = useState('');
   const { addToast } = useToast();
-  // confirm modal for revocation
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
@@ -20,38 +21,37 @@ export default function ServiceTokensAdmin() {
     setLoading(true);
     try {
       const data = await listServiceTokens();
-      setTokens((data && data.tokens) || []);
-    } catch (e: any) {
-      addToast(e.message || 'failed to load tokens', { level: 'error' });
+      setTokens(data.tokens || []);
+    } catch (e: unknown) {
+      addToast(errorMessage(e, 'failed to load tokens'), { level: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const data = await createServiceToken(name || undefined, userId || undefined);
-      // data contains plaintext token and id
       addToast('Token created — copy it now (shown once)', { level: 'success' });
-      // show token in prompt for quick copy
       try {
         window.prompt('Service token (copy and store securely):', data.token);
-      } catch {}
+      } catch {
+        // window.prompt can throw if the browser blocks it
+      }
       setName('');
       setUserId('');
       await load();
-    } catch (e: any) {
-      addToast(e.message || 'create failed', { level: 'error' });
+    } catch (e: unknown) {
+      addToast(errorMessage(e, 'create failed'), { level: 'error' });
     }
   };
 
   const handleRevoke = async (id: string) => {
-    // open confirmation modal instead of native confirm
     setConfirmMessage('Revoke this token?');
     setConfirmAction(() => async () => {
       setConfirmOpen(false);
@@ -59,8 +59,8 @@ export default function ServiceTokensAdmin() {
         await revokeServiceToken(id);
         addToast('Token revoked', { level: 'success' });
         await load();
-      } catch (e: any) {
-        addToast(e.message || 'revoke failed', { level: 'error' });
+      } catch (e: unknown) {
+        addToast(errorMessage(e, 'revoke failed'), { level: 'error' });
       }
     });
     setConfirmOpen(true);
@@ -98,7 +98,7 @@ export default function ServiceTokensAdmin() {
           <div className="text-sm text-[var(--muted)]">Loading…</div>
         ) : (
           <ul className="space-y-2">
-            {tokens.map((t: any) => (
+            {tokens.map((t) => (
               <li key={t.id} className="rounded border p-2 flex items-center justify-between">
                 <div>
                   <div className="font-medium">{t.name || t.id}</div>
@@ -109,7 +109,9 @@ export default function ServiceTokensAdmin() {
                     onClick={() => {
                       try {
                         window.prompt('Token id:', t.id);
-                      } catch {}
+                      } catch {
+                        // window.prompt can throw if the browser blocks it
+                      }
                     }}
                     className="rounded bg-slate-100 px-2 py-1 text-sm"
                   >

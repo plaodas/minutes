@@ -51,6 +51,7 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
         }
       };
     } catch {
+      // EventSource is unavailable or the URL was rejected
       setConnectionState('unavailable');
       return;
     }

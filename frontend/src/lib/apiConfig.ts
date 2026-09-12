@@ -77,6 +77,7 @@ export function getUploadSettings(): UploadSettings {
     const parsed = JSON.parse(raw) as UploadSettings;
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
+    // stored settings JSON is invalid
     return {};
   }
 }

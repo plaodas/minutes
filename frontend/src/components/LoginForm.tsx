@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
-import { login, logout, getUserFeatures } from '../api/client';
+import { login, logout } from '../api/client';
+import { errorMessage } from '../lib/errorMessage';
 
 import { useToast } from './ToastProvider';
 
@@ -17,11 +18,9 @@ export default function LoginForm() {
       await login(username, password);
       addToast('Login successful', { level: 'success' });
       // notify app about auth change so UI can refresh without full reload
-      try {
-        window.dispatchEvent(new CustomEvent('auth-changed'));
-      } catch (e) {}
-    } catch (err: any) {
-      addToast(err?.message || 'Login failed', { level: 'error' });
+      window.dispatchEvent(new CustomEvent('auth-changed'));
+    } catch (err: unknown) {
+      addToast(errorMessage(err, 'Login failed'), { level: 'error' });
     } finally {
       setLoading(false);
     }
@@ -32,11 +31,9 @@ export default function LoginForm() {
     try {
       await logout();
       addToast('Logged out', { level: 'success' });
-      try {
-        window.dispatchEvent(new CustomEvent('auth-changed'));
-      } catch (e) {}
-    } catch (err: any) {
-      addToast(err?.message || 'Logout failed', { level: 'error' });
+      window.dispatchEvent(new CustomEvent('auth-changed'));
+    } catch (err: unknown) {
+      addToast(errorMessage(err, 'Logout failed'), { level: 'error' });
     } finally {
       setLoading(false);
     }

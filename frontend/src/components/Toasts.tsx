@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
 
+import type { AppToastDetail } from '../lib/appEvents';
+
 type Toast = { id: string; type: 'info' | 'success' | 'error'; message: string };
 
 export default function Toasts() {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
-    const handler = (e: any) => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<AppToastDetail>).detail;
       const t: Toast = {
         id: String(Date.now()) + Math.random().toString(36).slice(2, 8),
-        ...(e.detail || {}),
+        type: detail?.type || 'info',
+        message: detail?.message || '',
       };
       setToasts((s) => [...s, t]);
       // auto remove after 6s

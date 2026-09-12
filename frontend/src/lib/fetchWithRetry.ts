@@ -22,9 +22,7 @@ export async function fetchWithRetry(
       clearTimeout(id);
       // global handling: if server rejects with 401, notify app and treat as non-retryable
       if (res.status === 401) {
-        try {
-          window.dispatchEvent(new CustomEvent('auth-changed'));
-        } catch (e) {}
+        window.dispatchEvent(new CustomEvent('auth-changed'));
         throw res;
       }
       // If it's a client error (4xx) that is not authentication, treat as non-retryable
@@ -33,9 +31,13 @@ export async function fetchWithRetry(
       }
       if (!res.ok) throw res;
       return res;
-    } catch (err: any) {
+    } catch (err: unknown) {
       clearTimeout(id);
-      const isAbort = err && err.name === 'AbortError';
+      const name =
+        typeof err === 'object' && err !== null && 'name' in err
+          ? String((err as { name: unknown }).name)
+          : '';
+      const isAbort = name === 'AbortError';
       const isTypeError = err instanceof TypeError;
       const isNetworkErr = isAbort || isTypeError;
 

@@ -11,11 +11,19 @@ import type { TaskHistoryPreview, TaskListItem } from '../lib/taskState';
 import type {
   AuthFeaturesResponse,
   AuthLoginResponse,
+  AuthLogoutResponse,
   CreateTaskResponse,
   ResultSuccess,
+  RevokedResponse,
+  ServiceTokenCreatedResponse,
+  ServiceTokenListResponse,
   StatusResponse,
   TaskDeletedResponse,
   TaskUndeletedResponse,
+  UploadCleanupDeleteResponse,
+  UploadCleanupListResponse,
+  UserBucketListResponse,
+  UserBucketResponse,
 } from './types';
 
 export type UploadTaskResponse = CreateTaskResponse & {
@@ -53,6 +61,7 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
         try {
           resolve(JSON.parse(xhr.responseText) as UploadTaskResponse);
         } catch {
+          // upload response was not JSON
           resolve({ task_id: '' });
         }
       } else {
@@ -156,7 +165,7 @@ export async function renameBgTask(taskId: string, name: string): Promise<void> 
   throw new Error(message);
 }
 
-async function _downloadBlob(url: string) {
+async function _downloadBlob(url: string): Promise<{ blob: Blob; headers: Headers }> {
   const res = await fetchWithRetry(
     url,
     { credentials: 'same-origin', headers: getAuthHeaders() },
@@ -210,7 +219,7 @@ export async function getUserFeatures(): Promise<AuthFeaturesResponse> {
 
 export async function adminUploadsCleanupGet(
   opts: { dir?: string; pattern?: string; older_than?: number; limit?: number } = {}
-) {
+): Promise<UploadCleanupListResponse> {
   const params = new URLSearchParams();
   if (opts.dir) params.set('dir', opts.dir);
   if (opts.pattern) params.set('pattern', opts.pattern);
@@ -222,7 +231,7 @@ export async function adminUploadsCleanupGet(
     headers,
   });
   if (!res.ok) throw new Error('cleanup preview failed');
-  return res.json();
+  return res.json() as Promise<UploadCleanupListResponse>;
 }
 
 export async function adminUploadsCleanupPost(payload: {
@@ -230,7 +239,7 @@ export async function adminUploadsCleanupPost(payload: {
   pattern?: string;
   older_than?: number;
   limit?: number;
-}) {
+}): Promise<UploadCleanupDeleteResponse> {
   const headers = { 'Content-Type': 'application/json', ...getAuthHeaders(), 'X-Admin': '1' };
   const res = await fetch(`${API_BASE}/admin/uploads/cleanup`, {
     method: 'POST',
@@ -239,7 +248,7 @@ export async function adminUploadsCleanupPost(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error('cleanup run failed');
-  return res.json();
+  return res.json() as Promise<UploadCleanupDeleteResponse>;
 }
 
 export async function login(
@@ -259,30 +268,32 @@ export async function login(
   try {
     return await res.json();
   } catch {
+    // login body was not JSON
     return res;
   }
 }
 
-export async function logout() {
+export async function logout(): Promise<AuthLogoutResponse | Response> {
   const res = await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
   if (!res.ok) throw new Error('logout failed');
   try {
-    return await res.json();
+    return (await res.json()) as AuthLogoutResponse;
   } catch {
+    // logout body was not JSON
     return res;
   }
 }
 
-export async function getBuckets() {
+export async function getBuckets(): Promise<UserBucketListResponse> {
   const res = await fetch(`${API_BASE}/buckets`, {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('failed to fetch buckets');
-  return res.json();
+  return res.json() as Promise<UserBucketListResponse>;
 }
 
-export async function createBucket(name: string) {
+export async function createBucket(name: string): Promise<UserBucketResponse> {
   const res = await fetch(`${API_BASE}/buckets`, {
     method: 'POST',
     credentials: 'same-origin',
@@ -290,19 +301,22 @@ export async function createBucket(name: string) {
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error('failed to create bucket');
-  return res.json();
+  return res.json() as Promise<UserBucketResponse>;
 }
 
-export async function listServiceTokens() {
+export async function listServiceTokens(): Promise<ServiceTokenListResponse> {
   const res = await fetch(`${API_BASE}/service-tokens`, {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('failed to fetch service tokens');
-  return res.json();
+  return res.json() as Promise<ServiceTokenListResponse>;
 }
 
-export async function createServiceToken(name?: string, user_id?: string) {
+export async function createServiceToken(
+  name?: string,
+  user_id?: string
+): Promise<ServiceTokenCreatedResponse> {
   const res = await fetch(`${API_BASE}/service-tokens`, {
     method: 'POST',
     credentials: 'same-origin',
@@ -310,17 +324,17 @@ export async function createServiceToken(name?: string, user_id?: string) {
     body: JSON.stringify({ name, user_id }),
   });
   if (!res.ok) throw new Error('failed to create service token');
-  return res.json();
+  return res.json() as Promise<ServiceTokenCreatedResponse>;
 }
 
-export async function revokeServiceToken(id: string) {
+export async function revokeServiceToken(id: string): Promise<RevokedResponse> {
   const res = await fetch(`${API_BASE}/service-tokens/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('failed to revoke token');
-  return res.json();
+  return res.json() as Promise<RevokedResponse>;
 }
 
 export async function undeleteTask(taskId: string): Promise<TaskUndeletedResponse> {

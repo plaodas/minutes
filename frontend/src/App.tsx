@@ -14,7 +14,7 @@ import { getUserFeatures } from './api/client';
 
 export default function App() {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
-  const [result, setResult] = useState<any | null>(null);
+  const [result, setResult] = useState<unknown | null>(null);
   const [activeView, setActiveView] = useState<NavigationView>('upload');
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);

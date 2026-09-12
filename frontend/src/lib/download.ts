@@ -1,9 +1,19 @@
-export type Runner = () => Promise<{ blob: Blob; headers?: any }>;
+export type AddToast = (
+  msg: string,
+  opts?: {
+    level?: 'info' | 'success' | 'error';
+    duration?: number;
+    actionLabel?: string;
+    action?: () => void;
+  }
+) => string;
+
+export type Runner = () => Promise<{ blob: Blob; headers?: Headers }>;
 
 export async function startDownload(
   runner: Runner,
   filename: string,
-  addToast: (msg: string, opts?: any) => string,
+  addToast: AddToast,
   successMsg = 'Download started'
 ) {
   try {
@@ -17,8 +27,9 @@ export async function startDownload(
     a.remove();
     URL.revokeObjectURL(url);
     addToast(successMsg, { level: 'info', duration: 3000 });
-  } catch (e: any) {
-    addToast('Download failed: ' + (e?.message || e), {
+  } catch (e: unknown) {
+    const message = e instanceof Error && e.message ? e.message : String(e);
+    addToast('Download failed: ' + message, {
       level: 'error',
       actionLabel: 'Retry',
       action: () => startDownload(runner, filename, addToast, successMsg),

@@ -11,7 +11,9 @@ import {
   renameBgTask,
 } from '../api/client';
 import { API_BASE, getAuthHeaders } from '../lib/apiConfig';
+import { dispatchTaskChanged } from '../lib/appEvents';
 import startDownload from '../lib/download';
+import { errorMessage } from '../lib/errorMessage';
 
 import Toast from './Toast';
 import ConfirmDialog from './ConfirmDialog';
@@ -38,8 +40,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
       try {
         const resp = await import('../api/client').then((m) => m.getUserFeatures());
         if (mounted && resp && resp.is_admin) setIsAdmin(true);
-      } catch (e) {
-        // ignore
+      } catch {
+        // admin features are optional for the drawer
       }
     })();
     return () => {
@@ -64,8 +66,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
         const tasks = await getBgTasks({ retries: 1, timeoutMs: 8000 });
         const found = tasks.find((task) => task.id === taskId);
         if (found) setTaskName(found.name || null);
-      } catch (e) {
-        // ignore
+      } catch {
+        // task name is optional for the drawer header
       }
     })();
   }, [taskId]);
@@ -105,12 +107,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
               const stext = await sres.text();
               if (stext) setSummary(stext);
             }
-          } catch (e) {
+          } catch {
             // ignore; summary is optional
           }
         })();
-      } catch (e: any) {
-        setError(e.message || 'fetch error');
+      } catch (e: unknown) {
+        setError(errorMessage(e, 'fetch error'));
       } finally {
         setLoading(false);
       }
@@ -147,7 +149,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
       toast.addToast('Copied link to clipboard', { level: 'success' });
       setLiveMessage('Link copied');
       setTimeout(() => setLiveMessage(null), 2000);
-    } catch (e) {
+    } catch {
       toast.addToast('Copy failed', { level: 'error' });
     }
   };
@@ -175,7 +177,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
       toast.addToast('Copied task id to clipboard', { level: 'success' });
       setLiveMessage('Task id copied');
       setTimeout(() => setLiveMessage(null), 2000);
-    } catch (e) {
+    } catch {
       toast.addToast('Copy failed', { level: 'error' });
     }
   };
@@ -199,6 +201,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
               await undeleteTask(taskId);
               toast.addToast('Restored', { level: 'success' });
             } catch {
+              // restore is best-effort from the undo toast
               toast.addToast('Restore failed', { level: 'error' });
             }
           },
@@ -207,13 +210,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
       // optionally close drawer
       setIsVisible(false);
       setTimeout(() => onClose(), 260);
-      try {
-        // notify app that task changed so history can refresh
-        window.dispatchEvent(
-          new CustomEvent('app:task-changed', { detail: { taskId, action: 'deleted' } })
-        );
-      } catch (e) {}
-    } catch (e) {
+      dispatchTaskChanged(taskId, 'deleted');
+    } catch {
       toast.addToast('Delete failed', { level: 'error' });
     }
   };
@@ -281,13 +279,9 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                   await renameBgTask(taskId, newName);
                   setTaskName(newName);
                   toast.addToast('Renamed', { level: 'success' });
-                  try {
-                    window.dispatchEvent(
-                      new CustomEvent('app:task-changed', { detail: { taskId, action: 'renamed' } })
-                    );
-                  } catch (e) {}
-                } catch (e: any) {
-                  toast.addToast(e?.message || 'Rename failed', { level: 'error' });
+                  dispatchTaskChanged(taskId, 'renamed');
+                } catch (e: unknown) {
+                  toast.addToast(errorMessage(e, 'Rename failed'), { level: 'error' });
                 }
               }}
               className="rounded bg-slate-100 px-2 py-1 text-sm"
@@ -363,6 +357,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                         await navigator.clipboard.writeText(text);
                         toast.addToast('Copied minutes to clipboard', { level: 'success' });
                       } catch {
+                        // clipboard permission can be denied
                         toast.addToast('Copy failed', { level: 'error' });
                       }
                     }}

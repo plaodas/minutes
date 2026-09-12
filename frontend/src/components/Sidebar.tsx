@@ -13,6 +13,7 @@ import {
 
 import { logout } from '../api/client';
 import useLocalStorage from '../hooks/useLocalStorage';
+import { errorMessage } from '../lib/errorMessage';
 
 import { useToast } from './ToastProvider';
 
@@ -138,12 +139,10 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
               try {
                 await logout();
                 addToast('Logged out', { level: 'success' });
-                try {
-                  window.dispatchEvent(new CustomEvent('auth-changed'));
-                } catch (e) {}
+                window.dispatchEvent(new CustomEvent('auth-changed'));
                 setMobileOpen(false);
-              } catch (err: any) {
-                addToast(err?.message || 'Logout failed', { level: 'error' });
+              } catch (err: unknown) {
+                addToast(errorMessage(err, 'Logout failed'), { level: 'error' });
               } finally {
                 setLoadingLogout(false);
               }
@@ -193,11 +192,9 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
               try {
                 await logout();
                 addToast('Logged out', { level: 'success' });
-                try {
-                  window.dispatchEvent(new CustomEvent('auth-changed'));
-                } catch (e) {}
-              } catch (err: any) {
-                addToast(err?.message || 'Logout failed', { level: 'error' });
+                window.dispatchEvent(new CustomEvent('auth-changed'));
+              } catch (err: unknown) {
+                addToast(errorMessage(err, 'Logout failed'), { level: 'error' });
               } finally {
                 setLoadingLogout(false);
               }

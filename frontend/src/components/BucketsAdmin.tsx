@@ -6,27 +6,30 @@ import {
   adminUploadsCleanupGet,
   adminUploadsCleanupPost,
 } from '../api/client';
+import type {
+  UploadCleanupCandidate,
+  UploadCleanupDeleteResponse,
+  UserBucketListItem,
+} from '../api/types';
+import { dispatchAppToast } from '../lib/appEvents';
+import { errorMessage } from '../lib/errorMessage';
 
 import ConfirmModal from './ConfirmModal';
 
-// BucketsAdmin also hosts other admin tools (service tokens, user id helper)
-
 export default function BucketsAdmin() {
-  const [buckets, setBuckets] = useState<any[]>([]);
+  const [buckets, setBuckets] = useState<UserBucketListItem[]>([]);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // uploads cleanup UI state
   const [uploadsDir, setUploadsDir] = useState('');
   const [uploadsPattern, setUploadsPattern] = useState('');
   const [olderThan, setOlderThan] = useState<number>(0);
   const [limit, setLimit] = useState<number>(100);
-  const [preview, setPreview] = useState<any[] | null>(null);
+  const [preview, setPreview] = useState<UploadCleanupCandidate[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [runLoading, setRunLoading] = useState(false);
-  const [runResult, setRunResult] = useState<any | null>(null);
-  // confirm modal state
+  const [runResult, setRunResult] = useState<UploadCleanupDeleteResponse | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
@@ -35,33 +38,16 @@ export default function BucketsAdmin() {
     setLoading(true);
     try {
       const data = await getBuckets();
-      setBuckets((data && data.buckets) || []);
-    } catch (e: any) {
-      setError(e.message || 'failed');
+      setBuckets(data.buckets || []);
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'failed'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
-  }, []);
-
-  const [features, setFeatures] = useState<{ authenticated?: boolean } | null>(null);
-  useEffect(() => {
-    let mounted = true;
-    import('../api/client').then(({ getUserFeatures }) => {
-      getUserFeatures()
-        .then((f) => {
-          if (mounted) setFeatures(f);
-        })
-        .catch(() => {
-          if (mounted) setFeatures({ authenticated: false });
-        });
-    });
-    return () => {
-      mounted = false;
-    };
+    void load();
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -71,8 +57,8 @@ export default function BucketsAdmin() {
       await createBucket(name);
       setName('');
       await load();
-    } catch (e: any) {
-      setError(e.message || 'create failed');
+    } catch (e: unknown) {
+      setError(errorMessage(e, 'create failed'));
     }
   };
 
@@ -90,14 +76,10 @@ export default function BucketsAdmin() {
         limit,
       });
       setPreview(res.candidates || []);
-    } catch (err: any) {
-      const msg = err?.message || String(err || 'preview failed');
+    } catch (err: unknown) {
+      const msg = errorMessage(err, 'preview failed');
       setError(msg);
-      try {
-        window.dispatchEvent(
-          new CustomEvent('appToast', { detail: { type: 'error', message: msg } })
-        );
-      } catch {}
+      dispatchAppToast({ type: 'error', message: msg });
     } finally {
       setPreviewLoading(false);
     }
@@ -106,7 +88,6 @@ export default function BucketsAdmin() {
   const handleRun = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError(null);
-    // open confirmation modal instead of native confirm
     setConfirmMessage(
       'Are you sure you want to delete matching upload files? This cannot be undone.'
     );
@@ -122,23 +103,12 @@ export default function BucketsAdmin() {
           limit,
         });
         setRunResult(res);
-        // clear preview after a successful run so UI reflects current state
         setPreview(null);
-        try {
-          window.dispatchEvent(
-            new CustomEvent('appToast', {
-              detail: { type: 'success', message: `Deleted ${res.count || 0} files` },
-            })
-          );
-        } catch {}
-      } catch (err: any) {
-        const msg = err?.message || String(err || 'cleanup failed');
+        dispatchAppToast({ type: 'success', message: `Deleted ${res.count || 0} files` });
+      } catch (err: unknown) {
+        const msg = errorMessage(err, 'cleanup failed');
         setError(msg);
-        try {
-          window.dispatchEvent(
-            new CustomEvent('appToast', { detail: { type: 'error', message: msg } })
-          );
-        } catch {}
+        dispatchAppToast({ type: 'error', message: msg });
       } finally {
         setRunLoading(false);
       }
@@ -155,7 +125,6 @@ export default function BucketsAdmin() {
         </p>
       </div>
 
-      {/* Uploads cleanup admin UI */}
       <div className="mb-4 rounded border p-3">
         <h3 className="font-medium">Uploads cleanup</h3>
         <p className="text-xs text-[var(--muted)]">
@@ -208,8 +177,8 @@ export default function BucketsAdmin() {
           <div className="mt-3">
             <div className="text-xs text-[var(--muted)]">Candidates ({preview.length})</div>
             <ul className="mt-2 max-h-40 overflow-auto text-sm list-disc list-inside">
-              {preview.map((c: any, i: number) => (
-                <li key={i}>{c.path || c.name}</li>
+              {preview.map((c, i) => (
+                <li key={c.path || i}>{c.path || c.name}</li>
               ))}
             </ul>
           </div>
@@ -220,7 +189,7 @@ export default function BucketsAdmin() {
             <div className="text-xs text-[var(--muted)]">Deleted: {runResult.count || 0}</div>
             {runResult.errors && runResult.errors.length > 0 && (
               <div className="mt-2 text-xs text-red-600">
-                Errors: {runResult.errors.map((e: any) => e.path + ': ' + e.error).join('; ')}
+                Errors: {runResult.errors.map((err) => `${err.path}: ${err.error}`).join('; ')}
               </div>
             )}
           </div>
@@ -246,7 +215,7 @@ export default function BucketsAdmin() {
           <div className="text-sm text-[var(--muted)]">Loading…</div>
         ) : (
           <ul className="space-y-2">
-            {buckets.map((b: any) => (
+            {buckets.map((b) => (
               <li key={b.id} className="rounded border p-2">
                 <div className="font-medium">{b.name}</div>
                 <div className="text-xs text-[var(--muted)]">owner: {b.owner_id || '—'}</div>

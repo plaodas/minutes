@@ -5,10 +5,15 @@ import {
   fetchTranscriptDownload,
   fetchSummaryDownload,
   fetchActionItemsDownload,
-  deleteTask,
-  undeleteTask,
 } from '../api/client';
 import startDownload from '../lib/download';
+import {
+  asMinutesResult,
+  asPresignedInfo,
+  formatActionItems,
+  stringField,
+} from '../lib/minutesResult';
+import type { PresignedInfo } from '../lib/minutesResult';
 
 import { useToast } from './ToastProvider';
 
@@ -19,7 +24,7 @@ const Card: React.FC<{
   onFocus?: () => void;
   onBlur?: () => void;
   onDelete?: () => void;
-  presignedInfo?: any | null;
+  presignedInfo?: PresignedInfo | null;
 }> = ({ title, children, onDownload, onFocus, onBlur, onDelete, presignedInfo }) => {
   const [translateX, setTranslateX] = useState(0);
   const [swiped, setSwiped] = useState(false);
@@ -101,6 +106,7 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => {
       await navigator.clipboard.writeText(text);
       addToast('Copied to clipboard', { level: 'success' });
     } catch {
+      // clipboard permission can be denied
       addToast('Copy failed', { level: 'error' });
     }
   };
@@ -111,17 +117,16 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-const PresignedButton: React.FC<{ info: any }> = ({ info }) => {
+const PresignedButton: React.FC<{ info: PresignedInfo }> = ({ info }) => {
   const { addToast } = useToast();
   const handleOpen = () => {
     try {
       window.open(info.url, '_blank', 'noopener');
     } catch {
+      // popup blockers can reject window.open
       addToast('Unable to open link, trying direct download', { level: 'info' });
-      // fallback: open backend download endpoint
       try {
         const parts = info.object ? info.object.split('/') : [];
-        // assume task id is in object path minutes/{taskId}/...
         const taskId = parts[1] || '';
         window.open(`/api/bg/minutes/${encodeURIComponent(taskId)}`, '_blank', 'noopener');
       } catch {
@@ -134,6 +139,7 @@ const PresignedButton: React.FC<{ info: any }> = ({ info }) => {
       await navigator.clipboard.writeText(info.url);
       addToast('Link copied', { level: 'success' });
     } catch {
+      // clipboard permission can be denied
       addToast('Copy failed', { level: 'error' });
     }
   };
@@ -163,7 +169,7 @@ const PresignedButton: React.FC<{ info: any }> = ({ info }) => {
   );
 };
 
-export default function ResultCards({ result }: { result: any | null }) {
+export default function ResultCards({ result }: { result: unknown | null }) {
   const { addToast } = useToast();
   const [focusedTitle, setFocusedTitle] = useState<string | null>(null);
   const [focusedContent, setFocusedContent] = useState<string>('');
@@ -174,19 +180,18 @@ export default function ResultCards({ result }: { result: any | null }) {
   }, [result]);
 
   if (!result) return null;
-  const data = result.result || result;
-  const taskId = data.task_id || data.taskId || null;
+  const data = asMinutesResult(result);
+  const taskId = stringField(data, 'task_id', 'taskId') || null;
 
-  const transcript = data.transcript || data.raw || '';
-  const summary = data.summary || data.minutes || '';
-  const actions =
-    (Array.isArray(data.action_items)
-      ? data.action_items.map((i: any) => i.text || i).join('\n')
-      : data.action_items && String(data.action_items)) ||
-    data.todo ||
-    '';
+  const transcript = stringField(data, 'transcript', 'raw');
+  const summary = stringField(data, 'summary', 'minutes');
+  const actions = formatActionItems(data);
+  const presignedInfo = asPresignedInfo(data.minio) || asPresignedInfo(data.presigned);
 
-  const downloadBlob = async (fetcher: any, filename: string) => {
+  const downloadBlob = async (
+    fetcher: (id: string) => Promise<{ blob: Blob; headers?: Headers }>,
+    filename: string
+  ) => {
     if (!taskId) {
       addToast('Task id unavailable for download', { level: 'error' });
       return;
@@ -209,6 +214,7 @@ export default function ResultCards({ result }: { result: any | null }) {
       await navigator.clipboard.writeText(focusedContent);
       addToast('Copied to clipboard', { level: 'success' });
     } catch {
+      // clipboard permission can be denied
       addToast('Copy failed', { level: 'error' });
     }
   };
@@ -228,7 +234,7 @@ export default function ResultCards({ result }: { result: any | null }) {
           /* allow footer interaction */
         }}
         onDelete={handleDelete}
-        presignedInfo={data?.minio || null}
+        presignedInfo={presignedInfo}
       >
         {transcript}
       </Card>
@@ -243,7 +249,7 @@ export default function ResultCards({ result }: { result: any | null }) {
           setFocusedContent(summary);
         }}
         onDelete={handleDelete}
-        presignedInfo={data?.minio || null}
+        presignedInfo={presignedInfo}
       >
         {summary}
       </Card>
@@ -258,7 +264,7 @@ export default function ResultCards({ result }: { result: any | null }) {
           setFocusedContent(actions);
         }}
         onDelete={handleDelete}
-        presignedInfo={data?.minio || null}
+        presignedInfo={presignedInfo}
       >
         {actions}
       </Card>

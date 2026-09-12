@@ -107,6 +107,7 @@ export function parseTaskEventData(data: string): TaskEvent | null {
   try {
     return parseTaskEvent(JSON.parse(data));
   } catch {
+    // SSE payload was not JSON
     return null;
   }
 }

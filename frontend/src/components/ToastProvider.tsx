@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useMemo, useState, useEffect } from 'react';
 
 import { deleteTask, undeleteTask } from '../api/client';
+import type { ConfirmDeleteDetail } from '../lib/appEvents';
+import { dispatchTaskChanged } from '../lib/appEvents';
 
 import Toast from './Toast';
 import ConfirmDialog from './ConfirmDialog';
@@ -98,8 +100,9 @@ export function ToastProvider({
     const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
 
     useEffect(() => {
-      const handler = (e: any) => {
-        setPendingTaskId(e.detail?.taskId || null);
+      const handler = (e: Event) => {
+        const detail = (e as CustomEvent<ConfirmDeleteDetail>).detail;
+        setPendingTaskId(detail?.taskId || null);
         setOpen(true);
       };
       window.addEventListener('app:confirm-delete', handler);
@@ -118,18 +121,13 @@ export function ToastProvider({
               await undeleteTask(pendingTaskId);
               addToast('Restored', { level: 'success' });
             } catch {
+              // restore is best-effort from the undo toast
               addToast('Restore failed', { level: 'error' });
             }
           },
         });
-        try {
-          window.dispatchEvent(
-            new CustomEvent('app:task-changed', {
-              detail: { taskId: pendingTaskId, action: 'deleted' },
-            })
-          );
-        } catch (e) {}
-      } catch (e) {
+        dispatchTaskChanged(pendingTaskId, 'deleted');
+      } catch {
         addToast('Delete failed', { level: 'error' });
       } finally {
         setOpen(false);

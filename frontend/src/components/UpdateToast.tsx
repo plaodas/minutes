@@ -6,7 +6,10 @@ export default function UpdateToast() {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
-    const handler = (e: any) => setRegistration(e.detail as ServiceWorkerRegistration);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<ServiceWorkerRegistration>).detail;
+      setRegistration(detail);
+    };
     window.addEventListener('swUpdated', handler);
     return () => window.removeEventListener('swUpdated', handler);
   }, []);

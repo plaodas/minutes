@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { uploadAudioBgWithProgress } from '../api/client';
 import { useActiveTask } from '../hooks/useActiveTask';
 import { ensureUserId } from '../lib/apiConfig';
+import { dispatchAppToast } from '../lib/appEvents';
 import sanitizeError from '../lib/sanitizeError';
 
 import ErrorModal from './ErrorModal';
@@ -74,11 +75,10 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       try {
         const { created } = ensureUserId();
         if (created) {
-          window.dispatchEvent(
-            new CustomEvent('appToast', {
-              detail: { type: 'success', message: 'User ID generated and saved for uploads' },
-            })
-          );
+          dispatchAppToast({
+            type: 'success',
+            message: 'User ID generated and saved for uploads',
+          });
         }
 
         setActiveIndex(0);
@@ -108,6 +108,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         try {
           setUploadErrorDetails(sanitizeError(e));
         } catch {
+          // sanitizeError itself should not fail the upload UI
           setUploadErrorDetails(msg);
         }
         setActiveIndex(-1);

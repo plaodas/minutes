@@ -11,7 +11,7 @@ const FALLBACK_POLL_INTERVAL_MS = 30_000;
 export function useTasks() {
   const [tasks, setTasks] = useState<TaskListItem[] | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<unknown>(null);
   const { addToast } = useToast();
 
   const load = useCallback(
@@ -25,21 +25,20 @@ export function useTasks() {
         setTasks(nextTasks);
         try {
           localStorage.setItem('cached_tasks', JSON.stringify(nextTasks));
-        } catch (e) {
-          // ignore
+        } catch {
+          // localStorage cache is optional
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (silent) return;
         setError(e);
-        // Try cached fallback
         try {
           const cached = localStorage.getItem('cached_tasks');
           if (cached) {
             const parsed = parseTaskListResponse(JSON.parse(cached));
             if (parsed) setTasks(parsed);
           }
-        } catch (err) {
-          // ignore
+        } catch {
+          // cached_tasks may be missing or invalid JSON
         }
 
         addToast('Failed to load history', {
