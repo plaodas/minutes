@@ -19,30 +19,13 @@ from .schemas import (
     task_stage_from_status,
 )
 from .summary import summarize_local
+from .task_event_service import TaskEventService
+from .task_ids import parse_task_key
 
 logger = logging.getLogger("minutes.task_state")
 _lock = threading.Lock()
 
 EventEmitter = Callable[[str, TaskEventType | str, dict[str, Any]], None]
-
-
-def parse_task_key(maybe_id: Any) -> Any:
-    if isinstance(maybe_id, uuid.UUID):
-        return maybe_id
-    if not isinstance(maybe_id, str):
-        return maybe_id
-    value = maybe_id.strip()
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
-        value = value[1:-1].strip()
-    if value.startswith("{") and value.endswith("}"):
-        value = value[1:-1].strip()
-    cleaned = "".join(char for char in value if char.isalnum() or char == "-")
-    try:
-        return uuid.UUID(cleaned)
-    except (ValueError, AttributeError):
-        return maybe_id
 
 
 def _now_utc() -> datetime:
@@ -146,106 +129,102 @@ def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> Non
 
 
 def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
+    def mark_success(session, _key):
+        resolved = _get_or_create_task(session, task_id)
+        if not resolved:
+            return
+        _, task = resolved
+        _set_task_stage(task, TaskStage.SUCCESS)
+        task.result = result
+        task.progress = 100.0
+        task.fail_count = 0
+        task.last_success_ts = _now_utc()
+
+        if not task.name and isinstance(result, dict):
+            nested_result = result.get("result")
+            output_file = result.get("output_file") or (
+                nested_result.get("output_file")
+                if isinstance(nested_result, dict)
+                else None
+            )
+            if output_file:
+                candidate = os.path.join(
+                    os.environ.get("OUTPUTS_DIR", "outputs"),
+                    os.path.basename(output_file),
+                )
+                try:
+                    with open(candidate, encoding="utf-8") as result_file:
+                        summary = summarize_local(
+                            result_file.read(), max_sentences=1
+                        ).strip()
+                    if summary:
+                        task.name = _make_task_title(summary, max_chars=20)
+                except (OSError, UnicodeDecodeError, ValueError) as exc:
+                    logger.debug(
+                        "update_success: failed to read/parse %s: %s",
+                        candidate,
+                        exc,
+                    )
+
+        _ensure_result_bucket(session, task, result, task_id)
+
     with _lock:
         try:
-            with session_scope() as session:
-                resolved = _get_or_create_task(session, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-                _set_task_stage(task, TaskStage.SUCCESS)
-                task.result = result
-                task.progress = 100.0
-                task.fail_count = 0
-                task.last_success_ts = _now_utc()
-
-                if not task.name and isinstance(result, dict):
-                    nested_result = result.get("result")
-                    output_file = result.get("output_file") or (
-                        nested_result.get("output_file")
-                        if isinstance(nested_result, dict)
-                        else None
-                    )
-                    if output_file:
-                        candidate = os.path.join(
-                            os.environ.get("OUTPUTS_DIR", "outputs"),
-                            os.path.basename(output_file),
-                        )
-                        try:
-                            with open(candidate, encoding="utf-8") as result_file:
-                                summary = summarize_local(
-                                    result_file.read(), max_sentences=1
-                                ).strip()
-                            if summary:
-                                task.name = _make_task_title(summary, max_chars=20)
-                        except (OSError, UnicodeDecodeError, ValueError) as exc:
-                            logger.debug(
-                                "update_success: failed to read/parse %s: %s",
-                                candidate,
-                                exc,
-                            )
-
-                _ensure_result_bucket(session, task, result, task_id)
-                session.add(
-                    TaskHistory(
-                        task_id=key,
-                        event_type="success",
-                        payload={"result": result},
-                    )
-                )
+            TaskEventService(emit_event).record_and_publish(
+                task_id,
+                TaskEventType.SUCCESS,
+                {"result": result},
+                mutate=mark_success,
+            )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_success failed for %s", task_id)
             return
 
-    emit_event(task_id, "success", {"result": result})
     emit_event(task_id, TaskEventType.STATUS, {"status": "success"})
 
 
 def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> None:
+    def mark_failure(session, _key):
+        resolved = _get_or_create_task(session, task_id)
+        if not resolved:
+            return
+        _, task = resolved
+        _set_task_stage(task, TaskStage.FAILED)
+        task.result = None
+        task.fail_count = (task.fail_count or 0) + 1
+        task.last_failure_ts = _now_utc()
+
     with _lock:
         try:
-            with session_scope() as session:
-                resolved = _get_or_create_task(session, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-                _set_task_stage(task, TaskStage.FAILED)
-                task.result = None
-                task.fail_count = (task.fail_count or 0) + 1
-                task.last_failure_ts = _now_utc()
-                session.add(
-                    TaskHistory(
-                        task_id=key,
-                        event_type="failure",
-                        payload={"error": error_msg},
-                    )
-                )
+            TaskEventService(emit_event).record_and_publish(
+                task_id,
+                TaskEventType.FAILURE,
+                {"error": error_msg},
+                mutate=mark_failure,
+            )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_failure failed for %s", task_id)
             return
 
-    emit_event(task_id, "failure", {"error": error_msg})
-
-
 def update_cancelled(task_id: str, emit_event: EventEmitter) -> None:
+    def mark_cancelled(session, _key):
+        resolved = _get_or_create_task(session, task_id)
+        if not resolved:
+            return
+        _, task = resolved
+        _set_task_stage(task, TaskStage.CANCELLED)
+        task.result = None
+
     with _lock:
         try:
-            with session_scope() as session:
-                resolved = _get_or_create_task(session, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-                _set_task_stage(task, TaskStage.CANCELLED)
-                task.result = None
-                session.add(
-                    TaskHistory(task_id=key, event_type="cancelled", payload={})
-                )
+            TaskEventService(emit_event).record_and_publish(
+                task_id,
+                TaskEventType.CANCELLED,
+                mutate=mark_cancelled,
+            )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_cancelled failed for %s", task_id)
             return
-
-    emit_event(task_id, "cancelled", {})
-
 
 def update_status(
     task_id: str,
@@ -257,26 +236,25 @@ def update_status(
     payload: dict[str, Any] = {"status": stage.value}
     if status_detail is not None:
         payload["detail"] = status_detail
+
+    def mark_status(session, _key):
+        resolved = _get_or_create_task(session, task_id)
+        if not resolved:
+            return
+        _, task = resolved
+        _set_task_stage(task, stage)
+
     with _lock:
         try:
-            with session_scope() as session:
-                resolved = _get_or_create_task(session, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-                _set_task_stage(task, stage)
-                session.add(
-                    TaskHistory(
-                        task_id=key,
-                        event_type="status",
-                        payload=payload,
-                    )
-                )
+            TaskEventService(emit_event).record_and_publish(
+                task_id,
+                TaskEventType.STATUS,
+                payload,
+                mutate=mark_status,
+            )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_status failed for %s", task_id)
             return
-
-    emit_event(task_id, TaskEventType.STATUS, payload)
 
 
 def update_progress(task_id: str, progress: float, emit_event: EventEmitter) -> None:

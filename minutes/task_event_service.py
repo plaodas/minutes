@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 from .db import session_scope
 from .models import TaskHistory
 from .schemas import TaskEventType
-from .task_state import EventEmitter, parse_task_key
+from .task_ids import parse_task_key
 
 MutationResult = TypeVar("MutationResult")
+EventEmitter = Callable[[str, TaskEventType | str, dict[str, Any]], None]
 TaskMutation = Callable[[Session, uuid.UUID], MutationResult]
 PayloadFactory = Callable[[MutationResult | None], dict[str, Any]]
 
