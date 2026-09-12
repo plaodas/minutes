@@ -3,7 +3,7 @@ import os
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -279,6 +279,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     "/histories",
     response_model=BulkTaskHistoriesResponse,
     response_model_exclude_none=True,
+    responses={413: JSON_ERROR_RESPONSES[413]},
 )
 def bg_histories(payload: IdList):
     ids = payload.ids or []
@@ -294,9 +295,9 @@ def bg_histories(payload: IdList):
     if not ids:
         return {"histories": {}}
     if len(ids) > HARD_IDS_LIMIT:
-        raise HTTPException(
-            status_code=413,
-            detail=f"too many ids in request ({len(ids)} > {HARD_IDS_LIMIT})",
+        return error_json(
+            f"too many ids in request ({len(ids)} > {HARD_IDS_LIMIT})",
+            413,
         )
 
     warnings = []

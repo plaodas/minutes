@@ -5,11 +5,12 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from . import tasks
+from .http_errors import error_json
 from .request_auth import parse_header_user_id
 
 CreateTask = Callable[..., None]
@@ -104,7 +105,7 @@ def handle_audio_upload(
 ) -> dict[str, Any] | JSONResponse:
     allowed, reason = _is_allowed_upload(file)
     if not allowed:
-        return JSONResponse({"error": reason}, status_code=400)
+        return error_json(reason, 400)
 
     uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
@@ -131,7 +132,7 @@ def handle_audio_upload(
             user_id=str(owner) if owner else None,
         )
     except (OSError, AttributeError, RuntimeError, ValueError, SQLAlchemyError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        return error_json(str(exc), 500)
 
     response: dict[str, Any] = {"task_id": task.id}
     if include_filename:

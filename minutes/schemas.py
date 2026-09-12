@@ -295,6 +295,7 @@ JSON_ERROR_RESPONSES = {
     403: {"model": ErrorResponse, "description": "Forbidden"},
     404: {"model": ErrorResponse, "description": "Not found"},
     409: {"model": ErrorResponse, "description": "Conflict"},
+    413: {"model": ErrorResponse, "description": "Payload too large"},
     500: {"model": ErrorResponse, "description": "Server error"},
     502: {"model": ErrorResponse, "description": "Upstream error"},
 }

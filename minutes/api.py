@@ -1,7 +1,9 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from minutes.app_lifecycle import app_lifespan
+from minutes.http_errors import http_exception_handler
 from minutes.request_auth import require_admin
 from minutes.routers.admin_buckets import router as admin_buckets_router
 from minutes.routers.authentication import router as authentication_router
@@ -15,6 +17,7 @@ from minutes.routers.uploads import router as uploads_router
 from minutes.routers.user_buckets import router as user_buckets_router
 
 app = FastAPI(title="Minutes Service (prototype)", lifespan=app_lifespan)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
 
 def include_canonical_and_legacy_alias(router, **kwargs) -> None:

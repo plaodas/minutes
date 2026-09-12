@@ -53,7 +53,7 @@ def test_cleanup_rejects_unauthenticated_request(tmp_path):
     )
 
     assert response.status_code == 403
-    assert response.json() == {"detail": "forbidden"}
+    assert response.json() == {"error": "forbidden"}
 
 
 def test_cleanup_accepts_force_admin_override(monkeypatch, tmp_path):
