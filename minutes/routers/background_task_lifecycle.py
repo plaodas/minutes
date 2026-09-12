@@ -9,7 +9,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import (
     _parse_key,
-    emit_task_event,
     get_task,
     record_history,
     update_task_cancelled,
@@ -17,8 +16,8 @@ from minutes.bg_store import (
 )
 from minutes.celery_app import celery
 from minutes.db import session_scope
-from minutes.minio_client import MinioService
-from minutes.models import Task, TaskHistory
+from minutes.models import Task
+from minutes.task_deletion import delete_task_permanently
 
 router = APIRouter()
 ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
@@ -118,100 +117,12 @@ def bg_force_delete(task_id: str):
         pass
 
     try:
-        key = _parse_key(task_id)
-        with session_scope() as db:
-            obj = db.get(Task, key)
-            if not obj:
-                return JSONResponse({"error": "unknown task"}, status_code=404)
-            result = obj.result or {}
-
-        try:
-            if isinstance(result, dict):
-                minio_info = (
-                    result.get("minio")
-                    if isinstance(result.get("minio"), dict)
-                    else None
-                )
-                if minio_info and minio_info.get("bucket") and minio_info.get("object"):
-                    try:
-                        service = MinioService()
-                        try:
-                            from minio.error import S3Error
-                        except ImportError:
-                            S3Error = Exception
-                        try:
-                            service.client.remove_object(
-                                minio_info["bucket"], minio_info["object"]
-                            )
-                        except (S3Error, OSError):
-                            logging.getLogger(__name__).debug(
-                                "MinIO remove_object failed for %s/%s",
-                                minio_info.get("bucket"),
-                                minio_info.get("object"),
-                                exc_info=True,
-                            )
-                    except (ImportError, OSError, RuntimeError, AttributeError):
-                        logging.getLogger(__name__).debug(
-                            "MinIO client unavailable while removing object for %s",
-                            task_id,
-                            exc_info=True,
-                        )
-
-                output_file = result.get("output_file") or (
-                    result.get("result") or {}
-                ).get("output_file")
-                if output_file:
-                    try:
-                        outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
-                        candidate = os.path.join(
-                            outputs_dir, os.path.basename(output_file)
-                        )
-                        if os.path.exists(candidate):
-                            os.remove(candidate)
-                    except OSError:
-                        logging.getLogger(__name__).debug(
-                            "failed to remove output file candidate %s for %s",
-                            candidate,
-                            task_id,
-                            exc_info=True,
-                        )
-        except (
-            ImportError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ):
-            logging.getLogger(__name__).exception(
-                "unexpected error while attempting MinIO/file cleanup for %s",
-                task_id,
-            )
-
-        try:
-            with session_scope() as db:
-                try:
-                    db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
-                except SQLAlchemyError:
-                    logging.getLogger(__name__).exception(
-                        "failed to delete TaskHistory for %s", key
-                    )
-                try:
-                    task = db.get(Task, key)
-                    if task:
-                        db.delete(task)
-                        db.commit()
-                except SQLAlchemyError:
-                    db.rollback()
-                    logging.getLogger(__name__).exception(
-                        "failed to delete Task %s", key
-                    )
-                    return JSONResponse(
-                        {"error": "failed to delete task"}, status_code=500
-                    )
-        except (SQLAlchemyError, OSError, RuntimeError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
-        emit_task_event(task_id, "deleted_hard", {})
+        result = delete_task_permanently(
+            task_id,
+            artifact_errors_fatal=False,
+        )
+        if not result["deleted"]:
+            return JSONResponse({"error": "unknown task"}, status_code=404)
         return {"task_id": task_id, "deleted": True}
     except (SQLAlchemyError, OSError, RuntimeError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

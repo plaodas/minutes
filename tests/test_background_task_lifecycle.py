@@ -2,7 +2,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from minutes import bg_store
+from minutes import bg_store, task_deletion
 from minutes import tasks as task_workers
 from minutes.api import app
 from minutes.bg_store import create_task, get_task
@@ -75,6 +75,32 @@ def test_hard_delete_removes_task_and_publishes_event(monkeypatch):
     assert published[-1]["task_id"] == str(task_id)
 
 
+def test_hard_delete_removes_minio_artifact(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    with session_scope() as session:
+        task = session.get(Task, task_id)
+        assert task is not None
+        task.result = {
+            "minio": {"bucket": "minutes-test", "object": "minutes/task.json"}
+        }
+
+    deleted_objects = []
+
+    class FakeMinioService:
+        def delete_object(self, bucket, object_name, ignore_missing=True):
+            deleted_objects.append((bucket, object_name, ignore_missing))
+
+    monkeypatch.setattr(task_deletion, "MinioService", FakeMinioService)
+    monkeypatch.setattr(bg_store, "publish_event", lambda _event: None)
+
+    result = task_deletion.delete_task_permanently(str(task_id))
+
+    assert result == {"deleted": True}
+    assert deleted_objects == [("minutes-test", "minutes/task.json", True)]
+    assert get_task(str(task_id)) is None
+
+
 def test_force_delete_publishes_hard_delete_event(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
@@ -84,16 +110,11 @@ def test_force_delete_publishes_hard_delete_event(monkeypatch):
         "revoke",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(
-        background_task_lifecycle,
-        "emit_task_event",
-        lambda task_id, event_type, payload: published.append(
-            (task_id, event_type, payload)
-        ),
-    )
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
 
     response = TestClient(app).post(f"/api/bg/force-delete/{task_id}")
 
     assert response.status_code == 200
     assert get_task(str(task_id)) is None
-    assert published == [(str(task_id), "deleted_hard", {})]
+    assert published[-1]["task_id"] == str(task_id)
+    assert published[-1]["event_type"] == "deleted_hard"
