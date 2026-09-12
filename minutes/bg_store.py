@@ -14,9 +14,10 @@ import uuid
 from .db import engine, session_scope
 
 logger = logging.getLogger("minutes.bg_store")
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
-from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
+from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory, User
 from .schemas import TaskEventType, TaskStage, build_task_event
 
 try:
@@ -189,221 +190,139 @@ def emit_task_event(
         logger.exception("publish_event failed for %s", task_id)
 
 
+def _persist_task_creation(
+    task_id: str,
+    task_key: uuid.UUID,
+    metadata: dict | None,
+    owner_id: uuid.UUID | None,
+    *,
+    use_pg_upsert: bool,
+) -> None:
+    with session_scope() as session:
+        persisted_owner_id = owner_id
+        dialect_name = getattr(session.get_bind().dialect, "name", "").lower()
+        if (
+            persisted_owner_id is not None
+            and dialect_name == "postgresql"
+            and sa_inspect(session.get_bind()).has_table("users")
+            and session.get(User, persisted_owner_id) is None
+        ):
+            logger.warning(
+                "create_task: provided user_id %s not found; clearing owner for task %s",
+                persisted_owner_id,
+                task_id,
+            )
+            persisted_owner_id = None
+
+        if use_pg_upsert:
+            statement = (
+                pg_insert(Task.__table__)
+                .values(
+                    id=task_key,
+                    status="pending",
+                    progress=None,
+                    result=metadata or None,
+                    fail_count=0,
+                    user_id=persisted_owner_id,
+                )
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+            session.execute(statement)
+        else:
+            task = session.get(Task, task_key)
+            if not task:
+                task = Task(
+                    id=task_key,
+                    status="pending",
+                    progress=None,
+                    result=metadata or None,
+                    fail_count=0,
+                    user_id=persisted_owner_id,
+                )
+                session.add(task)
+            else:
+                if metadata:
+                    task.result = metadata
+                if persisted_owner_id and not task.user_id:
+                    task.user_id = persisted_owner_id
+
+        session.add(
+            TaskHistory(
+                task_id=task_key,
+                event_type="created",
+                payload={"status": "pending"},
+            )
+        )
+
+
 def create_task(
-    task_id: str, metadata: dict | None = None, user_id: str | None = None, db=None
-):
+    task_id: str,
+    metadata: dict | None = None,
+    user_id: str | None = None,
+) -> None:
     with _lock:
         try:
-            if db is not None:
-                logger.debug(
-                    "create_task: ignoring provided db session and using independent session for %s",
-                    task_id,
-                )
-            logger.debug(
-                "create_task start: task_id=%s db_provided=%s engine=%s",
-                task_id,
-                (db is not None),
-                getattr(engine, "url", None),
-            )
-            key = _parse_key(task_id)
-            # If caller provided a UUID-like id, use it. Otherwise generate an internal UUID
-            if isinstance(key, uuid.UUID):
-                id_val = key
+            parsed_task_id = _parse_key(task_id)
+            if isinstance(parsed_task_id, uuid.UUID):
+                task_key = parsed_task_id
             else:
-                id_val = uuid.uuid4()
-                # preserve external id for traceability
-                if metadata is None:
-                    metadata = {}
-                metadata = dict(metadata)
+                task_key = uuid.uuid4()
+                metadata = dict(metadata or {})
                 metadata.setdefault("external_task_id", task_id)
 
-            # Normalize user_id if provided. Only accept actual UUIDs here.
-            # _parse_key may return the original string when it cannot parse;
-            # avoid using non-UUID values as user_id to prevent DB cast errors
-            # (which previously left transactions open).
-            owner_val = None
-            if user_id:
-                try:
-                    parsed_owner = _parse_key(user_id)
-                    if isinstance(parsed_owner, uuid.UUID):
-                        owner_val = parsed_owner
-                    else:
-                        # Not a UUID-like value; ignore the provided user_id.
-                        logger.debug(
-                            "create_task: ignoring non-UUID user_id=%r for task %s",
-                            user_id,
-                            task_id,
-                        )
-                        owner_val = None
-                except (ValueError, TypeError, AttributeError):
-                    owner_val = None
-
-            # If a user id was provided, ensure it exists in the users table
-            if owner_val is not None:
-                try:
-                    from sqlalchemy import inspect as sa_inspect
-                    from sqlalchemy import text
-
-                    try:
-                        dialect_name = (
-                            getattr(engine, "dialect", None)
-                            and getattr(engine.dialect, "name", "").lower()
-                        )
-                    except (AttributeError, TypeError):
-                        dialect_name = None
-                    if dialect_name == "postgresql":
-                        try:
-                            with session_scope() as s_check:
-                                try:
-                                    has_users_table = sa_inspect(
-                                        s_check.get_bind()
-                                    ).has_table("users")
-                                except SQLAlchemyError:
-                                    has_users_table = False
-                                if has_users_table:
-                                    try:
-                                        res = s_check.execute(
-                                            text(
-                                                "SELECT 1 FROM users WHERE id = :id LIMIT 1"
-                                            ),
-                                            {"id": str(owner_val)},
-                                        )
-                                        row = (
-                                            res.first()
-                                            if hasattr(res, "first")
-                                            else None
-                                        )
-                                        if not row:
-                                            logger.warning(
-                                                "create_task: provided user_id %s not found; clearing owner for task %s",
-                                                owner_val,
-                                                task_id,
-                                            )
-                                            owner_val = None
-                                    except SQLAlchemyError:
-                                        logger.exception(
-                                            "create_task: error checking user existence for %s; assuming exists",
-                                            owner_val,
-                                        )
-                        except SQLAlchemyError:
-                            logger.exception(
-                                "create_task: unexpected error while checking user existence; keeping owner for %s",
-                                owner_val,
-                            )
-                    else:
-                        logger.debug(
-                            "create_task: non-postgres dialect (%s); skipping user existence check",
-                            dialect_name,
-                        )
-                except (ImportError, SQLAlchemyError, AttributeError):
-                    logger.exception(
-                        "create_task: unexpected error while checking user existence; keeping owner for %s",
-                        owner_val,
-                    )
-
-            # Try PG-specific upsert to avoid race on insert. Fallback to
-            # conservative get/add/commit with IntegrityError handling when
-            # PG dialect isn't available.
-            use_pg_upsert = False
-            try:
-                use_pg_upsert = (
-                    pg_insert is not None
-                    and getattr(engine, "dialect", None)
-                    and getattr(engine.dialect, "name", "").lower() == "postgresql"
+            parsed_owner = _parse_key(user_id) if user_id else None
+            owner_id = parsed_owner if isinstance(parsed_owner, uuid.UUID) else None
+            if user_id and owner_id is None:
+                logger.debug(
+                    "create_task: ignoring non-UUID user_id=%r for task %s",
+                    user_id,
+                    task_id,
                 )
-            except AttributeError:
-                use_pg_upsert = False
 
-            if use_pg_upsert:
-                try:
-                    logger.debug(
-                        "create_task using pg_insert for %s engine=%s",
-                        task_id,
-                        getattr(engine, "url", None),
-                    )
-                    stmt = (
-                        pg_insert(Task.__table__)
-                        .values(
-                            id=id_val,
-                            status="pending",
-                            progress=None,
-                            result=metadata or None,
-                            fail_count=0,
-                            user_id=owner_val,
-                        )
-                        .on_conflict_do_nothing(index_elements=["id"])
-                    )
-                    # try once, retry on OperationalError
-                    try:
-                        with session_scope() as s:
-                            s.execute(stmt)
-                    except OperationalError:
-                        logger.exception(
-                            "OperationalError during pg_insert upsert for %s; retrying with fresh session",
-                            task_id,
-                        )
-                        with session_scope() as s:
-                            s.execute(stmt)
-                except (SQLAlchemyError, OperationalError, AttributeError, TypeError):
-                    logger.exception(
-                        "pg_insert upsert failed for %s; falling back to safe insert",
-                        task_id,
-                    )
-                    # fallback to safe insert/update
-                    with session_scope() as s:
-                        t = s.get(Task, id_val)
-                        if not t:
-                            t = Task(
-                                id=id_val,
-                                status="pending",
-                                progress=None,
-                                result=metadata or None,
-                                fail_count=0,
-                                user_id=owner_val,
-                            )
-                            s.add(t)
-                        else:
-                            updated = False
-                            if metadata:
-                                t.result = metadata
-                                updated = True
-                            if owner_val and not getattr(t, "user_id", None):
-                                t.user_id = owner_val
-                                updated = True
-                            if updated:
-                                s.add(t)
-            else:
-                with session_scope() as s:
-                    t = s.get(Task, id_val)
-                    if not t:
-                        t = Task(
-                            id=id_val,
-                            status="pending",
-                            progress=None,
-                            result=metadata or None,
-                            fail_count=0,
-                            user_id=owner_val,
-                        )
-                        s.add(t)
-                    else:
-                        updated = False
-                        if metadata:
-                            t.result = metadata
-                            updated = True
-                        if owner_val and not getattr(t, "user_id", None):
-                            t.user_id = owner_val
-                            updated = True
-                        if updated:
-                            s.add(t)
-
+            use_pg_upsert = bool(
+                pg_insert is not None
+                and getattr(getattr(engine, "dialect", None), "name", "").lower()
+                == "postgresql"
+            )
             try:
-                # Create history in a separate session to ensure visibility
-                record_history(task_id, "created", {"status": "pending"})
-            except SQLAlchemyError:
-                logger.exception('record_history("created") failed for %s', task_id)
-            logger.debug("create_task finished: task_id=%s", task_id)
+                _persist_task_creation(
+                    task_id,
+                    task_key,
+                    metadata,
+                    owner_id,
+                    use_pg_upsert=use_pg_upsert,
+                )
+            except OperationalError:
+                logger.exception(
+                    "Task creation failed for %s; retrying with a fresh session",
+                    task_id,
+                )
+                _persist_task_creation(
+                    task_id,
+                    task_key,
+                    metadata,
+                    owner_id,
+                    use_pg_upsert=use_pg_upsert,
+                )
+            except (SQLAlchemyError, AttributeError, TypeError):
+                if not use_pg_upsert:
+                    raise
+                logger.exception(
+                    "PostgreSQL upsert failed for %s; using generic persistence",
+                    task_id,
+                )
+                _persist_task_creation(
+                    task_id,
+                    task_key,
+                    metadata,
+                    owner_id,
+                    use_pg_upsert=False,
+                )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("create_task failed for %s", task_id)
+            return
+
+    emit_task_event(task_id, "created", {"status": "pending"})
 
 
 def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> None:

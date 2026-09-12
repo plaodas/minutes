@@ -45,6 +45,35 @@ def test_create_task_with_user_id():
         assert t.result.get("foo") == "bar"
 
 
+def test_create_task_commits_task_and_history_once():
+    task_id = uuid.uuid4()
+    commits = []
+
+    def track_commit(_session):
+        commits.append("commit")
+
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    try:
+        create_task(str(task_id), metadata={"source": "upload"})
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert commits == ["commit"]
+    with session_scope() as db:
+        task = db.get(Task, task_id)
+        history = (
+            db.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "created",
+            )
+            .one()
+        )
+        assert task is not None
+        assert task.result == {"source": "upload"}
+        assert history.payload == {"status": "pending"}
+
+
 def test_create_task_with_external_id_and_owner():
     owner = uuid.uuid4()
     external = "external-123"
