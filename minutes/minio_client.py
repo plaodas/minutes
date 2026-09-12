@@ -102,3 +102,40 @@ class MinioService:
                     obj.object_name,
                     exc_info=True,
                 )
+
+    def _release_object(self, obj, bucket: str, object_name: str) -> None:
+        try:
+            obj.close()
+        except (S3Error, OSError, AttributeError):
+            logger.debug(
+                "object close failed for %s/%s", bucket, object_name, exc_info=True
+            )
+        try:
+            obj.release_conn()
+        except (S3Error, OSError, AttributeError):
+            logger.debug(
+                "object release failed for %s/%s", bucket, object_name, exc_info=True
+            )
+
+    def iter_object(
+        self, bucket: str, object_name: str, chunk_size: int = 32 * 1024
+    ):
+        obj = self.client.get_object(bucket, object_name)
+
+        def chunks():
+            try:
+                for data in obj.stream(chunk_size):
+                    if data:
+                        yield data
+            finally:
+                self._release_object(obj, bucket, object_name)
+
+        return chunks()
+
+    def read_object_text(self, bucket: str, object_name: str) -> str:
+        obj = self.client.get_object(bucket, object_name)
+        try:
+            data = obj.read()
+        finally:
+            self._release_object(obj, bucket, object_name)
+        return data.decode("utf-8") if isinstance(data, bytes) else str(data)

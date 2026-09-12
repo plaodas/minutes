@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import get_task
 from minutes.http_errors import error_json
-from minutes.minio_client import MinioService
+from minutes.minio_client import MinioService, S3Error
 from minutes.schemas import ActionItemsResponse, JSON_ERROR_RESPONSES, ResultPendingResponse
 from minutes.summary import summarize_local
 from minutes.task_result import (
@@ -101,75 +101,21 @@ def _stream_minio_object(
     filename: str | None = None,
     media_type: str = "application/octet-stream",
 ):
-    service = MinioService()
     try:
-        from minio.error import S3Error
-    except ImportError:
-        S3Error = Exception
-    try:
-        obj = service.client.get_object(bucket, object_name)
+        body = MinioService().iter_object(bucket, object_name)
     except (S3Error, OSError) as exc:
         return error_json(f"failed to fetch object from MinIO: {exc!s}", 502)
-
-    def iterfile(chunk_size: int = 32 * 1024):
-        try:
-            for data in obj.stream(chunk_size):
-                if not data:
-                    break
-                yield data
-        finally:
-            try:
-                obj.close()
-            except (S3Error, OSError, AttributeError):
-                logging.getLogger(__name__).debug(
-                    "obj.close() failed for %s/%s", bucket, object_name, exc_info=True
-                )
-            try:
-                obj.release_conn()
-            except (S3Error, OSError, AttributeError):
-                logging.getLogger(__name__).debug(
-                    "obj.release_conn() failed for %s/%s",
-                    bucket,
-                    object_name,
-                    exc_info=True,
-                )
 
     headers = {}
     if filename:
         headers["Content-Disposition"] = (
             f'attachment; filename="{os.path.basename(filename)}"'
         )
-    return StreamingResponse(iterfile(), media_type=media_type, headers=headers)
+    return StreamingResponse(body, media_type=media_type, headers=headers)
 
 
 def _read_minio_object_text(bucket: str, object_name: str) -> str:
-    service = MinioService()
-    obj = None
-    try:
-        obj = service.client.get_object(bucket, object_name)
-        data = obj.read()
-        return data.decode("utf-8") if isinstance(data, bytes) else str(data)
-    finally:
-        try:
-            from minio.error import S3Error
-        except ImportError:
-            S3Error = Exception
-        if obj is not None:
-            try:
-                obj.close()
-            except (S3Error, OSError, AttributeError):
-                logging.getLogger(__name__).debug(
-                    "object close failed for %s/%s", bucket, object_name, exc_info=True
-                )
-            try:
-                obj.release_conn()
-            except (S3Error, OSError, AttributeError):
-                logging.getLogger(__name__).debug(
-                    "object release failed for %s/%s",
-                    bucket,
-                    object_name,
-                    exc_info=True,
-                )
+    return MinioService().read_object_text(bucket, object_name)
 
 
 @router.get(
@@ -230,7 +176,7 @@ def bg_transcript(task_id: str, format: str = "txt"):
     if minio_object:
         try:
             text = _read_minio_object_text(minio_object[0], minio_object[1])
-        except (OSError, ImportError) as exc:
+        except (S3Error, OSError) as exc:
             logging.getLogger(__name__).debug(
                 "MinIO transcript read failed for %s: %s",
                 task_id,
