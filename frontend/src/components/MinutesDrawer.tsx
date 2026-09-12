@@ -10,7 +10,7 @@ import {
   getBgTasks,
   renameBgTask,
 } from '../api/client';
-import { API_BASE, getAuthHeaders } from '../lib/apiConfig';
+import { API_BASE, getAuthHeaders, showAdminControls } from '../lib/apiConfig';
 import { dispatchTaskChanged } from '../lib/appEvents';
 import startDownload from '../lib/download';
 import { errorMessage } from '../lib/errorMessage';
@@ -28,13 +28,11 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
   const [isVisible, setIsVisible] = useState(false);
   const [taskName, setTaskName] = useState<string | null>(null);
   const toast = useToast();
-  // Show admin controls when env flag set OR when server reports admin features.
-  const [isAdmin, setIsAdmin] = useState(
-    import.meta.env.VITE_SHOW_ADMIN_CONTROLS === 'true' ||
-      import.meta.env.VITE_SHOW_ADMIN_CONTROLS === '1'
-  );
+  const adminUiEnabled = showAdminControls();
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    if (!adminUiEnabled) return;
     let mounted = true;
     (async () => {
       try {
@@ -47,7 +45,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [adminUiEnabled]);
   useEffect(() => {
     if (!taskId) return;
     // allow mount to complete before showing for CSS transition

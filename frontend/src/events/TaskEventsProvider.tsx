@@ -21,6 +21,7 @@ const TaskEventsContext = createContext<TaskEventsContextValue | null>(null);
 const SSE_URL = `${API_BASE}/bg/events`;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 15_000;
+const CONNECTING_FALLBACK_MS = 2_000;
 
 function reconnectDelay(attempt: number): number {
   return Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS);
@@ -47,6 +48,7 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
     let stopped = false;
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
+    let connectingFallbackTimer: number | null = null;
     let attempt = 0;
     let generation = 0;
 
@@ -55,10 +57,23 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
       window.clearTimeout(reconnectTimer);
       reconnectTimer = null;
     };
+    const clearConnectingFallbackTimer = () => {
+      if (connectingFallbackTimer == null) return;
+      window.clearTimeout(connectingFallbackTimer);
+      connectingFallbackTimer = null;
+    };
+    const armConnectingFallback = (current: number) => {
+      clearConnectingFallbackTimer();
+      connectingFallbackTimer = window.setTimeout(() => {
+        if (stopped || current !== generation) return;
+        setConnectionState((state) => (state === 'open' ? state : 'error'));
+      }, CONNECTING_FALLBACK_MS);
+    };
 
     const connect = () => {
       if (stopped) return;
       clearReconnectTimer();
+      clearConnectingFallbackTimer();
       eventSource?.close();
       const current = ++generation;
       try {
@@ -69,22 +84,26 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
         setConnectionState('unavailable');
         return;
       }
+      armConnectingFallback(current);
 
       eventSource.onopen = () => {
         if (stopped || current !== generation) return;
+        clearConnectingFallbackTimer();
         attempt = 0;
         setConnectionState('open');
       };
       eventSource.onerror = () => {
         if (stopped || current !== generation) return;
+        // Native EventSource stays CONNECTING and retries forever when the
+        // URL is blocked. Treat that as error so status polling can start,
+        // but keep the instance so a later onopen can resume SSE.
+        setConnectionState('error');
         if (eventSource?.readyState === 0) {
-          // EventSource.CONNECTING: the browser is retrying this connection
-          setConnectionState('connecting');
           return;
         }
+        clearConnectingFallbackTimer();
         eventSource?.close();
         eventSource = null;
-        setConnectionState('error');
         reconnectTimer = window.setTimeout(() => {
           attempt += 1;
           connect();
@@ -113,6 +132,7 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
       stopped = true;
       generation += 1;
       clearReconnectTimer();
+      clearConnectingFallbackTimer();
       window.removeEventListener('online', onOnline);
       eventSource?.close();
     };

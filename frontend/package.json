@@ -8,7 +8,7 @@
     "preview": "vite preview",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "generate:api-types": "python3 ../scripts/export_openapi.py ../spec_snapshot/openapi.json && openapi-typescript ../spec_snapshot/openapi.json -o src/api/generated.ts",
+    "generate:api-types": "python3 ../scripts/export_openapi.py ../docs/openapi.json && openapi-typescript ../docs/openapi.json -o src/api/generated.ts",
     "test:e2e": "playwright test",
     "test:e2e:ci": "E2E_PORT=8090 npx playwright test --reporter=list",
     "test:unit": "vitest src --environment jsdom --run"

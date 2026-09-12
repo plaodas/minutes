@@ -87,6 +87,7 @@ poetry.lock
 voice_data/
 *.wav
 *.mp3
+!docs/sample/*.wav
 raw_*.txt
 
 # Model artifacts

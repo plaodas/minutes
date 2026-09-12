@@ -9,6 +9,7 @@ import {
   getUploadAuthHeaders,
   getUploadSettings,
   getUserId,
+  showAdminControls,
 } from './apiConfig';
 
 afterEach(() => {
@@ -19,6 +20,7 @@ describe('apiConfig', () => {
   it('exports a default API base', () => {
     expect(API_BASE).toBe('/api');
     expect(getTasksPageLimit()).toBe(20);
+    expect(showAdminControls()).toBe(false);
   });
 
   it('reads service tokens into Authorization headers', () => {

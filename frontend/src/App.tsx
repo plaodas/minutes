@@ -11,6 +11,7 @@ import SettingsView from './components/SettingsView';
 import BucketsAdmin from './components/BucketsAdmin';
 import ServiceTokensAdmin from './components/ServiceTokensAdmin';
 import { getUserFeatures } from './api/client';
+import { showAdminControls } from './lib/apiConfig';
 
 export default function App() {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
@@ -19,6 +20,7 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const adminNav = isAdmin && showAdminControls();
 
   React.useEffect(() => {
     let mounted = true;
@@ -62,7 +64,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[var(--bg-default)] text-[var(--text-primary)]">
       <div className="flex">
-        <Sidebar activeView={activeView} onNavigate={setActiveView} showAdmin={isAdmin} />
+        <Sidebar activeView={activeView} onNavigate={setActiveView} showAdmin={adminNav} />
         <main className="min-w-0 flex-1 px-4 pb-6 pt-20 sm:p-6 md:p-8">
           <div className="mx-auto max-w-4xl">
             {activeView === 'upload' && (
@@ -87,7 +89,7 @@ export default function App() {
             )}
             {activeView === 'history' && <HistoryView onCreate={() => setActiveView('upload')} />}
             {activeView === 'settings' && <SettingsView />}
-            {activeView === 'admin' && isAdmin && (
+            {activeView === 'admin' && adminNav && (
               <>
                 <BucketsAdmin />
                 <div className="mt-8">

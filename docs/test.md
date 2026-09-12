@@ -25,10 +25,10 @@ The smoke test verifies the required containers, Alembic revision, Redis, the fr
 ## Manual end-to-end acceptance
 
 1. Open <http://localhost> or <http://localhost:8080> and sign in with `ADMIN_USER` / `ADMIN_PASS` from `.env` (defaults: `demo` / `demo`).
-2. Upload a short speech recording.
+2. Upload `docs/sample/demo-meeting.wav` or another short speech recording.
 3. Confirm the task reaches preprocess, transcribing, formatting, and success.
 4. Open the result and download its transcript, summary, and minutes.
 5. Open History and confirm the same task is present.
 6. Stop Ollama or omit the `llm` profile and confirm the task still succeeds with `[FALLBACK]` output.
 
-For SSE fallback testing, block `/api/bg/events` in browser developer tools. Status polling should still complete the active task.
+For SSE fallback testing, enable request blocking for `/api/bg/events`, then reload so the existing EventSource is torn down. History should issue `GET /api/bg/tasks` about every 30 seconds. An in-progress upload should issue `GET /api/bg/status/{id}` about every 10 seconds. Filter Network by Fetch/XHR, not EventStream.

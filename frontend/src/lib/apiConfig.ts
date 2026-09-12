@@ -1,5 +1,10 @@
 export const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+export function showAdminControls(): boolean {
+  const flag = import.meta.env.VITE_SHOW_ADMIN_CONTROLS;
+  return flag === 'true' || flag === '1';
+}
+
 export type UploadSettings = {
   language?: string;
   includeActions?: boolean;

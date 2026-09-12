@@ -1,6 +1,6 @@
 # API: `/api/bg/histories`
 
-Canonical endpoint: `POST /api/bg/histories`
+Canonical endpoint: `POST /api/bg/histories`. The OpenAPI document is `docs/openapi.json`.
 
 Unprefixed `/bg/histories` is not registered. The request and response models live in `minutes.schemas` (`IdList`, `BulkTaskHistoriesResponse`, `TaskHistoryRecord`). OpenAPI is the source of truth.
 

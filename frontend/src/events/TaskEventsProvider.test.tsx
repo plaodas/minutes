@@ -124,4 +124,85 @@ describe('TaskEventsProvider', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
+
+  it('marks a browser-retried EventSource failure as error without closing it', () => {
+    const instances: MockEventSource[] = [];
+
+    class MockEventSource {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSED = 2;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+      readyState = 0;
+
+      constructor() {
+        instances.push(this);
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+    const connectionStates: string[] = [];
+
+    function Consumer() {
+      connectionStates.push(useTaskEvents(() => undefined));
+      return null;
+    }
+
+    const view = render(
+      <TaskEventsProvider>
+        <Consumer />
+      </TaskEventsProvider>
+    );
+
+    act(() => instances[0].onerror?.());
+    expect(connectionStates.at(-1)).toBe('error');
+    expect(instances[0].close).not.toHaveBeenCalled();
+    act(() => instances[0].onopen?.());
+    expect(connectionStates.at(-1)).toBe('open');
+    view.unmount();
+    vi.unstubAllGlobals();
+  });
+
+  it('falls back to polling if the EventSource stays connecting', () => {
+    const instances: MockEventSource[] = [];
+
+    class MockEventSource {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+
+      constructor() {
+        instances.push(this);
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+    vi.useFakeTimers();
+    const connectionStates: string[] = [];
+
+    function Consumer() {
+      connectionStates.push(useTaskEvents(() => undefined));
+      return null;
+    }
+
+    const view = render(
+      <TaskEventsProvider>
+        <Consumer />
+      </TaskEventsProvider>
+    );
+
+    expect(connectionStates.at(-1)).toBe('connecting');
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(connectionStates.at(-1)).toBe('error');
+    expect(instances).toHaveLength(1);
+    view.unmount();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 });
