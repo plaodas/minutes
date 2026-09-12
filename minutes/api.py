@@ -1,9 +1,6 @@
 import asyncio
 import logging
 import os
-import shutil
-import time
-import uuid
 
 from celery.result import AsyncResult
 from fastapi import (
@@ -22,19 +19,10 @@ from fastapi.responses import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes import tasks
-from minutes.audio import preprocess
-from minutes.bg_store import (
-    create_task,
-    update_task_failure,
-    update_task_status,
-    update_task_success,
-)
+from minutes.bg_store import create_task
 from minutes.celery_app import celery
-from minutes.minio_client import MinioService
 from minutes.ollama import format_minutes_from_raw
 from minutes.reconcile_bg_tasks import reconcile_once
-from minutes.request_auth import parse_header_user_id as _parse_header_user_id
 from minutes.request_auth import require_admin
 from minutes.routers.admin_buckets import router as admin_buckets_router
 from minutes.routers.authentication import router as authentication_router
@@ -44,196 +32,8 @@ from minutes.routers.background_tasks import (
 from minutes.routers.service_tokens import router as service_tokens_router
 from minutes.routers.upload_cleanup import router as upload_cleanup_router
 from minutes.routers.user_buckets import router as user_buckets_router
-from minutes.schemas import (
-    CreateTaskResponse,
-    FormatRawRequest,
-    FormatRawResponse,
-    TaskStage,
-)
-from minutes.transcribe import transcribe
-
-# Allowed upload file types
-ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus"}
-
-
-def _is_allowed_upload(file: UploadFile) -> tuple[bool, str]:
-    """Return (allowed, reason)."""
-    # check extension and content-type heuristics first
-    fn = file.filename or ""
-    ext = os.path.splitext(fn)[1].lower()
-    ct = getattr(file, "content_type", None) or ""
-
-    if ext not in ALLOWED_EXTENSIONS and not ct.startswith("audio/"):
-        return False, f"invalid file type: ext={ext!r} mime={ct!r}"
-
-    # read a small prefix from the uploaded stream for analysis
-    stream = getattr(file, "file", None)
-    if not stream:
-        return False, "missing upload stream"
-    pos = None
-    try:
-        pos = stream.tell()
-    except (OSError, AttributeError):
-        pos = None
-    header = stream.read(4096) or b""
-    try:
-        if pos is not None:
-            stream.seek(pos)
-        else:
-            stream.seek(0)
-    except (OSError, ValueError):
-        pass
-
-    # prefer python-magic if available for robust MIME detection
-    try:
-        import magic
-
-        try:
-            m = magic.Magic(mime=True)
-            mime = m.from_buffer(header)
-        except (AttributeError, TypeError):
-            # some python-magic builds expose from_buffer at module level
-            mime = magic.from_buffer(header)
-
-        if isinstance(mime, str) and mime.startswith("audio/"):
-            return True, ""
-        return False, f"invalid mime detected: {mime!r} ext={ext!r} orig_mime={ct!r}"
-    except ImportError:
-        # fallback to lightweight signature checks if python-magic is unavailable
-        h = (
-            header
-            if isinstance(header, (bytes, bytearray))
-            else str(header).encode("latin1", errors="ignore")
-        )
-        if h.startswith(b"RIFF") and h[8:12] == b"WAVE":
-            return True, ""
-        if h.startswith(b"OggS"):
-            return True, ""
-        if h.startswith(b"fLaC"):
-            return True, ""
-        if h.startswith(b"ID3") or (
-            len(h) >= 2 and h[0] == 0xFF and (h[1] & 0xE0) == 0xE0
-        ):
-            return True, ""
-        if len(h) >= 12 and h[4:8] == b"ftyp":
-            return True, ""
-
-        return (
-            False,
-            f"file signature did not match audio formats: ext={ext!r} mime={ct!r}",
-        )
-
-
-def _run_pipeline_background(input_path: str, task_id: str):
-    try:
-        # update intermediate status: preprocessing
-        update_task_status(task_id, TaskStage.PREPROCESS)
-        _mono, _norm, clean = preprocess(input_path)
-
-        # update intermediate status: transcribing
-        update_task_status(task_id, TaskStage.TRANSCRIBING)
-        raw_text, _segments = transcribe(clean, model_size="medium", prompt=None)
-
-        # update intermediate status: formatting
-        update_task_status(task_id, TaskStage.FORMATTING)
-        final_minutes = format_minutes_from_raw(raw_text)
-
-        # detect Ollama fallback (service-wide behavior: fallback responses are
-        # prefixed with "[FALLBACK] ") and log it for observability.
-        logger = logging.getLogger("minutes.api")
-        if isinstance(final_minutes, str) and final_minutes.startswith("[FALLBACK]"):
-            logger.warning(
-                "Task %s used Ollama fallback: %s",
-                task_id,
-                final_minutes.splitlines()[0],
-            )
-
-        now = uuid.uuid4().hex
-        outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
-        os.makedirs(outputs_dir, exist_ok=True)
-        tmp_file = os.path.join(outputs_dir, f"minutes_{now}.txt.tmp")
-        out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
-
-        # write atomically and flush to disk before marking task success
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            f.write(final_minutes)
-            f.flush()
-            try:
-                os.fsync(f.fileno())
-            except OSError:
-                # fsync may not be available in all environments; continue
-                pass
-
-        # atomic replace
-        os.replace(tmp_file, out_file)
-
-        # verify output exists and is non-empty before updating task store
-        if not os.path.exists(out_file) or os.path.getsize(out_file) == 0:
-            raise RuntimeError(f"Output file write failed or empty: {out_file}")
-
-        # If configured, upload the final minutes to MinIO as a cached copy.
-        minio_info = None
-        try:
-            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get(
-                "MINIO_BUCKET"
-            )
-            if bucket:
-                svc = MinioService()
-                try:
-                    from minio.error import S3Error
-
-                    svc.ensure_bucket(bucket)
-                except S3Error:
-                    # ensure_bucket best-effort
-                    logging.getLogger("minutes.api").debug(
-                        "ensure_bucket failed for %s", bucket, exc_info=True
-                    )
-                object_name = f"minutes/{task_id}/minutes_{now}.txt"
-                try:
-                    from minio.error import S3Error
-
-                    svc.client.fput_object(bucket, object_name, out_file)
-                    try:
-                        expires_sec = int(
-                            os.environ.get("MINIO_PRESIGNED_EXPIRES", "3600")
-                        )
-                        url = svc.presigned_get(
-                            bucket, object_name, expires=expires_sec
-                        )
-                        from datetime import datetime, timedelta, timezone
-
-                        expires_at = (
-                            datetime.now(tz=timezone.utc)
-                            + timedelta(seconds=expires_sec)
-                        ).isoformat()
-                    except (ValueError, OSError):
-                        url = None
-                        expires_sec = None
-                        expires_at = None
-                    minio_info = {
-                        "bucket": bucket,
-                        "object": object_name,
-                        "url": url,
-                        "expires": expires_sec,
-                        "expires_at": expires_at,
-                    }
-                except S3Error:
-                    # log but do not fail the whole pipeline
-                    logging.getLogger("minutes.api").exception(
-                        "MinIO upload failed for task %s", task_id
-                    )
-        except (OSError, ImportError):
-            # any MinIO client init error should not block task success
-            minio_info = None
-
-        result_payload = {"output_file": out_file}
-        if minio_info:
-            result_payload["minio"] = minio_info
-
-        update_task_success(task_id, result_payload)
-    except (OSError, ValueError, RuntimeError, SQLAlchemyError, TypeError) as exc:
-        update_task_failure(task_id, str(exc))
-
+from minutes.schemas import CreateTaskResponse, FormatRawRequest, FormatRawResponse
+from minutes.upload_service import handle_audio_upload
 
 app = FastAPI(title="Minutes Service (prototype)")
 app.include_router(background_tasks_router)
@@ -341,65 +141,15 @@ def transcribe_upload(
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
-    """Accept an audio file upload, run preprocess->transcribe->format, return minutes as plain text.
-
-    This is a synchronous prototype endpoint intended for small/short audio files.
-    """
-    # Save uploaded file into uploads/ so workers can access it (shared volume)
-    uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
-    os.makedirs(uploads_dir, exist_ok=True)
-    # sanitize filename and avoid collisions by generating a unique name
-    suffix = os.path.splitext(file.filename)[1] or ".wav"
-    safe_name = os.path.basename(file.filename) or f"upload{suffix}"
-    unique_name = (
-        f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
+    return handle_audio_upload(
+        file,
+        x_user_id=x_user_id,
+        authorization=authorization,
+        language=language,
+        include_actions=include_actions,
+        create_task_record=create_task,
+        include_filename=True,
     )
-    # temporary file path (not used here)
-    # validate file type
-    ok, reason = _is_allowed_upload(file)
-    if not ok:
-        return JSONResponse({"error": reason}, status_code=400)
-    try:
-        dest_path = os.path.join(uploads_dir, unique_name)
-        with open(dest_path, "wb") as out:
-            shutil.copyfileobj(file.file, out)
-
-        # Enqueue Celery task (use minutes.tasks so tests can monkeypatch it)
-        proc = tasks.process_audio
-        if hasattr(proc, "delay"):
-            task = proc.delay(dest_path)
-        else:
-            # synchronous callable (test monkeypatch) — call directly
-            task = proc(dest_path)
-        # return upload filename for UI convenience
-        # ensure a Task DB row exists and attach user if provided
-        try:
-            meta = {"upload_filename": safe_name}
-            if language:
-                meta["language"] = language
-            if include_actions is not None:
-                try:
-                    meta["include_actions"] = bool(int(include_actions))
-                except (ValueError, TypeError):
-                    meta["include_actions"] = include_actions in ("1", "true", "True")
-            owner = _parse_header_user_id(x_user_id, authorization)
-            # Normalize user_id to string when a UUID is returned so callers
-            # (and tests that monkeypatch create_task) receive a predictable
-            # string value rather than a uuid.UUID object.
-            create_task(
-                task.id,
-                metadata=meta,
-                user_id=(str(owner) if isinstance(owner, uuid.UUID) else owner),
-            )
-        except TypeError:
-            # older create_task signature
-            try:
-                create_task(task.id, metadata={"upload_filename": safe_name})
-            except SQLAlchemyError:
-                pass
-        return {"task_id": task.id, "upload_filename": safe_name}
-    except (OSError, RuntimeError, ValueError, SQLAlchemyError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/format-raw", response_model=FormatRawResponse)
@@ -455,67 +205,15 @@ def transcribe_upload_bg(
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
 ):
-    """Minimal async endpoint using FastAPI BackgroundTasks (no Redis/Celery).
-
-    Note: tasks are stored in a file `bg_tasks.json` under the app directory.
-    This is best-effort persistence; process restart will not resume running tasks.
-    """
-    uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
-    os.makedirs(uploads_dir, exist_ok=True)
-    # sanitize and uniquify filename to avoid collisions and path traversal
-    safe_name = os.path.basename(file.filename) or "upload.wav"
-    unique_name = (
-        f"{int(time.time())}-{uuid.uuid4().hex}{os.path.splitext(safe_name)[1]}"
+    return handle_audio_upload(
+        file,
+        x_user_id=x_user_id,
+        authorization=authorization,
+        language=language,
+        include_actions=include_actions,
+        create_task_record=create_task,
+        include_filename=False,
     )
-    dest_path = os.path.join(uploads_dir, unique_name)
-    # validate file type
-    ok, reason = _is_allowed_upload(file)
-    if not ok:
-        return JSONResponse({"error": reason}, status_code=400)
-    try:
-        with open(dest_path, "wb") as out:
-            shutil.copyfileobj(file.file, out)
-    except (OSError, AttributeError, ValueError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    # Enqueue as a Celery task so we can support revoke/terminate later.
-    try:
-        proc = tasks.process_audio
-        if hasattr(proc, "delay"):
-            task = proc.delay(dest_path)
-        else:
-            task = proc(dest_path)
-        task_id = task.id
-        # Store upload metadata (original filename + settings) in the task record so
-        # the frontend can show a meaningful name when listing tasks and workers can
-        # adjust prompts based on user settings.
-        try:
-            meta = {"upload_filename": safe_name}
-            if language:
-                meta["language"] = language
-            if include_actions is not None:
-                try:
-                    meta["include_actions"] = bool(int(include_actions))
-                except (ValueError, TypeError):
-                    meta["include_actions"] = include_actions in ("1", "true", "True")
-            owner = _parse_header_user_id(x_user_id, authorization)
-            # Ensure we pass a string user id to `create_task` for downstream
-            # consumers and tests that expect string values.
-            create_task(
-                task_id,
-                metadata=meta,
-                user_id=(str(owner) if isinstance(owner, uuid.UUID) else owner),
-            )
-        except TypeError:
-            # backward-compat: if create_task signature hasn't been updated,
-            # call without metadata
-            try:
-                create_task(task_id)
-            except SQLAlchemyError:
-                pass
-        return {"task_id": task_id}
-    except (OSError, RuntimeError, ValueError, SQLAlchemyError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/transcribe-upload-bg", response_model=CreateTaskResponse)
