@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, it, vi, beforeEach, expect } from 'vitest';
 
 import { ToastProvider } from '../components/ToastProvider';
@@ -68,5 +68,60 @@ describe('useTasks', () => {
 
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('0'));
     expect(screen.getByTestId('tasks').textContent).toContain('cached1');
+  });
+
+  it('polls only while the task event connection is unavailable', async () => {
+    const instances: MockEventSource[] = [];
+
+    class MockEventSource {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+
+      constructor() {
+        instances.push(this);
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+    const mod = await import('../lib/fetchWithRetry');
+    const fetchSpy = vi.spyOn(mod, 'default').mockImplementation(async () => {
+      return new Response(JSON.stringify({ tasks: [{ id: 't1' }] }), { status: 200 });
+    });
+
+    const view = render(
+      <TaskEventsProvider>
+        <ToastProvider>
+          <TestComponent />
+        </ToastProvider>
+      </TaskEventsProvider>
+    );
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    act(() => instances[0].onopen?.());
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      act(() => instances[0].onerror?.());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+      act(() => instances[0].onopen?.());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });
