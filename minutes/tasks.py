@@ -6,7 +6,6 @@ import os
 import wave
 
 import requests
-from minio.error import S3Error
 from requests.exceptions import ChunkedEncodingError, RequestException
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -28,6 +27,7 @@ from minutes.pipeline.formatting import (
 from minutes.pipeline.formatting import (
     build_system_prompt as _build_system_prompt,
 )
+from minutes.pipeline.storage import cache_minutes_artifact
 from minutes.schemas import TaskStage
 from minutes.task_deletion import delete_task_permanently
 from minutes.transcribe import transcribe
@@ -449,70 +449,9 @@ def process_audio(self, input_path: str):
             output_file=out_file,
         )
 
-        # If configured, upload the final minutes to MinIO as a cached copy
-        try:
-            bucket = os.environ.get("MINIO_DEFAULT_BUCKET") or os.environ.get(
-                "MINIO_BUCKET"
-            )
-            if bucket:
-                try:
-                    from minutes.minio_client import MinioService
-
-                    svc = MinioService()
-                    logging.getLogger("minutes.tasks").info(
-                        "Attempting MinIO upload for task %s to bucket %s",
-                        task_id,
-                        bucket,
-                    )
-                    try:
-                        svc.ensure_bucket(bucket)
-                    except (S3Error, ValueError):
-                        # best-effort
-                        pass
-                    object_name = f"minutes/{task_id}/minutes_{now}.txt"
-                    try:
-                        svc.client.fput_object(bucket, object_name, out_file)
-                        logging.getLogger("minutes.tasks").info(
-                            "MinIO fput_object succeeded for task %s object %s",
-                            task_id,
-                            object_name,
-                        )
-                        try:
-                            expires_sec = int(
-                                os.environ.get("MINIO_PRESIGNED_EXPIRES", "3600")
-                            )
-                            from datetime import timedelta
-
-                            expires_td = timedelta(seconds=expires_sec)
-                            url = svc.presigned_get(
-                                bucket, object_name, expires=expires_td
-                            )
-                            expires_at = (
-                                datetime.datetime.now(tz=datetime.timezone.utc)
-                                + expires_td
-                            ).isoformat() + "Z"
-                        except (ValueError, S3Error):
-                            url = None
-                            expires_sec = None
-                            expires_at = None
-                        structured["minio"] = {
-                            "bucket": bucket,
-                            "object": object_name,
-                            "url": url,
-                            "expires": expires_sec,
-                            "expires_at": expires_at,
-                        }
-                    except S3Error:
-                        logging.getLogger("minutes.tasks").exception(
-                            "MinIO upload failed for task %s", task_id
-                        )
-                except (ImportError, S3Error, ValueError, OSError):
-                    logging.getLogger("minutes.tasks").exception(
-                        "Failed initializing MinIO client for task %s", task_id
-                    )
-        except (RuntimeError, S3Error):
-            # swallow any MinIO-related errors; shouldn't fail the task
-            pass
+        minio_artifact = cache_minutes_artifact(task_id, now, out_file)
+        if minio_artifact:
+            structured["minio"] = minio_artifact
 
         # Update shared task store for API visibility with structured result
         if task_id:
@@ -564,7 +503,6 @@ def process_audio(self, input_path: str):
         TypeError,
         OSError,
         RequestException,
-        S3Error,
         SQLAlchemyError,
         json.JSONDecodeError,
         ChunkedEncodingError,
