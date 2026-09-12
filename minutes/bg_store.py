@@ -1,21 +1,13 @@
 import logging
 import os
-import uuid
 from typing import Any
 
-# Always use DB-backed store. `minutes/db.py` already falls back to a
-# local sqlite file when `DATABASE_URL` is not set, so drop the file
-# JSON fallback to avoid split-brain between file and DB stores.
-from .db import engine, session_scope
-
 logger = logging.getLogger("minutes.bg_store")
-from sqlalchemy.exc import SQLAlchemyError
 
-from .models import Task, TaskHistory
 from .schemas import TaskEventType, TaskStage
 from .task_creation import create_task as create_task_record
 from .task_events import emit_task_event as publish_task_event
-from .task_state import parse_task_key as _parse_key
+from .task_repository import TaskSnapshot, get_task_snapshot, record_task_history
 from .task_state import (
     update_cancelled,
     update_failure,
@@ -44,36 +36,12 @@ def record_history(
     payload: dict | None = None,
     emit_event: bool = True,
 ):
-    logger.debug(
-        "record_history start: task_id=%s event=%s engine=%s",
+    record_task_history(
         task_id,
         event_type,
-        getattr(engine, "url", None),
+        payload,
+        emit_event=emit_task_event if emit_event else None,
     )
-    key = _parse_key(task_id)
-    # if external id isn't a UUID, _parse_key returns original string; ensure we store a UUID
-    if not isinstance(key, uuid.UUID):
-        # best-effort: try to find a Task row by external id in payload or skip
-        # fallback: do not create history row tied to a non-UUID id
-        logger.debug("record_history skipping non-UUID task_id=%s", task_id)
-        return
-    try:
-        with session_scope() as session:
-            session.add(
-                TaskHistory(
-                    task_id=key,
-                    event_type=event_type,
-                    payload=payload or {},
-                )
-            )
-    except SQLAlchemyError:
-        logger.exception("record_history DB error for %s", task_id)
-        return
-
-    if not emit_event:
-        return
-
-    emit_task_event(task_id, event_type, payload)
 
 
 def emit_task_event(
@@ -113,29 +81,5 @@ def update_task_progress(task_id: str, progress: float):
     update_progress(task_id, progress, emit_task_event)
 
 
-def get_task(task_id: str) -> dict[str, Any] | None:
-    with session_scope() as s:
-        key = _parse_key(task_id)
-        t = s.get(Task, key)
-        if not t:
-            return None
-        return {
-            "status": t.status,
-            "result": t.result,
-            "error": None,
-            "progress": float(t.progress) if t.progress is not None else None,
-            "fail_count": int(t.fail_count) if t.fail_count is not None else 0,
-            "last_failure_ts": (
-                t.last_failure_ts.isoformat() + "Z" if t.last_failure_ts else None
-            ),
-            "last_failure_error": None,
-            "last_success_ts": (
-                t.last_success_ts.isoformat() + "Z" if t.last_success_ts else None
-            ),
-            "created_at": (
-                t.created_at.isoformat() + "Z"
-                if getattr(t, "created_at", None)
-                else None
-            ),
-            "name": t.name,
-        }
+def get_task(task_id: str) -> TaskSnapshot | None:
+    return get_task_snapshot(task_id)

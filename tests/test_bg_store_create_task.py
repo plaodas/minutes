@@ -3,7 +3,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import event
 
-from minutes import bg_store
+from minutes import bg_store, task_repository
 from minutes.bg_store import create_task
 from minutes.db import SessionLocal, session_scope
 from minutes.models import Bucket, Task, TaskHistory
@@ -25,7 +25,7 @@ def test_record_history_commits_once_via_transaction_scope(monkeypatch):
         yield session
         session.commit()
 
-    monkeypatch.setattr(bg_store, "session_scope", fake_session_scope)
+    monkeypatch.setattr(task_repository, "session_scope", fake_session_scope)
 
     bg_store.record_history(str(uuid.uuid4()), "created", emit_event=False)
 
