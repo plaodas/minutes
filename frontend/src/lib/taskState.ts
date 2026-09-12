@@ -103,9 +103,40 @@ export function applyActiveTaskEvent(task: TaskListItem, event: TaskEvent): Task
   return result.tasks[0] ?? task;
 }
 
+function createdTaskFromEvent(event: TaskEvent): TaskListItem {
+  const status =
+    typeof event.payload.status === 'string' && event.payload.status
+      ? event.payload.status
+      : 'pending';
+  const name =
+    typeof event.payload.name === 'string' && event.payload.name.trim()
+      ? event.payload.name.trim()
+      : undefined;
+  return {
+    id: event.task_id,
+    status,
+    stage: event.stage ?? taskStageFromStatus(status) ?? 'pending',
+    progress: 0,
+    ...(name ? { name } : {}),
+  };
+}
+
+function renameFromEvent(event: TaskEvent): string | null {
+  const name = event.payload.name;
+  if (typeof name !== 'string') return null;
+  const trimmed = name.trim();
+  return trimmed || null;
+}
+
 export function applyTaskEvent(tasks: TaskListItem[], event: TaskEvent): ApplyTaskEventResult {
   const index = tasks.findIndex((task) => String(task.id) === String(event.task_id));
   if (index === -1) {
+    if (event.event_type === 'created') {
+      return {
+        tasks: [createdTaskFromEvent(event), ...tasks],
+        shouldReload: true,
+      };
+    }
     return { tasks, shouldReload: true };
   }
 
@@ -167,6 +198,18 @@ export function applyTaskEvent(tasks: TaskListItem[], event: TaskEvent): ApplyTa
       stage: event.stage ?? taskStageFromStatus(status) ?? task.stage,
     };
     shouldReload = true;
+  } else if (event.event_type === 'rename') {
+    const name = renameFromEvent(event);
+    if (!name) return { tasks, shouldReload: true };
+    task = { ...task, name };
+  } else if (event.event_type === 'created') {
+    const created = createdTaskFromEvent(event);
+    task = {
+      ...task,
+      status: created.status,
+      stage: created.stage,
+      ...(created.name ? { name: created.name } : {}),
+    };
   } else {
     return { tasks, shouldReload: false };
   }

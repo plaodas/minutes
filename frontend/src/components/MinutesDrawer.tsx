@@ -279,7 +279,6 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                   await renameBgTask(taskId, newName);
                   setTaskName(newName);
                   toast.addToast('Renamed', { level: 'success' });
-                  dispatchTaskChanged(taskId, 'renamed');
                 } catch (e: unknown) {
                   toast.addToast(errorMessage(e, 'Rename failed'), { level: 'error' });
                 }

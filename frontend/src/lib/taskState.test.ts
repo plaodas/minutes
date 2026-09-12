@@ -154,13 +154,81 @@ describe('applyTaskEvent', () => {
     expect(result.shouldReload).toBe(true);
   });
 
+  it('inserts a created task and requests server reconciliation', () => {
+    const result = applyTaskEvent(
+      tasks,
+      event({
+        task_id: 'task-3',
+        event_type: 'created',
+        stage: 'pending',
+        payload: { status: 'pending', name: 'kickoff.wav' },
+      })
+    );
+
+    expect(result.tasks[0]).toMatchObject({
+      id: 'task-3',
+      name: 'kickoff.wav',
+      status: 'pending',
+      stage: 'pending',
+      progress: 0,
+    });
+    expect(result.tasks.slice(1)).toEqual(tasks);
+    expect(result.shouldReload).toBe(true);
+  });
+
+  it('updates a known created task without reloading', () => {
+    const result = applyTaskEvent(
+      tasks,
+      event({
+        task_id: 'task-2',
+        event_type: 'created',
+        stage: 'pending',
+        payload: { status: 'pending' },
+      })
+    );
+
+    expect(result.tasks[1]).toMatchObject({ id: 'task-2', status: 'pending', stage: 'pending' });
+    expect(result.shouldReload).toBe(false);
+  });
+
+  it('renames a known task without reloading', () => {
+    const named: TaskListItem[] = [
+      { id: 'task-1', name: 'old', status: 'success', stage: 'success' },
+    ];
+    const result = applyTaskEvent(
+      named,
+      event({
+        task_id: 'task-1',
+        event_type: 'rename',
+        payload: { name: '  planning notes  ' },
+      })
+    );
+
+    expect(result.tasks[0]).toMatchObject({ name: 'planning notes', status: 'success' });
+    expect(result.shouldReload).toBe(false);
+  });
+
+  it('requests reload when a rename event has no name', () => {
+    const result = applyTaskEvent(
+      tasks,
+      event({
+        task_id: 'task-1',
+        event_type: 'rename',
+        payload: {},
+      })
+    );
+
+    expect(result.tasks).toBe(tasks);
+    expect(result.shouldReload).toBe(true);
+  });
+
   it('keeps the list unchanged and requests reload for an unknown task', () => {
     const result = applyTaskEvent(
       tasks,
       event({
         task_id: 'unknown',
-        event_type: 'created',
-        payload: {},
+        event_type: 'status',
+        payload: { status: 'transcribing' },
       })
     );
 
@@ -181,6 +249,19 @@ describe('applyActiveTaskEvent', () => {
     );
 
     expect(next).toMatchObject({ status: 'formatting', stage: 'formatting' });
+  });
+
+  it('renames the active task with the shared event rules', () => {
+    const next = applyActiveTaskEvent(
+      { id: 'task-1', name: 'old', status: 'success', stage: 'success' },
+      event({
+        task_id: 'task-1',
+        event_type: 'rename',
+        payload: { name: 'new title' },
+      })
+    );
+
+    expect(next).toMatchObject({ name: 'new title', status: 'success' });
   });
 });
 
