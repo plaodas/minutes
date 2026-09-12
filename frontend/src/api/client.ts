@@ -1,7 +1,8 @@
 import fetchWithRetry from '../lib/fetchWithRetry';
 import { parseTaskHistoryResponse, parseTaskListResponse } from '../lib/taskState';
 import type { TaskHistoryPreview, TaskListItem } from '../lib/taskState';
-import type { TaskStage } from '../lib/taskEvents';
+
+import type { components } from './generated';
 
 const BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -105,15 +106,7 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
   return { xhr, promise };
 }
 
-export type BgStatusResponse = {
-  task_id: string;
-  status: string;
-  stage?: TaskStage;
-  error?: string | null;
-  detail?: string | null;
-  message?: string | null;
-  progress?: number | null;
-};
+export type BgStatusResponse = components['schemas']['StatusResponse'];
 
 export async function getBgStatus(taskId: string): Promise<BgStatusResponse> {
   const res = await fetchWithRetry(

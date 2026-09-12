@@ -5,4 +5,5 @@ public/
 .vite/
 .cache/
 coverage/
+src/api/generated.ts
 *.min.js

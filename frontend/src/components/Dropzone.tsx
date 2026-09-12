@@ -101,7 +101,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       try {
         const statusResponse = await getBgStatus(id);
         const status = statusResponse.status || '';
-        const backendError = statusResponse.error || statusResponse.message;
+        const backendError = statusResponse.error;
 
         if (backendError || statusResponse.stage === 'failed') {
           const message = backendError ? String(backendError) : 'Task failed';
