@@ -2,13 +2,14 @@ import uuid
 from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes import task_deletion, task_events, task_lifecycle
+from minutes import task_deletion, task_event_service, task_events
 from minutes import tasks as task_workers
 from minutes.api import app
 from minutes.bg_store import create_task, get_task
-from minutes.db import session_scope
+from minutes.db import SessionLocal, session_scope
 from minutes.models import Task, TaskHistory
 from minutes.routers import background_task_lifecycle
 
@@ -36,14 +37,28 @@ def test_undelete_restores_soft_deleted_task(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
     published = []
-    monkeypatch.setattr(task_events, "publish_event", published.append)
+    operations = []
+
+    def track_commit(_session):
+        operations.append("commit")
+
+    def track_publish(task_event):
+        published.append(task_event)
+        operations.append("publish")
+
+    monkeypatch.setattr(task_events, "publish_event", track_publish)
     client = TestClient(app)
 
-    delete_response = client.post(f"/api/bg/delete/{task_id}")
-    undelete_response = client.post(f"/api/bg/undelete/{task_id}")
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    try:
+        delete_response = client.post(f"/api/bg/delete/{task_id}")
+        undelete_response = client.post(f"/api/bg/undelete/{task_id}")
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
 
     assert delete_response.status_code == 200
     assert undelete_response.status_code == 200
+    assert operations == ["commit", "publish", "commit", "publish"]
     with session_scope() as session:
         task = session.get(Task, task_id)
         assert task is not None
@@ -74,7 +89,11 @@ def test_soft_delete_db_failure_does_not_mark_task_success(monkeypatch):
         raise SQLAlchemyError("commit failed")
         yield
 
-    monkeypatch.setattr(task_lifecycle, "session_scope", failing_session_scope)
+    monkeypatch.setattr(
+        task_event_service,
+        "session_scope",
+        failing_session_scope,
+    )
     monkeypatch.setattr(
         background_task_lifecycle,
         "update_task_success",
