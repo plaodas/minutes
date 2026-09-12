@@ -14,11 +14,15 @@ x-app-volumes: &app-volumes
 
 services:
   db:
-    image: postgres:15-alpine
+    # Debian/trixie so glibc collation version matches this volume (2.41).
+    # Alpine/musl cannot report a collation version and logs a warning on startup.
+    image: postgres:15-trixie
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-minutes}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minutes_password}
       POSTGRES_DB: ${POSTGRES_DB:-minutes}
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
