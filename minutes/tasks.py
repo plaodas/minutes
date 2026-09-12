@@ -1,10 +1,9 @@
 import datetime
-import json
 import logging
 import os
 
 import requests
-from requests.exceptions import ChunkedEncodingError, RequestException
+from requests.exceptions import RequestException
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.audio import preprocess
@@ -27,6 +26,7 @@ from minutes.pipeline.formatting import (
     build_system_prompt as _build_system_prompt,
 )
 from minutes.pipeline.storage import cache_minutes_artifact
+from minutes.pipeline.transcription import transcribe_locally, transcribe_remotely
 from minutes.schemas import TaskStage
 from minutes.task_deletion import delete_task_permanently
 from minutes.transcribe import transcribe
@@ -99,231 +99,32 @@ def process_audio(self, input_path: str):
             update_task_status(task_id, TaskStage.TRANSCRIBING)
 
         if inference_url:
-            # Call inference endpoint and stream NDJSON lines for progress.
-            # If the chunked stream unexpectedly ends, retry once using a
-            # non-streaming fallback to obtain the final output.
-            logger = logging.getLogger("minutes.tasks")
-            raw_text = ""
-            segments = []
-            with open(clean, "rb") as fh:
-                files = {"file": (os.path.basename(clean), fh, "audio/wav")}
-                try:
-                    size = os.path.getsize(clean) if os.path.exists(clean) else None
-                except OSError:
-                    size = None
-                logger.info(
-                    "inference: calling %s file=%s size=%s",
-                    inference_url,
-                    os.path.basename(clean),
-                    size,
-                )
-                try_stream = True
-                attempts = 0
-                max_attempts = 3
-                backoff = 1
-                while attempts < max_attempts:
-                    attempts += 1
-                    try:
-                        resp = requests.post(
-                            inference_url,
-                            files=files,
-                            stream=True,
-                            timeout=(5, 360),
-                            headers={"Connection": "keep-alive"},
-                        )
-                        logger.info(
-                            "inference: http POST sent (attempt=%s) -> status=%s",
-                            attempts,
-                            getattr(resp, "status_code", None),
-                        )
-                        try:
-                            logger.debug(
-                                "inference response headers: %s", dict(resp.headers)
-                            )
-                        except (TypeError, AttributeError):
-                            pass
-                        resp.raise_for_status()
-                        # parse NDJSON stream
-                        for line in resp.iter_lines(
-                            decode_unicode=True, chunk_size=1024
-                        ):
-                            if not line:
-                                continue
-                            logger.debug(
-                                "inference: ndjson raw line: %s",
-                                (
-                                    line[:200]
-                                    if isinstance(line, str)
-                                    else str(line)[:200]
-                                ),
-                            )
-                            try:
-                                obj = json.loads(line)
-                            except json.JSONDecodeError:
-                                logger.debug(
-                                    "inference: failed to parse ndjson line: %r",
-                                    (
-                                        line[:200]
-                                        if isinstance(line, str)
-                                        else str(line)[:200]
-                                    ),
-                                )
-                                continue
-                            typ = obj.get("type")
-                            if typ == "heartbeat":
-                                # ignore heartbeats
-                                continue
-                            if typ == "segment":
-                                try:
-                                    end = float(obj.get("end", 0.0) or 0.0)
-                                    if task_id:
-                                        update_task_status(
-                                            task_id, f"transcribing:{end:.1f}s"
-                                        )
-                                        if audio_duration and audio_duration > 0:
-                                            pct = min(
-                                                100.0, (end / audio_duration) * 100.0
-                                            )
-                                            logger.debug(
-                                                "Updating progress for %s: %.2f%% (end=%.2f)",
-                                                task_id,
-                                                pct,
-                                                end,
-                                            )
-                                            update_task_progress(task_id, pct)
-                                except (ValueError, TypeError, SQLAlchemyError):
-                                    pass
-                                segments.append(obj)
-                            elif typ == "final":
-                                raw_text = obj.get("raw_text", "")
-                                if isinstance(obj.get("segments"), list):
-                                    segments = obj.get("segments")
-                                if task_id:
-                                    update_task_progress(task_id, 100.0)
-                                    logger.debug(
-                                        "Marking progress 100%% for %s (final)", task_id
-                                    )
-                                logger.info(
-                                    "inference: final received (len=%s)",
-                                    len(raw_text) if raw_text is not None else 0,
-                                )
-                            elif typ == "error":
-                                raise RuntimeError(obj.get("error"))
-                        # if we completed without exception, break
-                        break
-                    except ChunkedEncodingError:
-                        logger.exception(
-                            "ChunkedEncodingError from inference (attempt %s)",
-                            attempts,
-                        )
-                        try_stream = False
-                    except RequestException:
-                        logger.exception(
-                            "RequestException from inference (attempt %s)", attempts
-                        )
-                        try_stream = False
-
-                    # fallback: non-streaming request to get whole response body
-                    if not try_stream and attempts < max_attempts:
-                        try:
-                            logger.info(
-                                "Attempting non-streaming fallback request to inference (attempt %s)",
-                                attempts + 1,
-                            )
-                            # need to re-open the file for the new request
-                            with open(clean, "rb") as fh2:
-                                files2 = {
-                                    "file": (os.path.basename(clean), fh2, "audio/wav")
-                                }
-                                resp2 = requests.post(
-                                    inference_url,
-                                    files=files2,
-                                    timeout=(5, 300),
-                                    headers={"Connection": "keep-alive"},
-                                )
-                            logger.info(
-                                "inference fallback response status=%s",
-                                getattr(resp2, "status_code", None),
-                            )
-                            try:
-                                body = resp2.text
-                            except AttributeError:
-                                body = None
-                            for line in body.splitlines():
-                                if not line:
-                                    continue
-                                try:
-                                    obj = json.loads(line)
-                                except json.JSONDecodeError:
-                                    continue
-                                typ = obj.get("type")
-                                if typ == "heartbeat":
-                                    continue
-                                if typ == "segment":
-                                    try:
-                                        end = float(obj.get("end", 0.0) or 0.0)
-                                        if task_id:
-                                            update_task_status(
-                                                task_id, f"transcribing:{end:.1f}s"
-                                            )
-                                            if audio_duration and audio_duration > 0:
-                                                pct = min(
-                                                    100.0,
-                                                    (end / audio_duration) * 100.0,
-                                                )
-                                                logger.debug(
-                                                    "Updating progress for %s: %.2f%% (end=%.2f)",
-                                                    task_id,
-                                                    pct,
-                                                    end,
-                                                )
-                                                update_task_progress(task_id, pct)
-                                    except (ValueError, TypeError, SQLAlchemyError):
-                                        pass
-                                    segments.append(obj)
-                                elif typ == "final":
-                                    raw_text = obj.get("raw_text", "")
-                                    if isinstance(obj.get("segments"), list):
-                                        segments = obj.get("segments")
-                                    if task_id:
-                                        update_task_progress(task_id, 100.0)
-                                        logger.debug(
-                                            "Marking progress 100%% for %s (final-fallback)",
-                                            task_id,
-                                        )
-                                elif typ == "error":
-                                    raise RuntimeError(obj.get("error"))
-                            break
-                        except (RequestException, OSError, json.JSONDecodeError):
-                            logger.exception("Fallback inference request failed")
-                            # sleep exponential backoff before retrying
-                            try:
-                                import time
-
-                                time.sleep(backoff)
-                                backoff = min(60, backoff * 2)
-                            except (OSError, InterruptedError):
-                                pass
-                            continue
-        else:
-            # Use local transcribe with progress callback to update task status
-            def _progress(seg):
-                try:
-                    end = float(getattr(seg, "end", 0.0) or 0.0)
-                    if task_id:
-                        update_task_status(task_id, f"transcribing:{end:.1f}s")
-                        if audio_duration and audio_duration > 0:
-                            pct = min(100.0, (end / audio_duration) * 100.0)
-                            update_task_progress(task_id, pct)
-                except (ValueError, TypeError, SQLAlchemyError):
-                    pass
-
-            raw_text, segments = transcribe(
-                clean, model_size="small", prompt=None, progress_callback=_progress
+            transcription = transcribe_remotely(
+                clean,
+                inference_url=inference_url,
+                duration_seconds=audio_duration,
+                post=requests.post,
+                update_status=lambda status: (
+                    update_task_status(task_id, status) if task_id else None
+                ),
+                update_progress=lambda progress: (
+                    update_task_progress(task_id, progress) if task_id else None
+                ),
             )
-            if task_id:
-                # ensure we mark progress complete when local transcribe finishes
-                update_task_progress(task_id, 100.0)
+        else:
+            transcription = transcribe_locally(
+                clean,
+                duration_seconds=audio_duration,
+                transcriber=transcribe,
+                update_status=lambda status: (
+                    update_task_status(task_id, status) if task_id else None
+                ),
+                update_progress=lambda progress: (
+                    update_task_progress(task_id, progress) if task_id else None
+                ),
+            )
+            raw_text = transcription.raw_text
+            segments = transcription.segments
 
         # mark formatting stage
         if task_id:
@@ -408,8 +209,6 @@ def process_audio(self, input_path: str):
         OSError,
         RequestException,
         SQLAlchemyError,
-        json.JSONDecodeError,
-        ChunkedEncodingError,
     ) as e:
         # Record failure in shared store if possible
         if task_id:
