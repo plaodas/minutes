@@ -417,3 +417,81 @@ def test_background_rename_persists_history_and_event(monkeypatch):
         assert task.name == "Planning notes"
         assert history.payload == {"name": "Planning notes"}
     assert published[-1]["event_type"] == "rename"
+
+
+def test_background_regenerate_name_commits_before_event(
+    monkeypatch,
+    tmp_path,
+):
+    task_id = uuid.uuid4()
+    source = tmp_path / "meeting.txt"
+    source.write_text(
+        "Weekly engineering sync discussed the release plan.",
+        encoding="utf-8",
+    )
+    create_task(str(task_id), metadata={"output_file": source.name})
+    monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path))
+    published = []
+    operations = []
+
+    def track_commit(_session):
+        operations.append("commit")
+
+    def track_publish(task_event):
+        published.append(task_event)
+        operations.append("publish")
+
+    monkeypatch.setattr(bg_store, "publish_event", track_publish)
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    try:
+        response = TestClient(app).post(
+            f"/api/bg/task/{task_id}/regenerate-name"
+        )
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert response.status_code == 200
+    assert operations == ["commit", "publish"]
+    generated_name = response.json()["name"]
+    with session_scope() as session:
+        task = session.get(Task, task_id)
+        history = (
+            session.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "rename",
+            )
+            .one()
+        )
+        assert task.name == generated_name
+        assert history.payload == {"name": generated_name}
+    assert published[-1]["payload"] == {"name": generated_name}
+
+
+def test_background_regenerate_name_does_not_publish_when_file_is_missing(
+    monkeypatch,
+    tmp_path,
+):
+    task_id = uuid.uuid4()
+    create_task(str(task_id), metadata={"output_file": "missing.txt"})
+    monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path))
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    response = TestClient(app).post(f"/api/bg/task/{task_id}/regenerate-name")
+
+    assert response.status_code == 404
+    assert response.json() == {"error": "output file not found"}
+    with session_scope() as session:
+        task = session.get(Task, task_id)
+        rename_events = (
+            session.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "rename",
+            )
+            .count()
+        )
+        assert task.name is None
+        assert rename_events == 0
+    assert published == []

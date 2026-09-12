@@ -61,7 +61,7 @@ def emit_task_event(
 def record_and_publish(
     task_id: str,
     event_type: TaskEventType | str,
-    payload: dict[str, Any] | None = None,
+    payload: dict[str, Any] | Callable[[Any], dict[str, Any]] | None = None,
     *,
     mutate: Callable[[Session, uuid.UUID], Any] | None = None,
 ) -> Any:

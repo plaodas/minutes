@@ -11,6 +11,7 @@ from .task_state import EventEmitter, parse_task_key
 
 MutationResult = TypeVar("MutationResult")
 TaskMutation = Callable[[Session, uuid.UUID], MutationResult]
+PayloadFactory = Callable[[MutationResult | None], dict[str, Any]]
 
 
 class TaskEventService:
@@ -23,7 +24,7 @@ class TaskEventService:
         self,
         task_id: str,
         event_type: TaskEventType | str,
-        payload: dict[str, Any] | None = None,
+        payload: dict[str, Any] | PayloadFactory[MutationResult] | None = None,
         *,
         mutate: TaskMutation[MutationResult] | None = None,
     ) -> MutationResult | None:
@@ -31,9 +32,9 @@ class TaskEventService:
         if not isinstance(key, uuid.UUID):
             raise TypeError(f"invalid task id: {task_id!r}")
 
-        event_payload = dict(payload or {})
         with session_scope() as session:
             result = mutate(session, key) if mutate else None
+            event_payload = dict(payload(result) if callable(payload) else payload or {})
             session.add(
                 TaskHistory(
                     task_id=key,

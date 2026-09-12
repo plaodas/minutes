@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.bg_store import record_and_publish, record_history
+from minutes.bg_store import record_and_publish
 from minutes.db import session_scope
 from minutes.models import Task, TaskHistory
 from minutes.schemas import task_stage_from_status
@@ -30,6 +30,10 @@ class IdList(BaseModel):
 
 
 class _TaskNotFoundError(Exception):
+    pass
+
+
+class _TaskOutputUnavailableError(Exception):
     pass
 
 
@@ -93,37 +97,53 @@ def bg_task_rename(task_id: str, payload: dict[str, str]):
 
 @router.post("/task/{task_id}/regenerate-name")
 def bg_task_regenerate_name(task_id: str):
-    with session_scope() as session:
-        try:
-            key = uuid.UUID(task_id)
-        except (ValueError, TypeError):
-            return JSONResponse({"error": "invalid task id"}, status_code=400)
+    try:
+        uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "invalid task id"}, status_code=400)
+
+    def regenerate_name(session, key):
         task = session.get(Task, key)
         if not task:
-            return JSONResponse({"error": "unknown task"}, status_code=404)
+            raise _TaskNotFoundError
         result = task.result or {}
         output_file = None
         if isinstance(result, dict):
-            output_file = result.get("output_file") or (result.get("result") or {}).get(
-                "output_file"
+            nested_result = result.get("result")
+            output_file = result.get("output_file") or (
+                nested_result.get("output_file")
+                if isinstance(nested_result, dict)
+                else None
             )
         if not output_file:
-            return JSONResponse({"error": "no output file available"}, status_code=404)
+            raise _TaskOutputUnavailableError
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
         candidate = os.path.join(outputs_dir, os.path.basename(output_file))
-        try:
-            with open(candidate, "r", encoding="utf-8") as input_file:
-                text = input_file.read()
-            short = summarize_local(text, max_sentences=1).strip()
-            if short and len(short) > 120:
-                short = short[:117].rstrip() + "..."
-            task.name = short
-            session.add(task)
-        except FileNotFoundError:
-            return JSONResponse({"error": "output file not found"}, status_code=404)
-        except (OSError, UnicodeError, ValueError, TypeError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
-    record_history(task_id, "rename", {"name": short})
+        with open(candidate, "r", encoding="utf-8") as input_file:
+            text = input_file.read()
+        short = summarize_local(text, max_sentences=1).strip()
+        if short and len(short) > 120:
+            short = short[:117].rstrip() + "..."
+        task.name = short
+        session.add(task)
+        return short
+
+    try:
+        short = record_and_publish(
+            task_id,
+            "rename",
+            lambda name: {"name": name},
+            mutate=regenerate_name,
+        )
+    except _TaskNotFoundError:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+    except _TaskOutputUnavailableError:
+        return JSONResponse({"error": "no output file available"}, status_code=404)
+    except FileNotFoundError:
+        return JSONResponse({"error": "output file not found"}, status_code=404)
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
     return {"task_id": task_id, "name": short}
 
 
