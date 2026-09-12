@@ -10,7 +10,12 @@ from minutes.api import app
 from minutes.bg_store import create_task
 from minutes.db import SessionLocal, session_scope
 from minutes.models import Bucket, ServiceToken, Task, TaskHistory
-from minutes.routers import admin_buckets, background_task_artifacts, service_tokens
+from minutes.routers import (
+    admin_buckets,
+    background_task_artifacts,
+    service_tokens,
+    user_buckets,
+)
 
 
 def test_http_method_and_path_pairs_are_unique():
@@ -130,6 +135,21 @@ def test_upload_cleanup_routes_are_owned_by_router_module():
     )
 
 
+def test_user_bucket_routes_are_owned_by_router_module():
+    routes = [route for route in app.routes if route.path == "/api/buckets"]
+    actual_methods = {
+        method
+        for route in routes
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert actual_methods == {"GET", "POST"}
+    assert all(
+        route.endpoint.__module__ == "minutes.routers.user_buckets" for route in routes
+    )
+
+
 def test_admin_bucket_creation_commits_once(monkeypatch):
     bucket_name = f"test-{uuid.uuid4()}"
     commits = []
@@ -157,6 +177,49 @@ def test_admin_bucket_creation_commits_once(monkeypatch):
             .one()
         )
         assert bucket == (bucket_name, True)
+        session.query(Bucket).filter(Bucket.name == bucket_name).delete()
+
+
+def test_user_bucket_creation_commits_once(monkeypatch):
+    bucket_name = f"user-{uuid.uuid4()}"
+    owner_id = uuid.uuid4()
+    commits = []
+
+    class FakeMinioClient:
+        def bucket_exists(self, name):
+            assert name == bucket_name
+            return False
+
+        def make_bucket(self, name):
+            assert name == bucket_name
+
+    class FakeMinioService:
+        client = FakeMinioClient()
+
+    def track_commit(_session):
+        commits.append("commit")
+
+    monkeypatch.setattr(user_buckets, "MinioService", FakeMinioService)
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    try:
+        result = user_buckets.create_bucket(
+            user_buckets.CreateBucketRequest(name=bucket_name, public=True),
+            x_user_id=str(owner_id),
+        )
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert result["name"] == bucket_name
+    assert result["owner_id"] == str(owner_id)
+    assert result["public"] is True
+    assert commits == ["commit"]
+    with session_scope() as session:
+        bucket = (
+            session.query(Bucket.name, Bucket.owner_id, Bucket.public)
+            .filter(Bucket.name == bucket_name)
+            .one()
+        )
+        assert bucket == (bucket_name, owner_id, True)
         session.query(Bucket).filter(Bucket.name == bucket_name).delete()
 
 

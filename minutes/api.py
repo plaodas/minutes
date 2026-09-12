@@ -15,7 +15,6 @@ from fastapi import (
     Form,
     Header,
     HTTPException,
-    Request,
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +23,7 @@ from fastapi.responses import (
     Response,
 )
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError
 
 from minutes import tasks
 from minutes.audio import preprocess
@@ -37,22 +36,23 @@ from minutes.bg_store import (
 from minutes.celery_app import celery
 from minutes.db import session_scope
 from minutes.minio_client import MinioService
-from minutes.models import DUMMY_OWNER_ID, Bucket
 from minutes.ollama import format_minutes_from_raw
 from minutes.reconcile_bg_tasks import reconcile_once
+from minutes.request_auth import parse_header_user_id as _parse_header_user_id
+from minutes.request_auth import require_admin
 from minutes.routers.admin_buckets import router as admin_buckets_router
 from minutes.routers.background_tasks import (
     router as background_tasks_router,
 )
 from minutes.routers.service_tokens import router as service_tokens_router
 from minutes.routers.upload_cleanup import router as upload_cleanup_router
+from minutes.routers.user_buckets import router as user_buckets_router
 from minutes.schemas import (
     CreateTaskResponse,
     FormatRawRequest,
     FormatRawResponse,
     TaskStage,
 )
-from minutes.task_state import parse_task_key
 from minutes.transcribe import transcribe
 
 # Allowed upload file types
@@ -125,69 +125,6 @@ def _is_allowed_upload(file: UploadFile) -> tuple[bool, str]:
             False,
             f"file signature did not match audio formats: ext={ext!r} mime={ct!r}",
         )
-
-
-def _parse_header_user_id(x_user_id: str | None, authorization: str | None = None):
-    """Return a uuid.UUID when the header contains a UUID-like value, else None.
-
-    If `x_user_id` is not provided, attempt to resolve an Authorization
-    Bearer service token to a user id via `minutes.auth.verify_service_token`.
-    """
-    logger = logging.getLogger("minutes.api")
-    if x_user_id:
-        try:
-            parsed = parse_task_key(x_user_id)
-            return parsed if isinstance(parsed, uuid.UUID) else None
-        except (ValueError, TypeError, AttributeError):
-            return None
-
-    if authorization:
-        try:
-            import hashlib
-
-            from minutes.auth import verify_service_token
-
-            token = authorization
-            if isinstance(token, str) and token.lower().startswith("bearer "):
-                token = token.split(" ", 1)[1]
-            # fingerprint for auditing (never log raw token)
-            try:
-                fp = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
-            except (AttributeError, TypeError, UnicodeEncodeError):
-                fp = "<hash-error>"
-            logger.info(
-                "Authorization header received; resolving service token fingerprint=%s",
-                fp,
-            )
-            uvicorn_logger = logging.getLogger("uvicorn.error")
-            uvicorn_logger.info(
-                "Authorization header received; resolving service token fingerprint=%s",
-                fp,
-            )
-            user_id = verify_service_token(token)
-            if user_id:
-                logger.info(
-                    "Service token resolved to user=%s fingerprint=%s",
-                    str(user_id),
-                    fp,
-                )
-                uvicorn_logger = logging.getLogger("uvicorn.error")
-                uvicorn_logger.info(
-                    "Service token resolved to user=%s fingerprint=%s",
-                    str(user_id),
-                    fp,
-                )
-                try:
-                    return uuid.UUID(str(user_id))
-                except (ValueError, TypeError):
-                    return None
-            logger.debug("Service token not recognized fingerprint=%s", fp)
-            uvicorn_logger = logging.getLogger("uvicorn.error")
-            uvicorn_logger.debug("Service token not recognized fingerprint=%s", fp)
-        except (ImportError, SQLAlchemyError, TypeError, ValueError):
-            logger.exception("Error resolving service token from Authorization header")
-            return None
-    return None
 
 
 def _run_pipeline_background(input_path: str, task_id: str):
@@ -304,86 +241,10 @@ def _run_pipeline_background(input_path: str, task_id: str):
 app = FastAPI(title="Minutes Service (prototype)")
 app.include_router(background_tasks_router)
 
-# Admin token for simple admin API protection (optional)
-ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
-
-
-def _get_admin_token_from_request(req: Request | None):
-    if req is None:
-        return None
-    # support X-Admin-Token header or Bearer Authorization
-    token = req.headers.get("X-Admin-Token") or req.headers.get("Authorization")
-    if token and token.lower().startswith("bearer "):
-        token = token.split(" ", 1)[1]
-    return token
-
-
-def require_admin(req: Request = None):
-    """FastAPI dependency that requires an admin-authenticated user.
-
-    Accepts:
-    - `FORCE_ADMIN` or the legacy `X-Admin: 1|true` development override
-    - a matching `ADMIN_API_TOKEN` via `X-Admin-Token`/Authorization header (legacy)
-    - a JWT access token (Bearer) that decodes to a `User` with `is_admin=True`
-    - a service token (Bearer) that maps to a `User` with `is_admin=True`
-    - a `minutes_session` cookie containing a JWT for an admin user
-    """
-    force_admin = os.environ.get("FORCE_ADMIN", "false").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    legacy_admin = req.headers.get("X-Admin") if req else None
-    if (
-        force_admin
-        or legacy_admin == "1"
-        or (isinstance(legacy_admin, str) and legacy_admin.lower() == "true")
-    ):
-        return True
-
-    # 1) Legacy admin API token (explicit override)
-    token = _get_admin_token_from_request(req)
-    if ADMIN_API_TOKEN and token == ADMIN_API_TOKEN:
-        return True
-
-    # 2) Cookie-based JWT (minutes_session)
-    try:
-        from minutes.auth import get_current_user_from_cookie
-
-        if req:
-            cookie = req.cookies.get("minutes_session")
-            if cookie:
-                try:
-                    user = get_current_user_from_cookie(cookie)
-                    if user and getattr(user, "is_admin", False):
-                        return True
-                except (HTTPException, ValueError, TypeError) as e:
-                    logging.getLogger("minutes.api").debug("cookie auth failed: %s", e)
-    except (ImportError, ModuleNotFoundError) as e:
-        logging.getLogger("minutes.api").debug(
-            "get_current_user_from_cookie not available: %s", e
-        )
-
-    # 3) Header-based JWT or service token
-    try:
-        auth = req.headers.get("Authorization") if req else None
-        if not auth:
-            raise HTTPException(status_code=403, detail="forbidden")
-        # delegate to _is_request_admin which understands JWT/service token
-        if _is_request_admin(None, auth):
-            return True
-    except HTTPException:
-        raise
-    except (ImportError, ValueError, TypeError, SQLAlchemyError) as e:
-        logging.getLogger("minutes.api").debug("header auth check failed: %s", e)
-        raise HTTPException(status_code=403, detail="forbidden")
-
-    raise HTTPException(status_code=403, detail="forbidden")
-
-
 app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
 app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
 app.include_router(upload_cleanup_router, dependencies=[Depends(require_admin)])
+app.include_router(user_buckets_router)
 
 
 # CORS: allow local dev origins used by the frontend and Playwright
@@ -836,219 +697,3 @@ def api_auth_login(payload: LoginReq, response: Response):
 def api_auth_logout(response: Response):
     """Compatibility wrapper so frontend using `/api` prefix can logout."""
     return auth_logout(response)
-
-
-def _is_request_admin(x_admin: str | None, authorization: str | None = None) -> bool:
-    """Return True when the request is considered admin.
-
-    Logic:
-    - Honor FORCE_ADMIN or legacy X-Admin header for backward compatibility.
-    - Otherwise, require a valid JWT (access token) or a verified service token
-      that maps to a `User` with `is_admin=True`.
-    """
-    try:
-        force = os.environ.get("FORCE_ADMIN", "false").lower() in (
-            "1",
-            "true",
-            "yes",
-        )
-        header_admin = x_admin == "1" or (
-            isinstance(x_admin, str) and x_admin.lower() == "true"
-        )
-        if force or header_admin:
-            return True
-
-        # Try to resolve Authorization header: accept JWT or service token
-        if not authorization:
-            return False
-
-        token = authorization
-        if isinstance(token, str) and token.lower().startswith("bearer "):
-            token = token.split(" ", 1)[1]
-
-        # Try JWT first
-        try:
-            from minutes.auth import decode_access_token, get_user_by_id
-
-            try:
-                payload = decode_access_token(token)
-                sub = payload.get("sub")
-                if sub:
-                    u = get_user_by_id(str(sub))
-                    if u and getattr(u, "is_admin", False):
-                        return True
-            except (HTTPException, ValueError, TypeError) as e:
-                logging.getLogger("minutes.api").debug(
-                    "JWT decode/lookup failed: %s", e
-                )
-        except (ImportError, ModuleNotFoundError) as e:
-            logging.getLogger("minutes.api").debug(
-                "decode_access_token not available: %s", e
-            )
-
-        # Try verifying service token and check associated user
-        try:
-            from sqlalchemy.exc import SQLAlchemyError
-
-            from minutes.auth import get_user_by_id, verify_service_token
-
-            user_id = verify_service_token(token)
-            if user_id:
-                u = get_user_by_id(str(user_id))
-                if u and getattr(u, "is_admin", False):
-                    return True
-        except (ImportError, SQLAlchemyError, TypeError, ValueError):
-            # verification failed or DB error; treat as non-admin
-            return False
-
-        return False
-    except (ValueError, AttributeError, TypeError):
-        return False
-
-
-class CreateBucketReq(BaseModel):
-    name: str
-    public: bool | None = False
-
-
-def _get_user_id_from_header(x_user_id: str | None, authorization: str | None = None):
-    """Parse X-User-Id header if present; return UUID or None.
-
-    If `x_user_id` is missing, attempt to resolve an Authorization Bearer
-    service token to a user id via `minutes.auth.verify_service_token`.
-    """
-    logger = logging.getLogger("minutes.api")
-    if x_user_id:
-        try:
-            return uuid.UUID(x_user_id)
-        except (ValueError, TypeError):
-            return None
-    if authorization:
-        try:
-            import hashlib
-
-            from minutes.auth import verify_service_token
-
-            token = authorization
-            if isinstance(token, str) and token.lower().startswith("bearer "):
-                token = token.split(" ", 1)[1]
-            try:
-                fp = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
-            except (AttributeError, TypeError, UnicodeEncodeError):
-                fp = "<hash-error>"
-            logger.info(
-                "Authorization header received; resolving service token fingerprint=%s",
-                fp,
-            )
-            user_id = verify_service_token(token)
-            if user_id:
-                logger.info(
-                    "Service token resolved to user=%s fingerprint=%s", str(user_id), fp
-                )
-                try:
-                    return uuid.UUID(str(user_id))
-                except (ValueError, TypeError):
-                    return None
-            logger.debug("Service token not recognized fingerprint=%s", fp)
-        except (ImportError, SQLAlchemyError, TypeError, ValueError):
-            logger.exception("Error resolving service token from Authorization header")
-            return None
-    return None
-
-
-@app.post("/api/buckets")
-def api_create_bucket(
-    payload: CreateBucketReq,
-    x_admin: str | None = Header(None),
-    x_user_id: str | None = Header(None),
-    authorization: str | None = Header(None),
-):
-    """Create a MinIO bucket and record it in the `buckets` table.
-
-    Simple auth/ownership (temporary):
-    - If the request contains `X-User-Id: <uuid>`, that user becomes the owner.
-    - Admins (via `X-Admin`) can create buckets as well. Non-admins must supply `X-User-Id`.
-    """
-    is_admin = _is_request_admin(x_admin, authorization)
-    user_uuid = _get_user_id_from_header(x_user_id, authorization)
-    if not is_admin and not user_uuid:
-        return JSONResponse(
-            {"error": "unauthorized: missing X-User-Id"}, status_code=401
-        )
-
-    svc = MinioService()
-    try:
-        from minio.error import S3Error
-    except ImportError:
-        S3Error = Exception
-    try:
-        if not svc.client.bucket_exists(payload.name):
-            svc.client.make_bucket(payload.name)
-    except (S3Error, OSError) as exc:
-        return JSONResponse({"error": f"minio create failed: {exc!s}"}, status_code=502)
-
-    with session_scope() as db:
-        existing = db.query(Bucket).filter(Bucket.name == payload.name).one_or_none()
-        if existing:
-            return {
-                "id": str(existing.id),
-                "name": existing.name,
-                "owner_id": str(existing.owner_id),
-                "public": bool(existing.public),
-            }
-
-        owner_id = user_uuid or DUMMY_OWNER_ID
-        b = Bucket(
-            name=payload.name,
-            owner_id=owner_id,
-            public=bool(payload.public),
-            bucket_metadata={},
-        )
-        db.add(b)
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            try:
-                svc.delete_bucket(payload.name, force=True)
-            except (S3Error, OSError):
-                logging.getLogger("minutes.api").debug(
-                    "delete_bucket failed for %s (cleanup)", payload.name, exc_info=True
-                )
-            return JSONResponse({"error": "db insert failed"}, status_code=500)
-        return {
-            "id": str(b.id),
-            "name": b.name,
-            "owner_id": str(b.owner_id),
-            "public": bool(b.public),
-        }
-
-
-@app.get("/api/buckets")
-def api_list_buckets(
-    x_admin: str | None = Header(None),
-    x_user_id: str | None = Header(None),
-    authorization: str | None = Header(None),
-):
-    """List buckets. Admins see all; non-admins see only their own buckets."""
-    is_admin = _is_request_admin(x_admin, authorization)
-    user_uuid = _get_user_id_from_header(x_user_id, authorization)
-    with session_scope() as db:
-        q = db.query(Bucket)
-        if not is_admin:
-            if user_uuid:
-                q = q.filter(Bucket.owner_id == user_uuid)
-            else:
-                return {"buckets": []}
-        out = []
-        for b in q.order_by(Bucket.created_at.desc()).all():
-            out.append(
-                {
-                    "id": str(b.id),
-                    "name": b.name,
-                    "owner_id": str(b.owner_id),
-                    "public": bool(b.public),
-                    "created_at": b.created_at.isoformat() if b.created_at else None,
-                }
-            )
-        return {"buckets": out}
