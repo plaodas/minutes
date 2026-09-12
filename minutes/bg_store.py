@@ -15,37 +15,23 @@ from .db import engine, session_scope
 
 logger = logging.getLogger("minutes.bg_store")
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
-from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory, User
+from .models import Task, TaskHistory, User
 from .schemas import TaskEventType, TaskStage, build_task_event
+from .task_state import parse_task_key as _parse_key
+from .task_state import (
+    update_cancelled,
+    update_failure,
+    update_progress,
+    update_status,
+    update_success,
+)
 
 try:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 except ImportError:
     pg_insert = None
-from datetime import datetime, timezone
-
-
-def _now_utc() -> datetime:
-    """Return a timezone-aware UTC datetime for consistency."""
-    return datetime.now(tz=timezone.utc)
-
-
-def _ensure_aware(dt: datetime | None) -> datetime | None:
-    """Return a tz-aware datetime (assume UTC for naive datetimes)."""
-    if dt is None:
-        return None
-    if getattr(dt, "tzinfo", None) is None:
-        try:
-            return dt.replace(tzinfo=timezone.utc)
-        except (AttributeError, TypeError, ValueError):
-            return dt
-    return dt
-
-
-from .summary import summarize_local
-
 # SSE publisher (minimal): publish events when history rows are recorded
 try:
     from .sse import publish_event
@@ -55,89 +41,9 @@ except ImportError:
         return
 
 
-import re
-
-
-def _strip_markdown(text: str) -> str:
-    """Remove common markdown markers and collapse whitespace."""
-    if not text:
-        return ""
-    s = str(text)
-    # remove fenced code blocks
-    s = re.sub(r"```.*?```", "", s, flags=re.DOTALL)
-    # inline code
-    s = re.sub(r"`([^`]+)`", r"\1", s)
-    # bold/italic
-    s = re.sub(r"\*\*(.*?)\*\*", r"\1", s)
-    s = re.sub(r"\*(.*?)\*", r"\1", s)
-    s = re.sub(r"__(.*?)__", r"\1", s)
-    s = re.sub(r"_(.*?)_", r"\1", s)
-    # links and images: keep alt/text
-    s = re.sub(r"!\[(.*?)\]\([^\)]*\)", r"\1", s)
-    s = re.sub(r"\[(.*?)\]\([^\)]*\)", r"\1", s)
-    # remove heading markers, blockquotes, list markers at line starts
-    s = re.sub(r"^[>#\-\+\*]+\s*", "", s, flags=re.MULTILINE)
-    # remove stray > characters
-    s = re.sub(r">\s*", "", s)
-    # collapse whitespace and newlines
-    s = re.sub(r"[\r\n]+", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-def _make_task_title(text: str, max_chars: int = 20) -> str:
-    """Produce a short title by stripping markdown and truncating to ~max_chars."""
-    s = _strip_markdown(text)
-    if not s:
-        return ""
-    # prefer first sentence-like segment
-    m = re.split(r"[\.。!?！]\s+", s, maxsplit=1)
-    first = m[0].strip()
-    if len(first) <= max_chars:
-        return first
-    # otherwise trim to nearest word under max_chars
-    trimmed = first[: max_chars + 1].rstrip()
-    # try to cut at last space
-    if " " in trimmed:
-        trimmed = trimmed[: trimmed.rfind(" ")].strip()
-    if not trimmed:
-        trimmed = first[:max_chars]
-    return (
-        (trimmed[:max_chars].rstrip() + "...") if len(trimmed) >= max_chars else trimmed
-    )
-
-
 # Compatibility: some modules import `DB_PATH` when file-backed fallbacks
 # were used. Keep a benign default value for backward compatibility.
 DB_PATH = os.environ.get("BG_TASK_DB", "data/bg_tasks.json")
-
-
-def _parse_key(maybe_id):
-    """Parse and sanitize a task id into a uuid.UUID when possible.
-
-    Some callers pass task ids with surrounding quotes, braces, or
-    invisible whitespace which can lead to Postgres rejecting the value
-    when cast to UUID. Return a `uuid.UUID` instance on success, or the
-    original value on failure.
-    """
-    if isinstance(maybe_id, uuid.UUID):
-        return maybe_id
-    if not isinstance(maybe_id, str):
-        return maybe_id
-    s = maybe_id.strip()
-    # strip common surrounding wrappers
-    if (s.startswith('"') and s.endswith('"')) or (
-        s.startswith("'") and s.endswith("'")
-    ):
-        s = s[1:-1].strip()
-    if s.startswith("{") and s.endswith("}"):
-        s = s[1:-1].strip()
-    # remove non-hex/non-hyphen characters that sometimes sneak in
-    cleaned = "".join(ch for ch in s if (ch.isalnum() or ch == "-"))
-    try:
-        return uuid.UUID(cleaned)
-    except (ValueError, AttributeError):
-        return maybe_id
 
 
 def record_history(
@@ -325,247 +231,24 @@ def create_task(
     emit_task_event(task_id, "created", {"status": "pending"})
 
 
-def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> None:
-    if not isinstance(result, dict):
-        return
-    minio_info = result.get("minio") or (result.get("result") or {}).get("minio")
-    if not isinstance(minio_info, dict) or not minio_info.get("bucket"):
-        return
-
-    bucket_name = str(minio_info["bucket"])
-    existing = session.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
-    if existing:
-        return
-
-    try:
-        with session.begin_nested():
-            session.add(
-                Bucket(
-                    name=bucket_name,
-                    owner_id=getattr(task, "user_id", None) or DUMMY_OWNER_ID,
-                    bucket_metadata=minio_info.get("metadata") or {},
-                )
-            )
-            session.flush()
-    except IntegrityError:
-        logger.debug("Bucket row already exists for %s", bucket_name)
-    except SQLAlchemyError:
-        logger.exception(
-            "failed to ensure bucket row for %s (task %s)", bucket_name, task_id
-        )
-
-
-def _get_or_create_task(session, task_id: str) -> tuple[uuid.UUID, Task] | None:
-    key = _parse_key(task_id)
-    if not isinstance(key, uuid.UUID):
-        logger.error("Cannot create task for non-UUID id %s", task_id)
-        return None
-
-    task = session.get(Task, key)
-    if task:
-        return key, task
-
-    task = Task(
-        id=key,
-        status="pending",
-        progress=None,
-        fail_count=0,
-    )
-    session.add(task)
-    return key, task
-
-
 def update_task_success(task_id: str, result: Any):
-    with _lock:
-        try:
-            with session_scope() as s:
-                resolved = _get_or_create_task(s, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-
-                task.status = "success"
-                task.result = result
-                task.progress = 100.0
-                task.fail_count = 0
-                task.last_success_ts = _now_utc()
-
-                if (not getattr(task, "name", None)) and isinstance(result, dict):
-                    nested_result = result.get("result")
-                    output_file = result.get("output_file") or (
-                        nested_result.get("output_file")
-                        if isinstance(nested_result, dict)
-                        else None
-                    )
-                    if output_file:
-                        candidate = os.path.join(
-                            os.environ.get("OUTPUTS_DIR", "outputs"),
-                            os.path.basename(output_file),
-                        )
-                        try:
-                            with open(candidate, "r", encoding="utf-8") as rf:
-                                text = rf.read()
-                                short = summarize_local(text, max_sentences=1).strip()
-                                if short:
-                                    title = _make_task_title(short, max_chars=20)
-                                    if title:
-                                        task.name = title
-                        except (OSError, UnicodeDecodeError, ValueError) as exc:
-                            logger.debug(
-                                "update_task_success: failed to read/parse %s: %s",
-                                candidate,
-                                exc,
-                            )
-
-                _ensure_result_bucket(s, task, result, task_id)
-                s.add(
-                    TaskHistory(
-                        task_id=key,
-                        event_type="success",
-                        payload={"result": result},
-                    )
-                )
-        except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
-            logger.exception("update_task_success failed for %s", task_id)
-            return
-
-    emit_task_event(task_id, "success", {"result": result})
-    emit_task_event(task_id, TaskEventType.STATUS, {"status": "success"})
+    update_success(task_id, result, emit_task_event)
 
 
 def update_task_failure(task_id: str, error_msg: str):
-    with _lock:
-        try:
-            with session_scope() as s:
-                resolved = _get_or_create_task(s, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-
-                task.status = "failed"
-                task.result = None
-                task.fail_count = (task.fail_count or 0) + 1
-                task.last_failure_ts = _now_utc()
-                s.add(
-                    TaskHistory(
-                        task_id=key,
-                        event_type="failure",
-                        payload={"error": error_msg},
-                    )
-                )
-        except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
-            logger.exception("update_task_failure failed for %s", task_id)
-            return
-
-    emit_task_event(task_id, "failure", {"error": error_msg})
+    update_failure(task_id, error_msg, emit_task_event)
 
 
 def update_task_cancelled(task_id: str):
-    with _lock:
-        try:
-            with session_scope() as s:
-                resolved = _get_or_create_task(s, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-
-                task.status = "cancelled"
-                task.result = None
-                s.add(TaskHistory(task_id=key, event_type="cancelled", payload={}))
-        except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
-            logger.exception("update_task_cancelled failed for %s", task_id)
-            return
-
-    emit_task_event(task_id, "cancelled", {})
+    update_cancelled(task_id, emit_task_event)
 
 
 def update_task_status(task_id: str, status: TaskStage | str):
-    status_value = status.value if isinstance(status, TaskStage) else status
-    with _lock:
-        try:
-            with session_scope() as s:
-                resolved = _get_or_create_task(s, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-                task.status = status_value
-                s.add(
-                    TaskHistory(
-                        task_id=key,
-                        event_type="status",
-                        payload={"status": status_value},
-                    )
-                )
-        except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
-            logger.exception("update_task_status failed for %s", task_id)
-            return
-
-    emit_task_event(task_id, TaskEventType.STATUS, {"status": status_value})
+    update_status(task_id, status, emit_task_event)
 
 
 def update_task_progress(task_id: str, progress: float):
-    progress_value = float(progress)
-    with _lock:
-        try:
-            with session_scope() as s:
-                resolved = _get_or_create_task(s, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-                task.progress = progress_value
-
-                last = (
-                    s.query(TaskHistory)
-                    .filter(
-                        TaskHistory.task_id == key,
-                        TaskHistory.event_type == "progress",
-                    )
-                    .order_by(TaskHistory.event_ts.desc())
-                    .limit(1)
-                    .one_or_none()
-                )
-                should_record = True
-                if last and isinstance(last.payload, dict):
-                    try:
-                        last_progress = float(last.payload.get("progress", 0.0))
-                    except (TypeError, ValueError):
-                        last_progress = None
-                    if last_progress is not None:
-                        delta = abs(progress_value - last_progress)
-                        now = _now_utc()
-                        try:
-                            last_evt = _ensure_aware(last.event_ts) or now
-                        except (AttributeError, TypeError, ValueError):
-                            last_evt = now
-                        age = (now - last_evt).total_seconds()
-                        if delta < 5.0 and age < 5.0:
-                            should_record = False
-                if should_record:
-                    now = _now_utc()
-                    if last and getattr(last, "event_ts", None):
-                        try:
-                            last_event = _ensure_aware(last.event_ts) or now
-                            last_age = (now - last_event).total_seconds()
-                        except (AttributeError, TypeError, ValueError):
-                            last_age = None
-                    else:
-                        last_age = None
-                    if last and last_age is not None and last_age < 24 * 3600:
-                        last.payload = {"progress": progress_value}
-                        last.event_ts = now
-                    else:
-                        s.add(
-                            TaskHistory(
-                                task_id=key,
-                                event_type="progress",
-                                payload={"progress": progress_value},
-                            )
-                        )
-        except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
-            logger.exception("update_task_progress failed for %s", task_id)
-            return
-
-    emit_task_event(task_id, TaskEventType.PROGRESS, {"progress": progress_value})
+    update_progress(task_id, progress, emit_task_event)
 
 
 def get_task(task_id: str) -> dict[str, Any] | None:
