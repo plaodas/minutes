@@ -1,6 +1,6 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig, devices } from '@playwright/test';
 
-const E2E_PORT = process.env.E2E_PORT || process.env.PORT || '8080'
+const E2E_PORT = process.env.E2E_PORT || process.env.PORT || '8080';
 
 export default defineConfig({
   testDir: './tests',
@@ -17,7 +17,5 @@ export default defineConfig({
     headless: true,
     viewport: { width: 1280, height: 800 },
   },
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-  ],
-})
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+});

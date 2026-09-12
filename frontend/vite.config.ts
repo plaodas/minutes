@@ -1,11 +1,11 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
 const pwaOptions = {
   registerType: 'autoUpdate',
   devOptions: {
-    enabled: false
+    enabled: false,
   },
   manifest: {
     name: 'Minutes',
@@ -16,8 +16,8 @@ const pwaOptions = {
     theme_color: '#0ea5a1',
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' }
-    ]
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
   },
   workbox: {
     runtimeCaching: [
@@ -28,16 +28,16 @@ const pwaOptions = {
         // unexpected network errors. Use NetworkOnly so requests
         // are always forwarded to the network/backend.
         handler: 'NetworkOnly',
-        options: { cacheName: 'api-cache', fetchOptions: { credentials: 'same-origin' } }
+        options: { cacheName: 'api-cache', fetchOptions: { credentials: 'same-origin' } },
       },
       {
         urlPattern: /\.(?:js|css|png|jpg|jpeg|svg)$/,
         handler: 'CacheFirst',
-        options: { cacheName: 'assets-cache' }
-      }
-    ]
-  }
-}
+        options: { cacheName: 'assets-cache' },
+      },
+    ],
+  },
+};
 
 export default defineConfig({
   plugins: [react(), VitePWA(pwaOptions)],
@@ -52,5 +52,5 @@ export default defineConfig({
         secure: false,
       },
     },
-  }
-})
+  },
+});

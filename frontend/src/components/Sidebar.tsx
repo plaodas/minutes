@@ -1,40 +1,56 @@
-import React from 'react'
-import { Archive, ChevronLeft, ChevronRight, Menu, Settings, Upload, X, LogOut, SlidersHorizontal } from 'lucide-react'
-import { logout } from '../api/client'
-import { useToast } from './ToastProvider'
-import useLocalStorage from '../hooks/useLocalStorage'
+import React from 'react';
+import {
+  Archive,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  Settings,
+  Upload,
+  X,
+  LogOut,
+  SlidersHorizontal,
+} from 'lucide-react';
 
-export type NavigationView = 'upload' | 'history' | 'settings' | 'admin'
+import { logout } from '../api/client';
+import useLocalStorage from '../hooks/useLocalStorage';
+
+import { useToast } from './ToastProvider';
+
+export type NavigationView = 'upload' | 'history' | 'settings' | 'admin';
 
 type Props = {
-  activeView: NavigationView
-  onNavigate: (view: NavigationView) => void
-  showAdmin?: boolean
-}
+  activeView: NavigationView;
+  onNavigate: (view: NavigationView) => void;
+  showAdmin?: boolean;
+};
 
 const itemsBase: Array<{ view: NavigationView; label: string; icon: React.ReactNode }> = [
   { view: 'upload', label: 'Upload', icon: <Upload size={18} /> },
   { view: 'history', label: 'History', icon: <Archive size={18} /> },
   { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
-]
+];
 
-const adminItem = { view: 'admin' as NavigationView, label: 'Admin', icon: <SlidersHorizontal size={18} /> }
+const adminItem = {
+  view: 'admin' as NavigationView,
+  label: 'Admin',
+  icon: <SlidersHorizontal size={18} />,
+};
 
 export default function Sidebar({ activeView, onNavigate, showAdmin = false }: Props) {
-  const [expanded, setExpanded] = useLocalStorage('sidebar-expanded', true)
-  const [mobileOpen, setMobileOpen] = React.useState(false)
-  const [loadingLogout, setLoadingLogout] = React.useState(false)
-  const { addToast } = useToast()
+  const [expanded, setExpanded] = useLocalStorage('sidebar-expanded', true);
+  const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [loadingLogout, setLoadingLogout] = React.useState(false);
+  const { addToast } = useToast();
 
   const navigate = (view: NavigationView) => {
-    onNavigate(view)
-    setMobileOpen(false)
-  }
+    onNavigate(view);
+    setMobileOpen(false);
+  };
 
   const navigation = (showLabels: boolean) => (
     <nav className="flex-1 space-y-1" aria-label="Main navigation">
       {itemsBase.map((item) => {
-        const isActive = activeView === item.view
+        const isActive = activeView === item.view;
         return (
           <button
             key={item.view}
@@ -49,7 +65,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
             <span className="shrink-0">{item.icon}</span>
             {showLabels && <span className="text-sm font-medium">{item.label}</span>}
           </button>
-        )
+        );
       })}
       {showAdmin && (
         <button
@@ -59,7 +75,9 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
           title={!showLabels ? adminItem.label : undefined}
           onClick={() => navigate(adminItem.view)}
           className={`flex w-full items-center rounded-md p-3 text-left transition-colors ${
-            activeView === adminItem.view ? 'bg-teal-50 text-[var(--accent)]' : 'hover:bg-[var(--bg-default)]'
+            activeView === adminItem.view
+              ? 'bg-teal-50 text-[var(--accent)]'
+              : 'hover:bg-[var(--bg-default)]'
           } ${showLabels ? 'gap-3' : 'justify-center'}`}
         >
           <span className="shrink-0">{adminItem.icon}</span>
@@ -67,7 +85,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
         </button>
       )}
     </nav>
-  )
+  );
 
   return (
     <>
@@ -81,47 +99,79 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
         <Menu size={20} />
       </button>
 
-      {mobileOpen && <button type="button" aria-label="Close menu" className="fixed inset-0 z-30 bg-slate-950/20 md:hidden" onClick={() => setMobileOpen(false)} />}
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Close menu"
+          className="fixed inset-0 z-30 bg-slate-950/20 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
 
-      <aside className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-white p-3 shadow-xl transition-transform duration-200 md:hidden ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="mb-5 flex items-center justify-between">
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-white p-3 shadow-xl transition-transform duration-200 md:hidden ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        <div className="mb-5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/images/minutes-logo.svg" alt="Minutes" className="h-8 w-8 shrink-0 object-contain" />
+            <img
+              src="/images/minutes-logo.svg"
+              alt="Minutes"
+              className="h-8 w-8 shrink-0 object-contain"
+            />
             <div className="font-semibold">Minutes</div>
           </div>
-          <button type="button" aria-label="Close menu" onClick={() => setMobileOpen(false)} className="rounded p-1 hover:bg-[var(--bg-default)]"><X size={20} /></button>
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setMobileOpen(false)}
+            className="rounded p-1 hover:bg-[var(--bg-default)]"
+          >
+            <X size={20} />
+          </button>
         </div>
         {navigation(true)}
         <div className="mt-3">
           <button
             type="button"
             onClick={async () => {
-              setLoadingLogout(true)
+              setLoadingLogout(true);
               try {
-                await logout()
-                addToast('Logged out', { level: 'success' })
-                try { window.dispatchEvent(new CustomEvent('auth-changed')) } catch (e) {}
-                setMobileOpen(false)
+                await logout();
+                addToast('Logged out', { level: 'success' });
+                try {
+                  window.dispatchEvent(new CustomEvent('auth-changed'));
+                } catch (e) {}
+                setMobileOpen(false);
               } catch (err: any) {
-                addToast(err?.message || 'Logout failed', { level: 'error' })
+                addToast(err?.message || 'Logout failed', { level: 'error' });
               } finally {
-                setLoadingLogout(false)
+                setLoadingLogout(false);
               }
             }}
             disabled={loadingLogout}
             className="flex w-full items-center rounded-md p-3 text-left hover:bg-[var(--bg-default)]"
           >
-            <span className="shrink-0"><LogOut size={18} /></span>
+            <span className="shrink-0">
+              <LogOut size={18} />
+            </span>
             <span className="ml-3 text-sm font-medium">Sign out</span>
           </button>
         </div>
         <footer className="mt-4 text-xs text-[var(--muted)]">v0.1</footer>
       </aside>
 
-      <aside className={`hidden min-h-screen shrink-0 flex-col bg-white p-3 transition-all duration-200 md:flex ${expanded ? 'w-60' : 'w-16'}`}>
-        <div className={`mb-5 flex items-center ${expanded ? 'justify-between' : 'justify-center'}`}>
+      <aside
+        className={`hidden min-h-screen shrink-0 flex-col bg-white p-3 transition-all duration-200 md:flex ${expanded ? 'w-60' : 'w-16'}`}
+      >
+        <div
+          className={`mb-5 flex items-center ${expanded ? 'justify-between' : 'justify-center'}`}
+        >
           <div className="flex items-center gap-2">
-            <img src="/images/minutes-logo.svg" alt="Minutes" className="h-8 w-8 shrink-0 object-contain" />
+            <img
+              src="/images/minutes-logo.svg"
+              alt="Minutes"
+              className="h-8 w-8 shrink-0 object-contain"
+            />
             {expanded && <div className="font-semibold">Minutes</div>}
           </div>
           <button
@@ -139,26 +189,30 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
           <button
             type="button"
             onClick={async () => {
-              setLoadingLogout(true)
+              setLoadingLogout(true);
               try {
-                await logout()
-                addToast('Logged out', { level: 'success' })
-                try { window.dispatchEvent(new CustomEvent('auth-changed')) } catch (e) {}
+                await logout();
+                addToast('Logged out', { level: 'success' });
+                try {
+                  window.dispatchEvent(new CustomEvent('auth-changed'));
+                } catch (e) {}
               } catch (err: any) {
-                addToast(err?.message || 'Logout failed', { level: 'error' })
+                addToast(err?.message || 'Logout failed', { level: 'error' });
               } finally {
-                setLoadingLogout(false)
+                setLoadingLogout(false);
               }
             }}
             disabled={loadingLogout}
             className={`flex w-full items-center rounded-md p-3 text-left transition-colors hover:bg-[var(--bg-default)] ${expanded ? 'gap-3' : 'justify-center'}`}
           >
-            <span className="shrink-0"><LogOut size={18} /></span>
+            <span className="shrink-0">
+              <LogOut size={18} />
+            </span>
             {expanded && <span className="text-sm font-medium">Sign out</span>}
           </button>
         </div>
         {expanded && <footer className="mt-4 text-xs text-[var(--muted)]">v0.1</footer>}
       </aside>
     </>
-  )
+  );
 }

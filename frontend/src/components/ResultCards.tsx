@@ -1,49 +1,63 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Copy, Download, ExternalLink } from 'lucide-react'
-import { useToast } from './ToastProvider'
-import { fetchTranscriptDownload, fetchSummaryDownload, fetchActionItemsDownload } from '../api/client'
-import startDownload from '../lib/download'
-import { deleteTask, undeleteTask } from '../api/client'
+import React, { useState, useEffect, useRef } from 'react';
+import { Copy, Download, ExternalLink } from 'lucide-react';
 
-const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: () => void; onFocus?: () => void; onBlur?: () => void; onDelete?: () => void; presignedInfo?: any | null }> = ({ title, children, onDownload, onFocus, onBlur, onDelete, presignedInfo }) => {
-  const [translateX, setTranslateX] = useState(0)
-  const [swiped, setSwiped] = useState(false)
-  const startX = useRef<number | null>(null)
-  const threshold = 80
+import {
+  fetchTranscriptDownload,
+  fetchSummaryDownload,
+  fetchActionItemsDownload,
+  deleteTask,
+  undeleteTask,
+} from '../api/client';
+import startDownload from '../lib/download';
+
+import { useToast } from './ToastProvider';
+
+const Card: React.FC<{
+  title: string;
+  children: React.ReactNode;
+  onDownload?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onDelete?: () => void;
+  presignedInfo?: any | null;
+}> = ({ title, children, onDownload, onFocus, onBlur, onDelete, presignedInfo }) => {
+  const [translateX, setTranslateX] = useState(0);
+  const [swiped, setSwiped] = useState(false);
+  const startX = useRef<number | null>(null);
+  const threshold = 80;
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    startX.current = e.touches[0].clientX
-    setSwiped(false)
-  }
+    startX.current = e.touches[0].clientX;
+    setSwiped(false);
+  };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (startX.current == null) return
-    const delta = e.touches[0].clientX - startX.current
+    if (startX.current == null) return;
+    const delta = e.touches[0].clientX - startX.current;
     if (delta < 0) {
       // swiping left
-      setTranslateX(Math.max(delta, -160))
+      setTranslateX(Math.max(delta, -160));
     } else if (swiped) {
       // allow closing by swiping right
-      setTranslateX(Math.min(delta - 96, 0))
+      setTranslateX(Math.min(delta - 96, 0));
     }
-  }
+  };
 
   const handleTouchEnd = () => {
     if (translateX <= -threshold) {
       // reveal delete
-      setTranslateX(-96)
-      setSwiped(true)
+      setTranslateX(-96);
+      setSwiped(true);
     } else {
-      setTranslateX(0)
-      setSwiped(false)
+      setTranslateX(0);
+      setSwiped(false);
     }
-    startX.current = null
-  }
+    startX.current = null;
+  };
 
   return (
     <div className="relative overflow-hidden mb-4">
       <div
-        tabIndex={0}
         onFocus={onFocus}
         onBlur={onBlur}
         onTouchStart={handleTouchStart}
@@ -53,178 +67,263 @@ const Card: React.FC<{ title: string; children: React.ReactNode; onDownload?: ()
         style={{ transform: `translateX(${translateX}px)` }}
       >
         <div className="flex justify-between items-start">
-          <h3 id={`resultcard-${title.replace(/\s+/g, '-')}`} className="font-semibold">{title}</h3>
+          <h3 id={`resultcard-${title.replace(/\s+/g, '-')}`} className="font-semibold">
+            {title}
+          </h3>
           <div className="flex gap-2">
             <CopyButton text={String(children)} />
             <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={onDownload}>
               <Download size={16} />
             </button>
-            {presignedInfo?.url ? (
-              <PresignedButton info={presignedInfo} />
-            ) : null}
+            {presignedInfo?.url ? <PresignedButton info={presignedInfo} /> : null}
           </div>
         </div>
         <div className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">{children}</div>
       </div>
       {/* Mobile-only delete revealed when swiped */}
       <button
-        onClick={() => { if (onDelete) onDelete() }}
+        onClick={() => {
+          if (onDelete) onDelete();
+        }}
         className={`absolute top-1/2 -translate-y-1/2 right-3 md:hidden bg-red-600 text-white px-3 py-2 rounded ${swiped ? 'block' : 'hidden'}`}
         aria-hidden={swiped ? 'false' : 'true'}
-      >Delete</button>
+      >
+        Delete
+      </button>
     </div>
-  )
-}
+  );
+};
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
-  const { addToast } = useToast()
+  const { addToast } = useToast();
   const handle = async () => {
-    try { await navigator.clipboard.writeText(text); addToast('Copied to clipboard', { level: 'success' }) } catch { addToast('Copy failed', { level: 'error' }) }
-  }
+    try {
+      await navigator.clipboard.writeText(text);
+      addToast('Copied to clipboard', { level: 'success' });
+    } catch {
+      addToast('Copy failed', { level: 'error' });
+    }
+  };
   return (
     <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handle}>
       <Copy size={16} />
     </button>
-  )
-}
+  );
+};
 
 const PresignedButton: React.FC<{ info: any }> = ({ info }) => {
-  const { addToast } = useToast()
+  const { addToast } = useToast();
   const handleOpen = () => {
     try {
-      window.open(info.url, '_blank', 'noopener')
+      window.open(info.url, '_blank', 'noopener');
     } catch {
-      addToast('Unable to open link, trying direct download', { level: 'info' })
+      addToast('Unable to open link, trying direct download', { level: 'info' });
       // fallback: open backend download endpoint
       try {
-        const parts = info.object ? info.object.split('/') : []
+        const parts = info.object ? info.object.split('/') : [];
         // assume task id is in object path minutes/{taskId}/...
-        const taskId = parts[1] || ''
-        window.open(`/api/bg/minutes/${encodeURIComponent(taskId)}`, '_blank', 'noopener')
+        const taskId = parts[1] || '';
+        window.open(`/api/bg/minutes/${encodeURIComponent(taskId)}`, '_blank', 'noopener');
       } catch {
-        addToast('Fallback failed', { level: 'error' })
+        addToast('Fallback failed', { level: 'error' });
       }
     }
-  }
+  };
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(info.url)
-      addToast('Link copied', { level: 'success' })
+      await navigator.clipboard.writeText(info.url);
+      addToast('Link copied', { level: 'success' });
     } catch {
-      addToast('Copy failed', { level: 'error' })
+      addToast('Copy failed', { level: 'error' });
     }
-  }
-  const expiresText = info?.expires_at ? `Expires: ${new Date(info.expires_at).toLocaleString()}` : (info?.expires ? `Expires in ${info.expires} sec` : '')
+  };
+  const expiresText = info?.expires_at
+    ? `Expires: ${new Date(info.expires_at).toLocaleString()}`
+    : info?.expires
+      ? `Expires in ${info.expires} sec`
+      : '';
   return (
     <div className="flex items-center gap-1">
-      <button title="Open cached file" className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handleOpen}>
+      <button
+        title="Open cached file"
+        className="p-1 rounded hover:bg-[var(--bg-default)]"
+        onClick={handleOpen}
+      >
         <ExternalLink size={16} />
       </button>
-      <button title="Copy link" className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={handleCopy}>
+      <button
+        title="Copy link"
+        className="p-1 rounded hover:bg-[var(--bg-default)]"
+        onClick={handleCopy}
+      >
         <Copy size={16} />
       </button>
       {expiresText ? <div className="text-xs text-[var(--muted)] ml-1">{expiresText}</div> : null}
     </div>
-  )
-}
+  );
+};
 
 export default function ResultCards({ result }: { result: any | null }) {
-  if (!result) return null
-
-  const data = result.result || result
-  const taskId = data.task_id || data.taskId || null
-
-  const transcript = data.transcript || data.raw || ''
-  const summary = data.summary || data.minutes || ''
-  const actions = (Array.isArray(data.action_items) ? data.action_items.map((i: any) => i.text || i).join('\n') : (data.action_items && String(data.action_items))) || data.todo || ''
-
-  const { addToast } = useToast()
-
-  const [focusedTitle, setFocusedTitle] = useState<string | null>(null)
-  const [focusedContent, setFocusedContent] = useState<string>('')
+  const { addToast } = useToast();
+  const [focusedTitle, setFocusedTitle] = useState<string | null>(null);
+  const [focusedContent, setFocusedContent] = useState<string>('');
 
   useEffect(() => {
-    // clear focused when result changes
-    setFocusedTitle(null)
-    setFocusedContent('')
-  }, [result])
+    setFocusedTitle(null);
+    setFocusedContent('');
+  }, [result]);
+
+  if (!result) return null;
+  const data = result.result || result;
+  const taskId = data.task_id || data.taskId || null;
+
+  const transcript = data.transcript || data.raw || '';
+  const summary = data.summary || data.minutes || '';
+  const actions =
+    (Array.isArray(data.action_items)
+      ? data.action_items.map((i: any) => i.text || i).join('\n')
+      : data.action_items && String(data.action_items)) ||
+    data.todo ||
+    '';
 
   const downloadBlob = async (fetcher: any, filename: string) => {
     if (!taskId) {
-      addToast('Task id unavailable for download', { level: 'error' })
-      return
+      addToast('Task id unavailable for download', { level: 'error' });
+      return;
     }
-    await startDownload(() => fetcher(taskId), filename, addToast)
-  }
+    await startDownload(() => fetcher(taskId), filename, addToast);
+  };
 
   const handleDelete = async () => {
-    if (!taskId) { addToast('Task id unavailable', { level: 'error' }); return }
+    if (!taskId) {
+      addToast('Task id unavailable', { level: 'error' });
+      return;
+    }
     // open confirm dialog via DOM event dispatch to avoid adding state here
-    const ev = new CustomEvent('app:confirm-delete', { detail: { taskId } })
-    window.dispatchEvent(ev)
-  }
+    const ev = new CustomEvent('app:confirm-delete', { detail: { taskId } });
+    window.dispatchEvent(ev);
+  };
 
   const handleMobileCopy = async () => {
     try {
-      await navigator.clipboard.writeText(focusedContent)
-      addToast('Copied to clipboard', { level: 'success' })
+      await navigator.clipboard.writeText(focusedContent);
+      addToast('Copied to clipboard', { level: 'success' });
     } catch {
-      addToast('Copy failed', { level: 'error' })
+      addToast('Copy failed', { level: 'error' });
     }
-  }
+  };
 
   return (
     <div>
       <Card
         title="Transcript"
-        onDownload={() => downloadBlob(fetchTranscriptDownload, `minutes_${taskId || 'unknown'}_transcript.txt`)}
-        onFocus={() => { setFocusedTitle('Transcript'); setFocusedContent(transcript) }}
-        onBlur={() => { /* allow footer interaction */ }}
+        onDownload={() =>
+          downloadBlob(fetchTranscriptDownload, `minutes_${taskId || 'unknown'}_transcript.txt`)
+        }
+        onFocus={() => {
+          setFocusedTitle('Transcript');
+          setFocusedContent(transcript);
+        }}
+        onBlur={() => {
+          /* allow footer interaction */
+        }}
         onDelete={handleDelete}
         presignedInfo={data?.minio || null}
-      >{transcript}</Card>
+      >
+        {transcript}
+      </Card>
 
       <Card
         title="Summary"
-        onDownload={() => downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)}
-        onFocus={() => { setFocusedTitle('Summary'); setFocusedContent(summary) }}
+        onDownload={() =>
+          downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)
+        }
+        onFocus={() => {
+          setFocusedTitle('Summary');
+          setFocusedContent(summary);
+        }}
         onDelete={handleDelete}
         presignedInfo={data?.minio || null}
-      >{summary}</Card>
+      >
+        {summary}
+      </Card>
 
       <Card
         title="Action Items"
-        onDownload={() => downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)}
-        onFocus={() => { setFocusedTitle('Action Items'); setFocusedContent(actions) }}
+        onDownload={() =>
+          downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)
+        }
+        onFocus={() => {
+          setFocusedTitle('Action Items');
+          setFocusedContent(actions);
+        }}
         onDelete={handleDelete}
         presignedInfo={data?.minio || null}
-      >{actions}</Card>
+      >
+        {actions}
+      </Card>
 
       {/* Desktop: single-card delete icon in corner */}
       <div className="hidden md:flex justify-end gap-2 mt-2">
-        <button onClick={handleDelete} className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50">Delete</button>
+        <button
+          onClick={handleDelete}
+          className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+        >
+          Delete
+        </button>
       </div>
 
       {/* Mobile bottom action bar for focused card */}
-      <div className={`fixed left-0 right-0 bottom-0 z-50 md:hidden transition-transform duration-200 ${focusedTitle ? 'translate-y-0' : 'translate-y-full'}`} aria-hidden={focusedTitle ? 'false' : 'true'}>
-        <div className="bg-white/95 backdrop-blur-sm border-t p-3 flex items-center gap-2" style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}>
+      <div
+        className={`fixed left-0 right-0 bottom-0 z-50 md:hidden transition-transform duration-200 ${focusedTitle ? 'translate-y-0' : 'translate-y-full'}`}
+        aria-hidden={focusedTitle ? 'false' : 'true'}
+      >
+        <div
+          className="bg-white/95 backdrop-blur-sm border-t p-3 flex items-center gap-2"
+          style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}
+        >
           <div className="flex-1">
             <div className="text-sm font-medium">{focusedTitle}</div>
             <div className="text-xs text-[var(--muted)] truncate max-w-full">{focusedContent}</div>
           </div>
-          <button onClick={handleMobileCopy} className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white flex items-center gap-2"><Copy size={16}/> Copy</button>
-          <button onClick={() => {
-            if (focusedTitle === 'Transcript') {
-              downloadBlob(fetchTranscriptDownload, `minutes_${taskId || 'unknown'}_transcript.txt`)
-            } else if (focusedTitle === 'Summary') {
-              downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)
-            } else {
-              downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)
-            }
-          }} className="rounded border px-3 py-2 text-sm flex items-center gap-2"><Download size={16}/> Download</button>
-          <button aria-label="Close actions" onClick={() => { setFocusedTitle(null); setFocusedContent('') }} className="p-2 rounded text-[var(--muted)]">✕</button>
+          <button
+            onClick={handleMobileCopy}
+            className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white flex items-center gap-2"
+          >
+            <Copy size={16} /> Copy
+          </button>
+          <button
+            onClick={() => {
+              if (focusedTitle === 'Transcript') {
+                downloadBlob(
+                  fetchTranscriptDownload,
+                  `minutes_${taskId || 'unknown'}_transcript.txt`
+                );
+              } else if (focusedTitle === 'Summary') {
+                downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`);
+              } else {
+                downloadBlob(
+                  fetchActionItemsDownload,
+                  `minutes_${taskId || 'unknown'}_action_items.json`
+                );
+              }
+            }}
+            className="rounded border px-3 py-2 text-sm flex items-center gap-2"
+          >
+            <Download size={16} /> Download
+          </button>
+          <button
+            aria-label="Close actions"
+            onClick={() => {
+              setFocusedTitle(null);
+              setFocusedContent('');
+            }}
+            className="p-2 rounded text-[var(--muted)]"
+          >
+            ✕
+          </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
