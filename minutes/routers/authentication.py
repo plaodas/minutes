@@ -3,7 +3,6 @@ import os
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.auth import (
@@ -12,19 +11,22 @@ from minutes.auth import (
     verify_password,
 )
 from minutes.db import session_scope
+from minutes.http_errors import error_json
 from minutes.models import User
+from minutes.schemas import (
+    JSON_ERROR_RESPONSES,
+    AuthFeaturesResponse,
+    AuthLoginRequest,
+    AuthLoginResponse,
+    AuthLogoutResponse,
+)
 
 logger = logging.getLogger("minutes.routers.authentication")
 router = APIRouter(tags=["authentication"])
 
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-@router.get("/auth/features")
-@router.get("/api/auth/features")
+@router.get("/auth/features", response_model=AuthFeaturesResponse)
+@router.get("/api/auth/features", response_model=AuthFeaturesResponse)
 def auth_features(
     x_admin: str | None = Header(None),
     minutes_session: str | None = Cookie(None),
@@ -49,9 +51,17 @@ def auth_features(
         return {"is_admin": False, "authenticated": False}
 
 
-@router.post("/auth/login")
-@router.post("/api/auth/login")
-def login(payload: LoginRequest, response: Response):
+@router.post(
+    "/auth/login",
+    response_model=AuthLoginResponse,
+    responses={401: JSON_ERROR_RESPONSES[401]},
+)
+@router.post(
+    "/api/auth/login",
+    response_model=AuthLoginResponse,
+    responses={401: JSON_ERROR_RESPONSES[401]},
+)
+def login(payload: AuthLoginRequest, response: Response):
     logger.debug("Login attempt for username=%s", payload.username)
     with session_scope() as session:
         try:
@@ -65,7 +75,7 @@ def login(payload: LoginRequest, response: Response):
 
         if not user:
             logger.warning("Failed login: unknown user %s", payload.username)
-            return JSONResponse({"error": "invalid credentials"}, status_code=401)
+            return error_json("invalid credentials", 401)
 
         try:
             if not user.password_hash or not verify_password(
@@ -75,20 +85,22 @@ def login(payload: LoginRequest, response: Response):
                 logger.warning(
                     "Failed login: bad password for user %s", payload.username
                 )
-                return JSONResponse(
-                    {"error": "invalid credentials"},
-                    status_code=401,
-                )
+                return error_json("invalid credentials", 401)
         except (ValueError, TypeError):
             logger.exception("Failed login verification for %s", payload.username)
-            return JSONResponse({"error": "invalid credentials"}, status_code=401)
+            return error_json("invalid credentials", 401)
 
         token = create_access_token(str(user.id))
         secure = os.environ.get("ENV", "").lower() == "production" or os.environ.get(
             "FORCE_HTTPS",
             "false",
         ).lower() in {"1", "true"}
-        result = JSONResponse({"id": str(user.id), "is_admin": bool(user.is_admin)})
+        result = JSONResponse(
+            AuthLoginResponse(
+                id=str(user.id),
+                is_admin=bool(user.is_admin),
+            ).model_dump()
+        )
         result.set_cookie(
             "minutes_session",
             token,
@@ -101,10 +113,10 @@ def login(payload: LoginRequest, response: Response):
         return result
 
 
-@router.post("/auth/logout")
-@router.post("/api/auth/logout")
+@router.post("/auth/logout", response_model=AuthLogoutResponse)
+@router.post("/api/auth/logout", response_model=AuthLogoutResponse)
 def logout(response: Response):
     logger.info("Logout requested")
-    result = JSONResponse({"logged_out": True})
+    result = JSONResponse(AuthLogoutResponse(logged_out=True).model_dump())
     result.delete_cookie("minutes_session")
     return result

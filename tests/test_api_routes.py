@@ -16,6 +16,7 @@ from minutes.routers import (
     service_tokens,
     user_buckets,
 )
+from minutes.schemas import AdminCreateBucketRequest
 
 
 def test_http_method_and_path_pairs_are_unique():
@@ -30,26 +31,50 @@ def test_http_method_and_path_pairs_are_unique():
     assert duplicates == {}
 
 
+def _json_schema_ref(paths, path, method, status):
+    return paths[path][method]["responses"][str(status)]["content"]["application/json"][
+        "schema"
+    ]["$ref"]
+
+
 def test_task_read_routes_publish_typed_openapi_responses():
     paths = app.openapi()["paths"]
 
-    assert (
-        paths["/api/bg/tasks"]["get"]["responses"]["200"]["content"][
-            "application/json"
-        ]["schema"]["$ref"]
-        == "#/components/schemas/TaskListResponse"
+    assert _json_schema_ref(paths, "/api/bg/tasks", "get", 200) == (
+        "#/components/schemas/TaskListResponse"
     )
-    assert (
-        paths["/api/bg/tasks/{task_id}/events"]["get"]["responses"]["200"][
-            "content"
-        ]["application/json"]["schema"]["$ref"]
-        == "#/components/schemas/TaskEventsResponse"
+    assert _json_schema_ref(paths, "/api/bg/tasks/{task_id}/events", "get", 200) == (
+        "#/components/schemas/TaskEventsResponse"
     )
-    assert (
-        paths["/api/bg/histories"]["post"]["responses"]["200"]["content"][
-            "application/json"
-        ]["schema"]["$ref"]
-        == "#/components/schemas/BulkTaskHistoriesResponse"
+    assert _json_schema_ref(paths, "/api/bg/histories", "post", 200) == (
+        "#/components/schemas/BulkTaskHistoriesResponse"
+    )
+    assert _json_schema_ref(paths, "/api/bg/result/{task_id}", "get", 200) == (
+        "#/components/schemas/ResultSuccess"
+    )
+    assert _json_schema_ref(paths, "/api/bg/result/{task_id}", "get", 404) == (
+        "#/components/schemas/ErrorResponse"
+    )
+    assert _json_schema_ref(paths, "/api/bg/cancel/{task_id}", "post", 200) == (
+        "#/components/schemas/TaskCancelledResponse"
+    )
+    assert _json_schema_ref(paths, "/api/bg/delete/{task_id}", "post", 200) == (
+        "#/components/schemas/TaskDeletedResponse"
+    )
+    assert _json_schema_ref(paths, "/api/bg/task/{task_id}/rename", "post", 200) == (
+        "#/components/schemas/TaskNameResponse"
+    )
+    assert _json_schema_ref(paths, "/api/auth/login", "post", 200) == (
+        "#/components/schemas/AuthLoginResponse"
+    )
+    assert _json_schema_ref(paths, "/api/auth/login", "post", 401) == (
+        "#/components/schemas/ErrorResponse"
+    )
+    assert _json_schema_ref(paths, "/api/admin/buckets", "get", 200) == (
+        "#/components/schemas/AdminBucketListResponse"
+    )
+    assert _json_schema_ref(paths, "/api/admin/buckets", "post", 200) == (
+        "#/components/schemas/BucketNameResponse"
     )
 
 
@@ -276,7 +301,9 @@ def test_admin_bucket_creation_commits_once(monkeypatch):
     monkeypatch.setattr(admin_buckets, "MinioService", FakeMinioService)
     event.listen(SessionLocal.class_, "after_commit", track_commit)
     try:
-        result = admin_buckets.create_bucket({"name": bucket_name, "public": True})
+        result = admin_buckets.create_bucket(
+            AdminCreateBucketRequest(name=bucket_name, public=True)
+        )
     finally:
         event.remove(SessionLocal.class_, "after_commit", track_commit)
 

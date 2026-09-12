@@ -285,9 +285,83 @@ class BulkTaskHistoriesResponse(BaseModel):
     warnings: list[str] | None = None
 
 
+class ErrorResponse(BaseModel):
+    error: str
+
+
+JSON_ERROR_RESPONSES = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    401: {"model": ErrorResponse, "description": "Unauthorized"},
+    403: {"model": ErrorResponse, "description": "Forbidden"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+    409: {"model": ErrorResponse, "description": "Conflict"},
+    500: {"model": ErrorResponse, "description": "Server error"},
+    502: {"model": ErrorResponse, "description": "Upstream error"},
+}
+
+
 class ResultSuccess(BaseModel):
     status: str
     result: dict[str, Any]
+
+
+class ResultPendingResponse(BaseModel):
+    status: str
+    error: str | None = None
+
+
+class TaskCancelledResponse(BaseModel):
+    task_id: str
+    cancelled: bool
+
+
+class TaskDeletedResponse(BaseModel):
+    task_id: str
+    deleted: bool
+
+
+class TaskUndeletedResponse(BaseModel):
+    task_id: str
+    undeleted: bool
+
+
+class TaskHardDeleteResponse(BaseModel):
+    task_id: str
+    deleted: bool | None = None
+    enqueued: bool | None = None
+    job_id: str | None = None
+
+
+class RenameTaskRequest(BaseModel):
+    name: str
+
+
+class TaskNameResponse(BaseModel):
+    task_id: str
+    name: str
+
+
+class AuthLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AuthFeaturesResponse(BaseModel):
+    is_admin: bool
+    authenticated: bool
+
+
+class AuthLoginResponse(BaseModel):
+    id: str
+    is_admin: bool
+
+
+class AuthLogoutResponse(BaseModel):
+    logged_out: bool
+
+
+class HealthResponse(BaseModel):
+    status: str
 
 
 class FormatRawRequest(BaseModel):
@@ -296,3 +370,93 @@ class FormatRawRequest(BaseModel):
 
 class FormatRawResponse(BaseModel):
     minutes: str
+
+
+class AdminCreateBucketRequest(BaseModel):
+    name: str
+    public: bool = False
+
+
+class AdminBucketItem(BaseModel):
+    name: str
+    created_at: str | None = None
+    public: bool | None = None
+    owner_id: str | None = None
+    in_db: bool
+
+
+class AdminBucketListResponse(BaseModel):
+    buckets: list[AdminBucketItem]
+
+
+class BucketNameResponse(BaseModel):
+    name: str
+
+
+class DeletedFlagResponse(BaseModel):
+    deleted: bool
+
+
+class ServiceTokenCreatedResponse(BaseModel):
+    token: str
+    id: str
+
+
+class ServiceTokenItem(BaseModel):
+    id: str
+    name: str | None = None
+    user_id: str | None = None
+    revoked: bool
+    created_at: str | None = None
+
+
+class ServiceTokenListResponse(BaseModel):
+    tokens: list[ServiceTokenItem]
+
+
+class RevokedResponse(BaseModel):
+    revoked: bool
+
+
+class UserBucketResponse(BaseModel):
+    id: str
+    name: str
+    owner_id: str
+    public: bool
+
+
+class UserBucketListItem(UserBucketResponse):
+    created_at: str | None = None
+
+
+class UserBucketListResponse(BaseModel):
+    buckets: list[UserBucketListItem]
+
+
+class UploadCleanupCandidate(BaseModel):
+    path: str
+    name: str
+    age_seconds: int
+
+
+class UploadCleanupListResponse(BaseModel):
+    candidates: list[UploadCleanupCandidate]
+    count: int
+
+
+class UploadCleanupError(BaseModel):
+    path: str
+    error: str
+
+
+class UploadCleanupDeleteRequest(BaseModel):
+    dir: str | None = None
+    pattern: str | None = None
+    older_than: int | None = None
+    limit: int | None = None
+
+
+class UploadCleanupDeleteResponse(BaseModel):
+    deleted: list[str]
+    errors: list[UploadCleanupError]
+    count: int

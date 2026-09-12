@@ -1,17 +1,26 @@
-from typing import Any
-
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.db import session_scope
+from minutes.http_errors import error_json
 from minutes.minio_client import MinioService
 from minutes.models import Bucket
+from minutes.schemas import (
+    JSON_ERROR_RESPONSES,
+    AdminBucketListResponse,
+    AdminCreateBucketRequest,
+    BucketNameResponse,
+    DeletedFlagResponse,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-@router.get("/buckets")
+@router.get(
+    "/buckets",
+    response_model=AdminBucketListResponse,
+    responses={500: JSON_ERROR_RESPONSES[500]},
+)
 def list_buckets():
     try:
         service = MinioService()
@@ -67,15 +76,23 @@ def list_buckets():
 
         return {"buckets": buckets}
     except (SQLAlchemyError, OSError, RuntimeError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        return error_json(str(exc), 500)
 
 
-@router.post("/buckets")
-def create_bucket(payload: dict[str, Any]):
-    name = (payload or {}).get("name")
+@router.post(
+    "/buckets",
+    response_model=BucketNameResponse,
+    responses={
+        400: JSON_ERROR_RESPONSES[400],
+        409: JSON_ERROR_RESPONSES[409],
+        500: JSON_ERROR_RESPONSES[500],
+    },
+)
+def create_bucket(payload: AdminCreateBucketRequest):
+    name = payload.name.strip()
     if not name:
-        return JSONResponse({"error": "missing name"}, status_code=400)
-    public = bool((payload or {}).get("public", False))
+        return error_json("missing name", 400)
+    public = bool(payload.public)
     try:
         from minio.error import S3Error
     except ImportError:
@@ -89,12 +106,16 @@ def create_bucket(payload: dict[str, Any]):
                 session.add(Bucket(name=name, public=public))
         return {"name": name}
     except ValueError:
-        return JSONResponse({"error": "already exists"}, status_code=409)
+        return error_json("already exists", 409)
     except (S3Error, OSError, SQLAlchemyError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        return error_json(str(exc), 500)
 
 
-@router.delete("/buckets/{name}")
+@router.delete(
+    "/buckets/{name}",
+    response_model=DeletedFlagResponse,
+    responses={500: JSON_ERROR_RESPONSES[500]},
+)
 def delete_bucket(name: str, force: bool = False):
     try:
         from minio.error import S3Error
@@ -107,4 +128,4 @@ def delete_bucket(name: str, force: bool = False):
             session.query(Bucket).filter(Bucket.name == name).delete()
         return {"deleted": True}
     except (S3Error, OSError, SQLAlchemyError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        return error_json(str(exc), 500)

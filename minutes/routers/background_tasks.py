@@ -7,11 +7,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from minutes.bg_store import get_task
 from minutes.db import session_scope
+from minutes.http_errors import error_json
 from minutes.models import TaskHistory
 from minutes.routers.background_task_artifacts import router as artifacts_router
 from minutes.routers.background_task_catalog import router as catalog_router
 from minutes.routers.background_task_lifecycle import router as lifecycle_router
 from minutes.schemas import (
+    JSON_ERROR_RESPONSES,
+    ResultPendingResponse,
+    ResultSuccess,
     StatusResponse,
     TaskEventsResponse,
     normalize_task_status,
@@ -22,11 +26,15 @@ from minutes.sse import register_queue, unregister_queue
 router = APIRouter(prefix="/api/bg", tags=["background-tasks"])
 
 
-@router.get("/status/{task_id}", response_model=StatusResponse)
+@router.get(
+    "/status/{task_id}",
+    response_model=StatusResponse,
+    responses={404: JSON_ERROR_RESPONSES[404]},
+)
 def bg_status(task_id: str):
     task = get_task(task_id)
     if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
+        return error_json("unknown task", 404)
     stage = task_stage_from_status(task["status"])
     status = task["status"]
     detail = task.get("detail")
@@ -46,21 +54,26 @@ def bg_status(task_id: str):
 
 @router.get(
     "/result/{task_id}",
+    response_model=ResultSuccess,
     responses={
-        200: {"description": "success", "content": {"application/json": {}}},
-        202: {"description": "pending or failed"},
-        404: {"description": "unknown task"},
+        202: {"model": ResultPendingResponse, "description": "Pending or failed"},
+        404: JSON_ERROR_RESPONSES[404],
     },
 )
 def bg_result(task_id: str):
     task = get_task(task_id)
     if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
+        return error_json("unknown task", 404)
     if task["status"] != "success":
         return JSONResponse(
-            {"status": task["status"], "error": task.get("error")}, status_code=202
+            ResultPendingResponse(
+                status=task["status"],
+                error=task.get("error"),
+            ).model_dump(),
+            status_code=202,
         )
-    return {"status": "success", "result": task.get("result")}
+    result = task.get("result")
+    return {"status": "success", "result": result if isinstance(result, dict) else {}}
 
 
 @router.get("/events")
@@ -94,13 +107,14 @@ async def bg_events(request: Request):
     "/tasks/{task_id}/events",
     response_model=TaskEventsResponse,
     response_model_exclude_none=True,
+    responses={400: JSON_ERROR_RESPONSES[400]},
 )
 def bg_task_events(task_id: str):
     """Return all stored events for a task, newest first."""
     try:
         key = uuid.UUID(task_id)
     except (ValueError, TypeError):
-        return JSONResponse({"error": "invalid task id"}, status_code=400)
+        return error_json("invalid task id", 400)
 
     with session_scope() as session:
         rows = (

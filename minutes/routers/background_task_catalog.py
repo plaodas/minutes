@@ -4,18 +4,21 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import record_and_publish
 from minutes.db import session_scope
+from minutes.http_errors import error_json
 from minutes.models import Task, TaskHistory
 from minutes.schemas import (
+    JSON_ERROR_RESPONSES,
     BulkTaskHistoriesResponse,
+    RenameTaskRequest,
     TaskHistoryResponse,
     TaskListResponse,
+    TaskNameResponse,
     task_stage_from_status,
 )
 from minutes.summary import summarize_local
@@ -46,6 +49,7 @@ class _TaskOutputUnavailableError(Exception):
     "/history/{task_id}",
     response_model=TaskHistoryResponse,
     response_model_exclude_none=True,
+    responses={400: JSON_ERROR_RESPONSES[400]},
 )
 def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     """Return paginated history events for a task."""
@@ -53,7 +57,7 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
         try:
             key = uuid.UUID(task_id)
         except (ValueError, TypeError):
-            return JSONResponse({"error": "invalid task id"}, status_code=400)
+            return error_json("invalid task id", 400)
         rows = (
             session.query(TaskHistory)
             .filter(TaskHistory.task_id == key)
@@ -73,16 +77,23 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
     return {"task_id": task_id, "history": history}
 
 
-@router.post("/task/{task_id}/rename")
-def bg_task_rename(task_id: str, payload: dict[str, str]):
-    name = (payload or {}).get("name")
+@router.post(
+    "/task/{task_id}/rename",
+    response_model=TaskNameResponse,
+    responses={
+        400: JSON_ERROR_RESPONSES[400],
+        404: JSON_ERROR_RESPONSES[404],
+    },
+)
+def bg_task_rename(task_id: str, payload: RenameTaskRequest):
+    name = payload.name.strip()
     if not name:
-        return JSONResponse({"error": "missing name"}, status_code=400)
+        return error_json("missing name", 400)
 
     try:
         uuid.UUID(task_id)
     except (ValueError, TypeError):
-        return JSONResponse({"error": "invalid task id"}, status_code=400)
+        return error_json("invalid task id", 400)
 
     def rename_task(session, key):
         task = session.get(Task, key)
@@ -99,17 +110,25 @@ def bg_task_rename(task_id: str, payload: dict[str, str]):
             mutate=rename_task,
         )
     except _TaskNotFoundError:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
+        return error_json("unknown task", 404)
 
     return {"task_id": task_id, "name": name}
 
 
-@router.post("/task/{task_id}/regenerate-name")
+@router.post(
+    "/task/{task_id}/regenerate-name",
+    response_model=TaskNameResponse,
+    responses={
+        400: JSON_ERROR_RESPONSES[400],
+        404: JSON_ERROR_RESPONSES[404],
+        500: JSON_ERROR_RESPONSES[500],
+    },
+)
 def bg_task_regenerate_name(task_id: str):
     try:
         uuid.UUID(task_id)
     except (ValueError, TypeError):
-        return JSONResponse({"error": "invalid task id"}, status_code=400)
+        return error_json("invalid task id", 400)
 
     def regenerate_name(session, key):
         task = session.get(Task, key)
@@ -145,13 +164,13 @@ def bg_task_regenerate_name(task_id: str):
             mutate=regenerate_name,
         )
     except _TaskNotFoundError:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
+        return error_json("unknown task", 404)
     except _TaskOutputUnavailableError:
-        return JSONResponse({"error": "no output file available"}, status_code=404)
+        return error_json("no output file available", 404)
     except FileNotFoundError:
-        return JSONResponse({"error": "output file not found"}, status_code=404)
+        return error_json("output file not found", 404)
     except (OSError, UnicodeError, ValueError, TypeError) as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return error_json(str(exc), 500)
 
     return {"task_id": task_id, "name": short}
 

@@ -2,7 +2,14 @@ import os
 import time
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+
+from minutes.http_errors import error_json
+from minutes.schemas import (
+    JSON_ERROR_RESPONSES,
+    UploadCleanupDeleteRequest,
+    UploadCleanupDeleteResponse,
+    UploadCleanupListResponse,
+)
 
 router = APIRouter(tags=["admin"])
 
@@ -48,8 +55,22 @@ def _list_candidates(
     return candidates
 
 
-@router.get("/admin/uploads/cleanup")
-@router.get("/api/admin/uploads/cleanup")
+@router.get(
+    "/admin/uploads/cleanup",
+    response_model=UploadCleanupListResponse,
+    responses={
+        404: JSON_ERROR_RESPONSES[404],
+        500: JSON_ERROR_RESPONSES[500],
+    },
+)
+@router.get(
+    "/api/admin/uploads/cleanup",
+    response_model=UploadCleanupListResponse,
+    responses={
+        404: JSON_ERROR_RESPONSES[404],
+        500: JSON_ERROR_RESPONSES[500],
+    },
+)
 def list_uploads_for_cleanup(
     dir: str | None = None,
     pattern: str = "",
@@ -60,24 +81,38 @@ def list_uploads_for_cleanup(
 ):
     uploads_dir = _resolve_uploads_dir(dir, request)
     if not os.path.isdir(uploads_dir):
-        return JSONResponse({"error": "dir not found"}, status_code=404)
+        return error_json("dir not found", 404)
     try:
         candidates = _list_candidates(uploads_dir, pattern, older_than, limit)
     except OSError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return error_json(str(exc), 500)
     return {"candidates": candidates, "count": len(candidates)}
 
 
-@router.post("/admin/uploads/cleanup")
-@router.post("/api/admin/uploads/cleanup")
-def delete_uploads(payload: dict, request: Request = None):
-    uploads_dir = _resolve_uploads_dir(payload.get("dir"), request)
-    pattern = payload.get("pattern") or ""
-    older_than = int(payload.get("older_than") or 0)
-    limit = int(payload.get("limit") or 100)
+@router.post(
+    "/admin/uploads/cleanup",
+    response_model=UploadCleanupDeleteResponse,
+    responses={
+        404: JSON_ERROR_RESPONSES[404],
+        500: JSON_ERROR_RESPONSES[500],
+    },
+)
+@router.post(
+    "/api/admin/uploads/cleanup",
+    response_model=UploadCleanupDeleteResponse,
+    responses={
+        404: JSON_ERROR_RESPONSES[404],
+        500: JSON_ERROR_RESPONSES[500],
+    },
+)
+def delete_uploads(payload: UploadCleanupDeleteRequest, request: Request = None):
+    uploads_dir = _resolve_uploads_dir(payload.dir, request)
+    pattern = payload.pattern or ""
+    older_than = int(payload.older_than or 0)
+    limit = int(payload.limit or 100)
 
     if not os.path.isdir(uploads_dir):
-        return JSONResponse({"error": "dir not found"}, status_code=404)
+        return error_json("dir not found", 404)
 
     deleted = []
     errors = []
@@ -91,6 +126,6 @@ def delete_uploads(payload: dict, request: Request = None):
             except OSError as exc:
                 errors.append({"path": path, "error": str(exc)})
     except OSError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return error_json(str(exc), 500)
 
     return {"deleted": deleted, "errors": errors, "count": len(deleted)}
