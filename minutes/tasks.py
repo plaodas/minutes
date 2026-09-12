@@ -19,32 +19,22 @@ from minutes.bg_store import (
     update_task_success,
 )
 from minutes.celery_app import celery
-from minutes.ollama import DEFAULT_SYSTEM_PROMPT, format_minutes_from_raw
+from minutes.ollama import format_minutes_from_raw
 from minutes.pipeline.artifacts import write_text_atomic
+from minutes.pipeline.formatting import (
+    build_pipeline_result,
+    format_transcript,
+)
+from minutes.pipeline.formatting import (
+    build_system_prompt as _build_system_prompt,
+)
 from minutes.schemas import TaskStage
 from minutes.task_deletion import delete_task_permanently
 from minutes.transcribe import transcribe
 
 
 def build_system_prompt(meta_obj):
-    """Construct a system prompt from metadata dict (language/include_actions)."""
-    if not isinstance(meta_obj, dict):
-        return None
-    sp = DEFAULT_SYSTEM_PROMPT
-    lang = meta_obj.get("language")
-    if (
-        lang
-        and isinstance(lang, str)
-        and lang.lower() not in ("auto", "auto-detect", "auto detect")
-    ):
-        if "jap" in lang.lower():
-            sp = "出力は日本語で行ってください。\n" + sp
-        else:
-            sp = "Please produce the output in English.\n" + sp
-    inc = meta_obj.get("include_actions")
-    if inc is False:
-        sp = sp + "\n" + "Do not extract action items. Skip STEP3."
-    return sp
+    return _build_system_prompt(meta_obj)
 
 
 @celery.task(bind=True)
@@ -445,69 +435,19 @@ def process_audio(self, input_path: str):
         except SQLAlchemyError:
             meta = None
 
-        system_prompt = build_system_prompt(meta)
-
-        if system_prompt:
-            final_minutes = format_minutes_from_raw(
-                raw_text, system_prompt=system_prompt
-            )
-        else:
-            final_minutes = format_minutes_from_raw(raw_text)
+        final_minutes = format_transcript(raw_text, meta, format_minutes_from_raw)
 
         now = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
         out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
         write_text_atomic(final_minutes, out_file)
 
-        # Build structured result: transcript, segments, formatted minutes, summary, action items
-        try:
-            from minutes.summary import summarize_local
-        except ImportError:
-
-            def summarize_local(x, max_sentences=3):
-                return ""
-
-        # summary: prefer summarizing formatted minutes for readability
-        try:
-            summary_text = summarize_local(final_minutes, max_sentences=3)
-        except (ValueError, TypeError, RuntimeError):
-            summary_text = ""
-
-        # action items: simple heuristic parse from formatted minutes
-        try:
-            import re
-
-            items = []
-            m = re.search(
-                r"(?ims)^\s*action items\s*$\n(.*?)(?:\n\s*$|$)", final_minutes
-            )
-            section = None
-            if m:
-                section = m.group(1)
-            if section:
-                for line in section.splitlines():
-                    s = line.strip().lstrip("-•* ")
-                    if not s:
-                        continue
-                    items.append({"text": s})
-            else:
-                # fallback: search for TODO/Action: patterns
-                for line in final_minutes.splitlines():
-                    if re.search(
-                        r"\b(Action|TODO|Action Item)[:\-]", line, re.IGNORECASE
-                    ):
-                        items.append({"text": line.strip()})
-        except re.error:
-            items = []
-
-        structured = {
-            "transcript": raw_text,
-            "segments": segments,
-            "minutes": final_minutes,
-            "summary": summary_text,
-            "action_items": items,
-            "output_file": out_file,
-        }
+        structured = build_pipeline_result(
+            transcript=raw_text,
+            segments=segments,
+            minutes=final_minutes,
+            output_file=out_file,
+        )
 
         # If configured, upload the final minutes to MinIO as a cached copy
         try:

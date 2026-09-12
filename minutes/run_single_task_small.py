@@ -9,6 +9,7 @@ from minutes.audio import preprocess
 from minutes.bg_store import update_task_failure, update_task_success
 from minutes.ollama import format_minutes_from_raw
 from minutes.pipeline.artifacts import write_text_atomic
+from minutes.pipeline.formatting import format_transcript
 from minutes.transcribe import transcribe
 
 
@@ -19,7 +20,11 @@ def run(upload_path: str, task_id: str):
         model_size = os.environ.get("TRANSCRIBE_MODEL_SIZE", "small")
         raw_text, _segments = transcribe(clean, model_size=model_size, prompt=None)
         try:
-            final_minutes = format_minutes_from_raw(raw_text)
+            final_minutes = format_transcript(
+                raw_text,
+                None,
+                format_minutes_from_raw,
+            )
         except (requests.exceptions.RequestException, ValueError, TypeError) as fe:
             # Ollama formatting failed; fall back to raw transcript with header
             final_minutes = (
