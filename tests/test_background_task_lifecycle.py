@@ -1,6 +1,8 @@
 import uuid
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from minutes import bg_store, task_deletion
 from minutes import tasks as task_workers
@@ -59,6 +61,36 @@ def test_undelete_restores_soft_deleted_task(monkeypatch):
         assert undeleted.payload == {"previous": "deleted", "status": "pending"}
     assert [event["event_type"] for event in published] == ["deleted", "undeleted"]
     assert [event["stage"] for event in published] == ["deleted", "pending"]
+
+
+def test_soft_delete_db_failure_does_not_mark_task_success(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    success_updates = []
+    published = []
+
+    @contextmanager
+    def failing_session_scope():
+        raise SQLAlchemyError("commit failed")
+        yield
+
+    monkeypatch.setattr(
+        background_task_lifecycle, "session_scope", failing_session_scope
+    )
+    monkeypatch.setattr(
+        background_task_lifecycle,
+        "update_task_success",
+        lambda *args: success_updates.append(args),
+        raising=False,
+    )
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    response = TestClient(app).post(f"/api/bg/delete/{task_id}")
+
+    assert response.status_code == 500
+    assert success_updates == []
+    assert published == []
+    assert get_task(str(task_id))["status"] == "pending"
 
 
 def test_hard_delete_removes_task_and_publishes_event(monkeypatch):

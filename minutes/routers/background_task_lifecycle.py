@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime, timezone
 
 from celery.exceptions import CeleryError
 from fastapi import APIRouter, Request
@@ -9,14 +10,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import (
     _parse_key,
-    get_task,
-    record_history,
+    emit_task_event,
     update_task_cancelled,
-    update_task_success,
 )
 from minutes.celery_app import celery
 from minutes.db import session_scope
-from minutes.models import Task
+from minutes.models import Task, TaskHistory
 from minutes.task_deletion import delete_task_permanently
 
 router = APIRouter()
@@ -52,61 +51,23 @@ def bg_cancel(task_id: str):
 @router.post("/delete/{task_id}")
 def bg_delete(task_id: str):
     try:
-        task = get_task(task_id)
-    except SQLAlchemyError:
-        logging.getLogger(__name__).exception("get_task failed for %s", task_id)
-        task = None
-    if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    try:
-        try:
-            with session_scope() as db:
-                key = _parse_key(task_id)
-                obj = db.get(Task, key)
-                if not obj:
-                    return JSONResponse({"error": "unknown task"}, status_code=404)
-                previous = obj.status
-                obj.status = "deleted"
-                try:
-                    from datetime import datetime, timezone
-
-                    obj.deleted = True
-                    obj.deleted_at = datetime.now(tz=timezone.utc)
-                except (AttributeError, SQLAlchemyError):
-                    logging.getLogger(__name__).debug(
-                        "failed to set deleted flags for %s", task_id, exc_info=True
-                    )
-                db.add(obj)
-                try:
-                    db.commit()
-                except SQLAlchemyError:
-                    db.rollback()
-                    logging.getLogger(__name__).exception(
-                        "commit failed while deleting task %s", task_id
-                    )
-                try:
-                    record_history(task_id, "deleted", {"previous": previous}, db=db)
-                except SQLAlchemyError:
-                    logging.getLogger(__name__).exception(
-                        "record_history failed while deleting task %s", task_id
-                    )
-        except SQLAlchemyError:
-            try:
-                task = get_task(task_id)
-                task["status"] = "deleted"
-                try:
-                    update_task_success(task_id, task.get("result") or {})
-                except SQLAlchemyError:
-                    logging.getLogger(__name__).exception(
-                        "update_task_success failed in fallback for %s", task_id
-                    )
-            except SQLAlchemyError:
-                logging.getLogger(__name__).exception(
-                    "fallback get_task/update failed for %s", task_id
-                )
-        return {"task_id": task_id, "deleted": True}
-    except (SQLAlchemyError, OSError, RuntimeError) as exc:
+        with session_scope() as db:
+            key = _parse_key(task_id)
+            task = db.get(Task, key)
+            if not task:
+                return JSONResponse({"error": "unknown task"}, status_code=404)
+            previous = task.status
+            payload = {"previous": previous}
+            task.status = "deleted"
+            task.deleted = True
+            task.deleted_at = datetime.now(tz=timezone.utc)
+            db.add(TaskHistory(task_id=key, event_type="deleted", payload=payload))
+    except SQLAlchemyError as exc:
+        logging.getLogger(__name__).exception("soft delete failed for %s", task_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+    emit_task_event(task_id, "deleted", payload)
+    return {"task_id": task_id, "deleted": True}
 
 
 @router.post("/force-delete/{task_id}")
@@ -131,38 +92,24 @@ def bg_force_delete(task_id: str):
 @router.post("/undelete/{task_id}")
 def bg_undelete(task_id: str):
     try:
-        task = get_task(task_id)
-    except SQLAlchemyError:
-        logging.getLogger(__name__).exception("get_task failed for %s", task_id)
-        task = None
-    if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    try:
         with session_scope() as db:
-            obj = db.get(Task, _parse_key(task_id))
-            if not obj:
+            key = _parse_key(task_id)
+            task = db.get(Task, key)
+            if not task:
                 return JSONResponse({"error": "unknown task"}, status_code=404)
-            previous = obj.status
-            restored_status = "success" if obj.result else "pending"
-            obj.status = restored_status
-            obj.deleted = False
-            obj.deleted_at = None
-            db.add(obj)
-            db.commit()
-            try:
-                record_history(
-                    task_id,
-                    "undeleted",
-                    {"previous": previous, "status": restored_status},
-                    db=db,
-                )
-            except SQLAlchemyError:
-                logging.getLogger(__name__).exception(
-                    "record_history failed while undeleting task %s", task_id
-                )
-        return {"task_id": task_id, "undeleted": True}
-    except (SQLAlchemyError, OSError, RuntimeError) as exc:
+            previous = task.status
+            restored_status = "success" if task.result else "pending"
+            payload = {"previous": previous, "status": restored_status}
+            task.status = restored_status
+            task.deleted = False
+            task.deleted_at = None
+            db.add(TaskHistory(task_id=key, event_type="undeleted", payload=payload))
+    except SQLAlchemyError as exc:
+        logging.getLogger(__name__).exception("undelete failed for %s", task_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+    emit_task_event(task_id, "undeleted", payload)
+    return {"task_id": task_id, "undeleted": True}
 
 
 @router.post("/hard-delete/{task_id}")
