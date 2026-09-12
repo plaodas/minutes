@@ -1,9 +1,7 @@
-import contextlib
 import datetime
 import json
 import logging
 import os
-import wave
 
 import requests
 from requests.exceptions import ChunkedEncodingError, RequestException
@@ -20,6 +18,7 @@ from minutes.bg_store import (
 from minutes.celery_app import celery
 from minutes.ollama import format_minutes_from_raw
 from minutes.pipeline.artifacts import write_text_atomic
+from minutes.pipeline.audio import prepare_audio
 from minutes.pipeline.formatting import (
     build_pipeline_result,
     format_transcript,
@@ -74,27 +73,8 @@ def process_audio(self, input_path: str):
             update_task_status(task_id, TaskStage.PREPROCESS)
             logger.debug("process_audio: update_task_status returned for %s", task_id)
 
-        # Log input file presence and size before calling preprocess
         try:
-            inp_exists = os.path.exists(input_path)
-            inp_size = os.path.getsize(input_path) if inp_exists else None
-        except OSError:
-            inp_exists = False
-            inp_size = None
-        logger.info(
-            "process_audio: preprocess start input=%s exists=%s size=%s cwd=%s",
-            input_path,
-            inp_exists,
-            inp_size,
-            os.getcwd(),
-        )
-
-        # Call preprocess with timing and robust exception logging
-        import time as _time
-
-        _start = _time.time()
-        try:
-            mono, norm, clean = preprocess(input_path)
+            prepared = prepare_audio(input_path, preprocess)
         except (RuntimeError, OSError, ValueError, TypeError) as e:
             logger.exception("process_audio: preprocess failed for %s", input_path)
             # Record failure in task store if possible, then re-raise
@@ -107,86 +87,10 @@ def process_audio(self, input_path: str):
                         task_id,
                     )
             raise
-        _dur = _time.time() - _start
-        logger.info(
-            "process_audio: preprocess completed in %.2fs -> mono=%s norm=%s clean=%s",
-            _dur,
-            mono,
-            norm,
-            clean,
-        )
-        # log sizes of produced files
-        for p in (mono, norm, clean):
-            try:
-                s = os.path.getsize(p) if (p and os.path.exists(p)) else None
-            except OSError:
-                s = None
-            logger.debug(
-                "process_audio: preprocess output %s exists=%s size=%s",
-                p,
-                (p and os.path.exists(p)),
-                s,
-            )
-
-        # Validate cleaned WAV exists and appears valid before continuing.
-        try:
-            if not clean or not os.path.exists(clean) or os.path.getsize(clean) == 0:
-                raise RuntimeError(
-                    f"Invalid data found when processing input: '{clean}'"
-                )
-            # ensure it's a readable WAV and inspect sample rate
-            import wave as _wave
-
-            with contextlib.closing(_wave.open(clean, "rb")) as wf:
-                rate = wf.getframerate()
-        except (wave.Error, OSError) as e:
-            # raise with the familiar message shape so existing handlers record it
-            raise RuntimeError(
-                f"Invalid data found when processing input: '{clean}'"
-            ) from e
-        # Warn if sample rate differs from expected (we force 16k in preprocess)
-        logger = logging.getLogger("minutes.tasks")
-        if rate and rate != 16000:
-            logger.warning("Unexpected sample rate %s Hz for %s", rate, clean)
-
-        # try to determine audio duration (seconds) from the cleaned wav file
-        def _get_wav_duration(path: str):
-            try:
-                with contextlib.closing(wave.open(path, "rb")) as wf:
-                    frames = wf.getnframes()
-                    rate = wf.getframerate()
-                    return frames / float(rate)
-            except (wave.Error, OSError) as e:
-                logger = logging.getLogger("minutes.tasks")
-                logger.debug("wave.open failed for %s: %s", path, e)
-                # fallback: try ffprobe
-                try:
-                    import subprocess
-
-                    out = subprocess.check_output(
-                        [
-                            "ffprobe",
-                            "-v",
-                            "error",
-                            "-show_entries",
-                            "format=duration",
-                            "-of",
-                            "default=noprint_wrappers=1:nokey=1",
-                            path,
-                        ],
-                        stderr=subprocess.DEVNULL,
-                    )
-                    try:
-                        return float(out.strip())
-                    except (ValueError, TypeError):
-                        return None
-                except (subprocess.CalledProcessError, OSError) as e2:
-                    logger.debug("ffprobe fallback failed for %s: %s", path, e2)
-                    return None
-
-        audio_duration = _get_wav_duration(clean)
-        logger = logging.getLogger("minutes.tasks")
-        logger.info("Determined audio_duration=%s for %s", audio_duration, clean)
+        mono = prepared.mono
+        norm = prepared.normalized
+        clean = prepared.clean
+        audio_duration = prepared.duration_seconds
 
         # If an external inference service is configured, call it via HTTP.
         inference_url = os.environ.get("INFERENCE_URL")
