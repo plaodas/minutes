@@ -2,20 +2,10 @@ import asyncio
 import logging
 import os
 
-from celery.result import AsyncResult
-from fastapi import (
-    Depends,
-    FastAPI,
-    HTTPException,
-)
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import (
-    JSONResponse,
-)
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.celery_app import celery
-from minutes.ollama import format_minutes_from_raw
 from minutes.reconcile_bg_tasks import reconcile_once
 from minutes.request_auth import require_admin
 from minutes.routers.admin_buckets import router as admin_buckets_router
@@ -23,11 +13,11 @@ from minutes.routers.authentication import router as authentication_router
 from minutes.routers.background_tasks import (
     router as background_tasks_router,
 )
+from minutes.routers.pipeline import router as pipeline_router
 from minutes.routers.service_tokens import router as service_tokens_router
 from minutes.routers.upload_cleanup import router as upload_cleanup_router
 from minutes.routers.uploads import router as uploads_router
 from minutes.routers.user_buckets import router as user_buckets_router
-from minutes.schemas import FormatRawRequest, FormatRawResponse
 
 app = FastAPI(title="Minutes Service (prototype)")
 app.include_router(background_tasks_router)
@@ -35,6 +25,7 @@ app.include_router(background_tasks_router)
 app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
 app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
 app.include_router(upload_cleanup_router, dependencies=[Depends(require_admin)])
+app.include_router(pipeline_router)
 app.include_router(uploads_router)
 app.include_router(user_buckets_router)
 app.include_router(authentication_router)
@@ -121,52 +112,3 @@ async def shutdown_reconciler():
     except (ImportError, RuntimeError, OSError):
         logger = logging.getLogger("minutes.api")
         logger.exception("failed to stop redis listener")
-
-
-@app.get("/api/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.post("/api/format-raw", response_model=FormatRawResponse)
-def format_raw(payload: FormatRawRequest):
-    """Accept JSON {"raw": "..."} and return formatted minutes as JSON."""
-    raw = payload.raw
-    if not raw:
-        return JSONResponse({"error": "missing 'raw' field"}, status_code=400)
-
-    try:
-        minutes = format_minutes_from_raw(raw)
-        return {"minutes": minutes}
-    except (RuntimeError, ValueError, TypeError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-def api_format_raw(payload: FormatRawRequest):
-    return format_raw(payload)
-
-
-@app.get("/api/status/{task_id}")
-def task_status(task_id: str):
-    res = AsyncResult(task_id, app=celery)
-    return {"task_id": task_id, "status": res.status, "info": str(res.info)}
-
-
-def api_task_status(task_id: str):
-    return task_status(task_id)
-
-
-@app.get("/api/result/{task_id}")
-def task_result(task_id: str):
-    res = AsyncResult(task_id, app=celery)
-    if not res.ready():
-        return JSONResponse({"status": res.status}, status_code=202)
-    if res.failed():
-        return JSONResponse(
-            {"status": "failed", "info": str(res.info)}, status_code=500
-        )
-    return JSONResponse({"status": "success", "result": res.result})
-
-
-def api_task_result(task_id: str):
-    return task_result(task_id)
