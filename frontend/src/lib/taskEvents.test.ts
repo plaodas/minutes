@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseTaskEvent,
   parseTaskEventData,
+  statusStageAliases,
   taskStageFromStatus,
   taskStageToIndex,
 } from './taskEvents';
@@ -11,6 +12,10 @@ describe('task event contract', () => {
   it('normalizes detailed transcription status', () => {
     expect(taskStageFromStatus('transcribing:48.3s')).toBe('transcribing');
     expect(taskStageToIndex('transcribing')).toBe(2);
+  });
+
+  it.each(Object.entries(statusStageAliases))('maps alias %s to %s', (alias, stage) => {
+    expect(taskStageFromStatus(alias)).toBe(stage);
   });
 
   it('accepts typed status events from new and old servers', () => {

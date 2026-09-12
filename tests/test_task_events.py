@@ -1,6 +1,7 @@
 import pytest
 
 from minutes.schemas import (
+    STATUS_STAGE_ALIASES,
     TaskEventType,
     TaskHistoryRecord,
     TaskStage,
@@ -20,11 +21,17 @@ from minutes.schemas import (
         ("formatting", TaskStage.FORMATTING),
         ("success", TaskStage.SUCCESS),
         ("failed", TaskStage.FAILED),
+        ("created", TaskStage.PENDING),
         ("unknown", None),
     ],
 )
 def test_task_stage_from_status(status, expected):
     assert task_stage_from_status(status) == expected
+
+
+@pytest.mark.parametrize("alias,stage", list(STATUS_STAGE_ALIASES.items()))
+def test_status_stage_aliases(alias, stage):
+    assert task_stage_from_status(alias) == stage
 
 
 def test_build_status_event_adds_normalized_stage():

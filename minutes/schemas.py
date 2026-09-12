@@ -142,7 +142,8 @@ class TaskEventData(TypedDict):
     payload: dict[str, Any]
 
 
-_STATUS_STAGE_ALIASES = {
+# Keep in sync with frontend/src/lib/taskEvents.ts `statusStageAliases`.
+STATUS_STAGE_ALIASES = {
     "created": TaskStage.PENDING,
     "queued": TaskStage.PENDING,
     "upload": TaskStage.PENDING,
@@ -174,7 +175,7 @@ def task_stage_from_status(status: TaskStage | str | None) -> TaskStage | None:
     try:
         return TaskStage(normalized)
     except ValueError:
-        return _STATUS_STAGE_ALIASES.get(normalized)
+        return STATUS_STAGE_ALIASES.get(normalized)
 
 
 def normalize_task_status(

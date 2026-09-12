@@ -26,8 +26,26 @@ export const taskEventTypes = [
   'deleted_hard',
 ] as const satisfies readonly TaskEventType[];
 
+/** Keep in sync with minutes.schemas.STATUS_STAGE_ALIASES. */
+export const statusStageAliases = {
+  created: 'pending',
+  queued: 'pending',
+  upload: 'pending',
+  uploading: 'pending',
+  pre: 'preprocess',
+  'pre-processing': 'preprocess',
+  recognize: 'transcribing',
+  recognizing: 'transcribing',
+  format: 'formatting',
+  done: 'success',
+  finished: 'success',
+  completed: 'success',
+  failure: 'failed',
+} as const satisfies Record<string, TaskStage>;
+
 const stageSet = new Set<string>(taskStages);
 const eventTypeSet = new Set<string>(taskEventTypes);
+const stageAliasSet = statusStageAliases as Record<string, TaskStage>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -40,21 +58,7 @@ export function taskStageFromStatus(
   if (stageSet.has(status)) return status as TaskStage;
   const normalized = String(status).trim().toLowerCase().split(':', 1)[0];
   if (stageSet.has(normalized)) return normalized as TaskStage;
-  const aliases: Record<string, TaskStage> = {
-    queued: 'pending',
-    upload: 'pending',
-    uploading: 'pending',
-    pre: 'preprocess',
-    'pre-processing': 'preprocess',
-    recognize: 'transcribing',
-    recognizing: 'transcribing',
-    format: 'formatting',
-    done: 'success',
-    finished: 'success',
-    completed: 'success',
-    failure: 'failed',
-  };
-  return aliases[normalized];
+  return stageAliasSet[normalized];
 }
 
 export function taskStageToIndex(stage: TaskStage | undefined): number {
