@@ -3,10 +3,7 @@ import subprocess
 
 
 def preprocess(input_file: str) -> tuple[str, str, str]:
-    """Run ffmpeg-based preprocessing and return (mono_file, norm_file, clean_file).
-
-    Keeps behavior compatible with the old `preprocess_audio.py` script.
-    """
+    """Run ffmpeg-based preprocessing and return (mono_file, norm_file, clean_file)."""
     base = os.path.splitext(input_file)[0]
     mono_file = f"{base}_mono.wav"
     norm_file = f"{base}_norm.wav"

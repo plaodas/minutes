@@ -58,7 +58,9 @@ Setup notes for minimal VPS deployment
 
   5) Local MinIO for development (optional)
 
-     You can run a local MinIO instance for dev/testing. This project includes a helper compose file `docker-compose.minio.yml`.
+     MinIO is not part of the default portfolio Compose stack. Artifact upload
+     still honors `MINIO_*` environment variables when you set them on the API
+     or worker process yourself.
 
      Quick run (one-off):
 
@@ -70,12 +72,6 @@ Setup notes for minimal VPS deployment
        -e MINIO_ROOT_PASSWORD=minioadmin \
        -v "${PWD}/data/minio:/data" \
        minio/minio:latest server /data --console-address ":9001"
-     ```
-
-     Or use the compose file included in the repo:
-
-     ```bash
-     docker compose -f docker-compose.minio.yml up -d
      ```
 
      Environment variables (used by the app when uploading cached artifacts):

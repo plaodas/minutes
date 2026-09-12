@@ -99,6 +99,7 @@ models/
 # Temporary files
 *.tmp
 *.cache
+tmp/
 
 # Local config and secrets
 local_settings.py

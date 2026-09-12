@@ -24,7 +24,7 @@ The smoke test verifies the required containers, Alembic revision, Redis, the fr
 
 ## Manual end-to-end acceptance
 
-1. Open <http://localhost:8080> and sign in with the credentials from `.env`.
+1. Open <http://localhost> or <http://localhost:8080> and sign in with `ADMIN_USER` / `ADMIN_PASS` from `.env` (defaults: `demo` / `demo`).
 2. Upload a short speech recording.
 3. Confirm the task reaches preprocess, transcribing, formatting, and success.
 4. Open the result and download its transcript, summary, and minutes.

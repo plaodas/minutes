@@ -142,12 +142,14 @@ services:
         VITE_API_BASE: /api
         VITE_SHOW_ADMIN_CONTROLS: "true"
     ports:
+      # Port 80 so http://localhost works; 8080 stays as the documented demo URL.
+      - "80:80"
       - "${FRONTEND_PORT:-8080}:80"
     depends_on:
       minutes:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/"]
       interval: 10s
       timeout: 5s
       retries: 10

@@ -16,13 +16,15 @@
 既定の Compose は、再現に必要なサービスだけを起動します。
 
 - `frontend`: React SPA と FastAPI への reverse proxy
-- `minutes`: FastAPI
+- `minutes`: FastAPI（ホストへは公開しない）
 - `worker`: Celery と CPU 版 faster-whisper
 - `db`: PostgreSQL
 - `redis`: Celery broker と SSE fan-out
 - `migrate`, `bootstrap`: migration とデモユーザー作成を行う one-shot job
 
 成果物は `data/outputs/`、アップロードは `data/uploads/` に保存します。MinIO、GPU、独立 inference service は既定の MVP 構成に含めません。
+
+ブラウザは nginx の同一 origin から UI と `/api` の両方を取ります。Compose 経路では CORS は使いません。`localhost:8080` 用の CORS 追記は不要です。CORS 許可リストは、Vite (`http://localhost:5173`) から FastAPI へ直接叩くローカル開発向けです。
 
 ## Docker Compose で起動
 
@@ -37,7 +39,7 @@
 git clone <repository-url> minutes
 cd minutes
 
-# 任意。コピーしなくてもローカルデモ用の既定値で起動できます。
+# 任意。無くても .env.example 相当の既定値で起動できます。
 cp .env.example .env
 
 docker compose up --build -d
@@ -45,14 +47,33 @@ docker compose ps
 python3 scripts/smoke_compose.py
 ```
 
-ブラウザで <http://localhost:8080> を開き、次のローカル専用アカウントでログインします。
+ブラウザで <http://localhost> または <http://localhost:8080> を開き、次のローカル専用アカウントでログインします。
 
 ```text
 username: demo
 password: demo
 ```
 
-認証情報や公開ポートは `.env` で変更できます。`.env.example` の値はインターネット公開環境では使用しないでください。
+API は相対パス `/api` なので、開いた origin と同じホストへリクエストします。`http://localhost` なら 80 番、`http://localhost:8080` なら 8080 番です。どちらも frontend コンテナへ届きます。
+
+ログインが `http://localhost/api/auth/login` で `ERR_CONNECTION_REFUSED` のままなら、以前登録した Service Worker が古い SPA を返していることがあります。DevTools の Application から Service Worker を Unregister して再読み込みしてください。
+
+### `.env` の扱い
+
+`docker compose` はプロジェクト直下の `.env` を自動で読み、`docker-compose.yml` の `${VAR}` を展開します。`env_file:` は使っていないので、ファイル全体がコンテナ環境変数になるわけではありません。参照されているキーだけが使われます。
+
+| キー | 用途 |
+| --- | --- |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL と、コンテナ内 `DATABASE_URL` の組み立て |
+| `JWT_SECRET` | セッション署名 |
+| `ADMIN_USER`, `ADMIN_PASS` | bootstrap が作るデモユーザー |
+| `FRONTEND_PORT` | 追加の公開ポート（既定 `8080`。80 番は常に公開） |
+| `TRANSCRIBE_MODEL_SIZE` | worker の Whisper モデル |
+| `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS`, `OLLAMA_TIMEOUT` | `--profile llm` のときだけ |
+
+`.env` に残っている `MINIO_*` や `ADMIN_API_TOKEN`、`DATABASE_URL` は現行 Compose では使いません。古い MinIO 向けの値はそのままでも無視されます。ログイン ID / パスワードを変えるなら `ADMIN_USER` / `ADMIN_PASS` を `.env` に書いて `docker compose up --build -d` し直してください。
+
+`.env.example` の値はインターネット公開環境では使用しないでください。
 
 ### 初回の音声処理
 
@@ -74,14 +95,14 @@ Ollama を起動しない場合、整形処理は `[FALLBACK]` 付きのロー�
 
 ### Ollama を追加する
 
-LLM 整形を確認する場合だけ `llm` profile を有効にします。指定モデルは one-shot job が自動取得します。
+LLM 整形を確認する場合だけ `llm` profile を有効にします。`ollama-pull` が healthcheck 後にモデルを取得します。永続化先は named volume `ollama_data` です。
 
 ```bash
 docker compose --profile llm up --build -d
 docker compose logs -f ollama-pull
 ```
 
-既定モデルは `qwen2.5:3b` です。`.env` の `OLLAMA_MODEL` で変更できます。
+既定モデルは `qwen2.5:3b` です。`.env` の `OLLAMA_MODEL` で変更できます。モデル取得には数 GB の通信とディスクが必要になることがあります。
 
 ### 停止
 
@@ -94,7 +115,7 @@ docker compose --profile llm down -v
 
 ## Compose の健全性確認
 
-`scripts/smoke_compose.py` は次を frontend の公開 URL 経由で確認します。
+`scripts/smoke_compose.py` は frontend の公開 URL（既定 `http://localhost:8080`）経由で次を確認します。
 
 - 必須コンテナが running
 - Alembic revision が PostgreSQL に存在
@@ -142,7 +163,7 @@ npm ci
 npm run dev
 ```
 
-Vite は `/api` を `localhost:8000` へ proxy します。
+Vite は `/api` を `localhost:8000` へ proxy します。この場合もブラウザから見た origin は Vite なので CORS は不要です。proxy を外して FastAPI へ直接 fetch する場合だけ `minutes/api.py` の CORS 許可リストが使われます。
 
 ## テスト
 

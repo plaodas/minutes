@@ -38,7 +38,9 @@ app.include_router(user_buckets_router)
 include_canonical_and_legacy_alias(authentication_router)
 
 
-# CORS: allow local dev origins used by the frontend and Playwright
+# CORS is only used when the browser talks to FastAPI directly (Vite on :5173).
+# Compose serves the SPA and `/api` from the same nginx origin, so these
+# origins are unused for docker compose up.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
