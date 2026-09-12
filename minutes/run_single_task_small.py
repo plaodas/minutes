@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from minutes.audio import preprocess
 from minutes.bg_store import update_task_failure, update_task_success
 from minutes.ollama import format_minutes_from_raw
+from minutes.pipeline.artifacts import write_text_atomic
 from minutes.transcribe import transcribe
 
 
@@ -26,20 +27,9 @@ def run(upload_path: str, task_id: str):
             )
 
         outputs_dir = os.environ.get("OUTPUTS_DIR", "data/outputs")
-        os.makedirs(outputs_dir, exist_ok=True)
         now = uuid.uuid4().hex
-        tmp_file = os.path.join(outputs_dir, f"minutes_{now}.txt.tmp")
         out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
-
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            f.write(final_minutes)
-            f.flush()
-            try:
-                os.fsync(f.fileno())
-            except OSError:
-                pass
-
-        os.replace(tmp_file, out_file)
+        write_text_atomic(final_minutes, out_file)
 
         if not os.path.exists(out_file) or os.path.getsize(out_file) == 0:
             raise RuntimeError(f"Output write failed: {out_file}")

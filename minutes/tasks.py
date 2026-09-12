@@ -20,6 +20,7 @@ from minutes.bg_store import (
 )
 from minutes.celery_app import celery
 from minutes.ollama import DEFAULT_SYSTEM_PROMPT, format_minutes_from_raw
+from minutes.pipeline.artifacts import write_text_atomic
 from minutes.schemas import TaskStage
 from minutes.task_deletion import delete_task_permanently
 from minutes.transcribe import transcribe
@@ -455,10 +456,8 @@ def process_audio(self, input_path: str):
 
         now = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
         outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
-        os.makedirs(outputs_dir, exist_ok=True)
         out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
-        with open(out_file, "w", encoding="utf-8") as f:
-            f.write(final_minutes)
+        write_text_atomic(final_minutes, out_file)
 
         # Build structured result: transcript, segments, formatted minutes, summary, action items
         try:
