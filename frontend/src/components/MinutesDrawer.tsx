@@ -10,6 +10,7 @@ import {
   getBgTasks,
   renameBgTask,
 } from '../api/client';
+import { API_BASE, getAuthHeaders } from '../lib/apiConfig';
 import startDownload from '../lib/download';
 
 import Toast from './Toast';
@@ -74,12 +75,11 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
       setLoading(true);
       setError(null);
       setText(null);
-      const BASE = import.meta.env.VITE_API_BASE || '/api';
       try {
         const fetchWithRetry = (await import('../lib/fetchWithRetry')).default;
         const res = await fetchWithRetry(
-          `${BASE}/bg/minutes/${taskId}`,
-          { credentials: 'same-origin' },
+          `${API_BASE}/bg/minutes/${taskId}`,
+          { credentials: 'same-origin', headers: getAuthHeaders() },
           { retries: 2, timeoutMs: 10000 }
         );
         if (res.status === 202) {
@@ -97,8 +97,8 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
         (async () => {
           try {
             const sres = await fetchWithRetry(
-              `${BASE}/bg/summary/${taskId}?format=txt`,
-              { credentials: 'same-origin' },
+              `${API_BASE}/bg/summary/${taskId}?format=txt`,
+              { credentials: 'same-origin', headers: getAuthHeaders() },
               { retries: 1, timeoutMs: 8000 }
             );
             if (sres.ok) {

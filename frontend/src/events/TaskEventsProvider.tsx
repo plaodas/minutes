@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
+import { API_BASE } from '../lib/apiConfig';
 import { parseTaskEventData } from '../lib/taskEvents';
 import type { TaskEvent } from '../lib/taskEvents';
 
@@ -34,11 +35,10 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
       setConnectionState('unavailable');
       return;
     }
-    const base = import.meta.env.VITE_API_BASE || '/api';
     let eventSource: EventSource | null = null;
     try {
       setConnectionState('connecting');
-      eventSource = new EventSource(`${base}/bg/events`);
+      eventSource = new EventSource(`${API_BASE}/bg/events`);
       eventSource.onopen = () => setConnectionState('open');
       eventSource.onerror = () => setConnectionState('error');
       eventSource.onmessage = (message) => {

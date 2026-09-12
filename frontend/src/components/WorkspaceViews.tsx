@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, Clock3, FileAudio, Plus, SlidersHorizontal } from 'lucide-react';
 
-import fetchWithRetry from '../lib/fetchWithRetry';
+import { getBgTaskEvents, getBgTasks, renameBgTask } from '../api/client';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { useTasks } from '../hooks/useTasks';
-import { getBgTaskEvents, getBgTasks, renameBgTask } from '../api/client';
+import { API_BASE, getTasksPageLimit } from '../lib/apiConfig';
+import fetchWithRetry from '../lib/fetchWithRetry';
 import { toHistoryItem } from '../lib/taskState';
 import type { HistoryItem } from '../lib/taskState';
 
 import { MinutesDrawer } from './MinutesDrawer';
 import { useToast } from './ToastProvider';
-
-const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const LoginForm = React.lazy(() => import('./LoginForm'));
 
 const sampleMinutes = [
@@ -68,7 +67,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       const arr = tasks.map(toHistoryItem);
       setItems(arr);
       // heuristics: if tasks length < page limit, assume no more
-      const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20);
+      const limit = getTasksPageLimit();
       setHasMore(arr.length >= limit);
     }
   }, [tasks]);
@@ -190,7 +189,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
             setLoadingMore(true);
             (async () => {
               try {
-                const limit = Number(import.meta.env.VITE_TASKS_PAGE_LIMIT || 20);
+                const limit = getTasksPageLimit();
                 const offset = items.length;
                 // If offset is 0 the initial page is already loaded via `useTasks`.
                 // Avoid fetching page 0 again which causes duplicate items.

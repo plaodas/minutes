@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 
 import { uploadAudioBgWithProgress } from '../api/client';
 import { useActiveTask } from '../hooks/useActiveTask';
+import { ensureUserId } from '../lib/apiConfig';
 import sanitizeError from '../lib/sanitizeError';
 
 import ErrorModal from './ErrorModal';
@@ -71,48 +72,13 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       setRunning(false);
 
       try {
-        // ensure a user id exists in localStorage so uploads include X-User-Id
-        try {
-          const existing =
-            localStorage.getItem('minutes.userId') || localStorage.getItem('user_id');
-          if (!existing) {
-            try {
-              const id =
-                (window as Window & { crypto?: Crypto }).crypto?.randomUUID?.() ||
-                'id-' + Math.random().toString(36).slice(2, 10);
-              localStorage.setItem('minutes.userId', id);
-              try {
-                window.dispatchEvent(
-                  new CustomEvent('appToast', {
-                    detail: { type: 'success', message: 'User ID generated and saved for uploads' },
-                  })
-                );
-              } catch {
-                // toast dispatch is best-effort
-              }
-            } catch {
-              try {
-                const id2 = 'id-' + Math.random().toString(36).slice(2, 10);
-                localStorage.setItem('minutes.userId', id2);
-                try {
-                  window.dispatchEvent(
-                    new CustomEvent('appToast', {
-                      detail: {
-                        type: 'success',
-                        message: 'User ID generated and saved for uploads',
-                      },
-                    })
-                  );
-                } catch {
-                  // toast dispatch is best-effort
-                }
-              } catch {
-                // localStorage unavailable
-              }
-            }
-          }
-        } catch {
-          // localStorage unavailable
+        const { created } = ensureUserId();
+        if (created) {
+          window.dispatchEvent(
+            new CustomEvent('appToast', {
+              detail: { type: 'success', message: 'User ID generated and saved for uploads' },
+            })
+          );
         }
 
         setActiveIndex(0);

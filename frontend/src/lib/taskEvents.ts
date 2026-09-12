@@ -1,3 +1,7 @@
+import type { TaskEventPayload, TaskEventType, TaskStage } from '../api/types';
+
+export type { TaskEventPayload, TaskEventType, TaskStage };
+
 export const taskStages = [
   'pending',
   'preprocess',
@@ -7,9 +11,7 @@ export const taskStages = [
   'failed',
   'cancelled',
   'deleted',
-] as const;
-
-export type TaskStage = (typeof taskStages)[number];
+] as const satisfies readonly TaskStage[];
 
 export const taskEventTypes = [
   'created',
@@ -22,20 +24,7 @@ export const taskEventTypes = [
   'deleted',
   'undeleted',
   'deleted_hard',
-] as const;
-
-export type TaskEventType = (typeof taskEventTypes)[number];
-
-export type TaskEventPayload = {
-  status?: string;
-  detail?: string;
-  progress?: number;
-  result?: unknown;
-  error?: string;
-  name?: string;
-  previous?: string;
-  [key: string]: unknown;
-};
+] as const satisfies readonly TaskEventType[];
 
 type TaskEventBase = {
   type: 'task.event';

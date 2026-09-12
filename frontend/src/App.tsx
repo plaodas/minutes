@@ -25,8 +25,8 @@ export default function App() {
       getUserFeatures()
         .then((f) => {
           if (!mounted) return;
-          setIsAdmin(!!f && !!(f as any).is_admin);
-          setAuthenticated(Boolean((f as any)?.authenticated));
+          setIsAdmin(!!f.is_admin);
+          setAuthenticated(Boolean(f.authenticated));
           setAuthChecked(true);
         })
         .catch(() => {

@@ -1,34 +1,22 @@
-import { taskStageFromStatus } from './taskEvents';
-import type { TaskEvent, TaskStage } from './taskEvents';
+import type { TaskEventPayload, TaskHistoryRecord, TaskListItemResponse } from '../api/types';
 
-export type TaskHistoryPreview = {
-  event_ts?: string | null;
+import { taskStageFromStatus } from './taskEvents';
+import type { TaskEvent } from './taskEvents';
+
+export type TaskHistoryPreview = Partial<TaskHistoryRecord> & {
   event_type?: string;
-  payload?: {
-    error?: string;
+  payload?: TaskEventPayload & {
     result?: {
       output_file?: string;
       [key: string]: unknown;
     };
-    [key: string]: unknown;
   };
-  [key: string]: unknown;
 };
 
-export type TaskListItem = {
+export type TaskListItem = Partial<Omit<TaskListItemResponse, 'id'>> & {
   id: string;
-  name?: string | null;
-  status?: string;
-  stage?: TaskStage;
-  progress?: number | null;
-  result?: unknown;
   error?: string | null;
-  created_at?: string | null;
-  last_success_ts?: string | null;
-  preview_events?: TaskHistoryPreview[];
   histories?: TaskHistoryPreview[];
-  event_count?: number;
-  [key: string]: unknown;
 };
 
 export type HistoryItem = {

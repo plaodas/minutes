@@ -1,86 +1,59 @@
+import {
+  API_BASE,
+  applyUploadSettings,
+  getAuthHeaders,
+  getUploadAuthHeaders,
+} from '../lib/apiConfig';
 import fetchWithRetry from '../lib/fetchWithRetry';
 import { parseTaskHistoryResponse, parseTaskListResponse } from '../lib/taskState';
 import type { TaskHistoryPreview, TaskListItem } from '../lib/taskState';
 
-import type { components } from './generated';
+import type {
+  AuthFeaturesResponse,
+  AuthLoginResponse,
+  CreateTaskResponse,
+  ResultSuccess,
+  StatusResponse,
+  TaskDeletedResponse,
+  TaskUndeletedResponse,
+} from './types';
 
-const BASE = import.meta.env.VITE_API_BASE || '/api';
+export type UploadTaskResponse = CreateTaskResponse & {
+  taskId?: string;
+  id?: string;
+};
 
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  try {
-    const token =
-      localStorage.getItem('minutes.serviceToken') ||
-      localStorage.getItem('service_token') ||
-      import.meta.env.VITE_SERVICE_TOKEN;
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-      return headers;
-    }
-  } catch (e) {}
-  return headers;
-}
-
-export async function uploadAudioBg(file: File) {
+export async function uploadAudioBg(file: File): Promise<UploadTaskResponse> {
   const fd = new FormData();
   fd.append('file', file);
-  const headers: Record<string, string> = { ...getAuthHeaders() };
-  // fallback to X-User-Id for legacy clients/tests
-  if (!headers['Authorization']) {
-    try {
-      const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id');
-      if (uid) headers['X-User-Id'] = uid;
-    } catch {}
-  }
-  // include user settings (language, include_actions) if present
-  try {
-    const raw = localStorage.getItem('minutes.settings');
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (s?.language) fd.append('language', s.language);
-      if (typeof s?.includeActions !== 'undefined')
-        fd.append('include_actions', s.includeActions ? '1' : '0');
-    }
-  } catch {}
-  const res = await fetch(`${BASE}/transcribe-upload-bg`, { method: 'POST', body: fd, headers });
+  applyUploadSettings(fd);
+  const res = await fetch(`${API_BASE}/transcribe-upload-bg`, {
+    method: 'POST',
+    body: fd,
+    headers: getUploadAuthHeaders(),
+  });
   if (!res.ok) throw new Error('upload failed');
-  return res.json(); // { task_id }
+  return res.json() as Promise<UploadTaskResponse>;
 }
 
 export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: number) => void) {
   const xhr = new XMLHttpRequest();
   const fd = new FormData();
   fd.append('file', file);
-  xhr.open('POST', `${BASE}/transcribe-upload-bg`);
+  applyUploadSettings(fd);
+  xhr.open('POST', `${API_BASE}/transcribe-upload-bg`);
 
-  try {
-    const auth = getAuthHeaders();
-    if (auth['Authorization']) xhr.setRequestHeader('Authorization', auth['Authorization']);
-    else {
-      const uid = localStorage.getItem('minutes.userId') || localStorage.getItem('user_id');
-      if (uid) xhr.setRequestHeader('X-User-Id', uid);
-    }
-  } catch {}
+  for (const [name, value] of Object.entries(getUploadAuthHeaders())) {
+    xhr.setRequestHeader(name, value);
+  }
 
-  // include user settings (language, include_actions) if present
-  try {
-    const raw = localStorage.getItem('minutes.settings');
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (s?.language) fd.append('language', s.language);
-      if (typeof s?.includeActions !== 'undefined')
-        fd.append('include_actions', s.includeActions ? '1' : '0');
-    }
-  } catch {}
-
-  const promise = new Promise<any>((resolve, reject) => {
+  const promise = new Promise<UploadTaskResponse>((resolve, reject) => {
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          const json = JSON.parse(xhr.responseText);
-          resolve(json);
-        } catch (e) {
-          resolve({});
+          resolve(JSON.parse(xhr.responseText) as UploadTaskResponse);
+        } catch {
+          resolve({ task_id: '' });
         }
       } else {
         const msg = `upload failed: ${xhr.status} ${xhr.statusText} ${xhr.responseText || ''}`;
@@ -106,11 +79,11 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
   return { xhr, promise };
 }
 
-export type BgStatusResponse = components['schemas']['StatusResponse'];
+export type BgStatusResponse = StatusResponse;
 
 export async function getBgStatus(taskId: string): Promise<BgStatusResponse> {
   const res = await fetchWithRetry(
-    `${BASE}/bg/status/${taskId}`,
+    `${API_BASE}/bg/status/${taskId}`,
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: 3, timeoutMs: 10000 }
   );
@@ -118,14 +91,14 @@ export async function getBgStatus(taskId: string): Promise<BgStatusResponse> {
   return res.json() as Promise<BgStatusResponse>;
 }
 
-export async function getBgResult(taskId: string) {
+export async function getBgResult(taskId: string): Promise<ResultSuccess> {
   const res = await fetchWithRetry(
-    `${BASE}/bg/result/${taskId}`,
+    `${API_BASE}/bg/result/${taskId}`,
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: 3, timeoutMs: 10000 }
   );
   if (!res.ok) throw new Error('result fetch failed');
-  return res.json();
+  return res.json() as Promise<ResultSuccess>;
 }
 
 export async function getBgTasks(
@@ -141,7 +114,7 @@ export async function getBgTasks(
   if (options.offset !== undefined) params.set('offset', String(options.offset));
   const query = params.toString();
   const res = await fetchWithRetry(
-    `${BASE}/bg/tasks${query ? `?${query}` : ''}`,
+    `${API_BASE}/bg/tasks${query ? `?${query}` : ''}`,
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: options.retries ?? 3, timeoutMs: options.timeoutMs ?? 10000 }
   );
@@ -153,7 +126,7 @@ export async function getBgTasks(
 
 export async function getBgTaskEvents(taskId: string): Promise<TaskHistoryPreview[]> {
   const res = await fetchWithRetry(
-    `${BASE}/bg/tasks/${encodeURIComponent(taskId)}/events`,
+    `${API_BASE}/bg/tasks/${encodeURIComponent(taskId)}/events`,
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: 2, timeoutMs: 10000 }
   );
@@ -165,7 +138,7 @@ export async function getBgTaskEvents(taskId: string): Promise<TaskHistoryPrevie
 
 export async function renameBgTask(taskId: string, name: string): Promise<void> {
   const res = await fetchWithRetry(
-    `${BASE}/bg/task/${encodeURIComponent(taskId)}/rename`,
+    `${API_BASE}/bg/task/${encodeURIComponent(taskId)}/rename`,
     {
       method: 'POST',
       credentials: 'same-origin',
@@ -195,22 +168,22 @@ async function _downloadBlob(url: string) {
 }
 
 export async function fetchTranscriptDownload(taskId: string, format: string = 'txt') {
-  const url = `${BASE}/bg/transcript/${taskId}?format=${encodeURIComponent(format)}`;
+  const url = `${API_BASE}/bg/transcript/${taskId}?format=${encodeURIComponent(format)}`;
   return _downloadBlob(url);
 }
 
 export async function fetchSummaryDownload(taskId: string, format: string = 'txt') {
-  const url = `${BASE}/bg/summary/${taskId}?format=${encodeURIComponent(format)}`;
+  const url = `${API_BASE}/bg/summary/${taskId}?format=${encodeURIComponent(format)}`;
   return _downloadBlob(url);
 }
 
 export async function fetchActionItemsDownload(taskId: string, format: string = 'json') {
-  const url = `${BASE}/bg/action-items/${taskId}?format=${encodeURIComponent(format)}`;
+  const url = `${API_BASE}/bg/action-items/${taskId}?format=${encodeURIComponent(format)}`;
   return _downloadBlob(url);
 }
 
-export async function deleteTask(taskId: string) {
-  const res = await fetch(`${BASE}/bg/delete/${encodeURIComponent(taskId)}`, {
+export async function deleteTask(taskId: string): Promise<TaskDeletedResponse> {
+  const res = await fetch(`${API_BASE}/bg/delete/${encodeURIComponent(taskId)}`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: getAuthHeaders(),
@@ -219,8 +192,8 @@ export async function deleteTask(taskId: string) {
   return res.json();
 }
 
-export async function forceDeleteTask(taskId: string) {
-  const res = await fetch(`${BASE}/bg/force-delete/${encodeURIComponent(taskId)}`, {
+export async function forceDeleteTask(taskId: string): Promise<TaskDeletedResponse> {
+  const res = await fetch(`${API_BASE}/bg/force-delete/${encodeURIComponent(taskId)}`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: getAuthHeaders(),
@@ -229,10 +202,10 @@ export async function forceDeleteTask(taskId: string) {
   return res.json();
 }
 
-export async function getUserFeatures() {
-  const res = await fetch(`${BASE}/auth/features`, { credentials: 'same-origin' });
-  if (!res.ok) return { is_admin: false };
-  return res.json();
+export async function getUserFeatures(): Promise<AuthFeaturesResponse> {
+  const res = await fetch(`${API_BASE}/auth/features`, { credentials: 'same-origin' });
+  if (!res.ok) return { is_admin: false, authenticated: false };
+  return res.json() as Promise<AuthFeaturesResponse>;
 }
 
 export async function adminUploadsCleanupGet(
@@ -244,7 +217,7 @@ export async function adminUploadsCleanupGet(
   if (opts.older_than) params.set('older_than', String(opts.older_than));
   if (opts.limit) params.set('limit', String(opts.limit));
   const headers = { ...getAuthHeaders(), 'X-Admin': '1' };
-  const res = await fetch(`${BASE}/admin/uploads/cleanup?${params.toString()}`, {
+  const res = await fetch(`${API_BASE}/admin/uploads/cleanup?${params.toString()}`, {
     credentials: 'same-origin',
     headers,
   });
@@ -259,7 +232,7 @@ export async function adminUploadsCleanupPost(payload: {
   limit?: number;
 }) {
   const headers = { 'Content-Type': 'application/json', ...getAuthHeaders(), 'X-Admin': '1' };
-  const res = await fetch(`${BASE}/admin/uploads/cleanup`, {
+  const res = await fetch(`${API_BASE}/admin/uploads/cleanup`, {
     method: 'POST',
     credentials: 'same-origin',
     headers,
@@ -269,8 +242,11 @@ export async function adminUploadsCleanupPost(payload: {
   return res.json();
 }
 
-export async function login(username: string, password: string) {
-  const res = await fetch(`${BASE}/auth/login`, {
+export async function login(
+  username: string,
+  password: string
+): Promise<AuthLoginResponse | Response> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -288,7 +264,7 @@ export async function login(username: string, password: string) {
 }
 
 export async function logout() {
-  const res = await fetch(`${BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+  const res = await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
   if (!res.ok) throw new Error('logout failed');
   try {
     return await res.json();
@@ -298,7 +274,7 @@ export async function logout() {
 }
 
 export async function getBuckets() {
-  const res = await fetch(`${BASE}/buckets`, {
+  const res = await fetch(`${API_BASE}/buckets`, {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
@@ -307,7 +283,7 @@ export async function getBuckets() {
 }
 
 export async function createBucket(name: string) {
-  const res = await fetch(`${BASE}/buckets`, {
+  const res = await fetch(`${API_BASE}/buckets`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -318,7 +294,7 @@ export async function createBucket(name: string) {
 }
 
 export async function listServiceTokens() {
-  const res = await fetch(`${BASE}/service-tokens`, {
+  const res = await fetch(`${API_BASE}/service-tokens`, {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
@@ -327,7 +303,7 @@ export async function listServiceTokens() {
 }
 
 export async function createServiceToken(name?: string, user_id?: string) {
-  const res = await fetch(`${BASE}/service-tokens`, {
+  const res = await fetch(`${API_BASE}/service-tokens`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -338,7 +314,7 @@ export async function createServiceToken(name?: string, user_id?: string) {
 }
 
 export async function revokeServiceToken(id: string) {
-  const res = await fetch(`${BASE}/service-tokens/${encodeURIComponent(id)}`, {
+  const res = await fetch(`${API_BASE}/service-tokens/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     credentials: 'same-origin',
     headers: getAuthHeaders(),
@@ -347,8 +323,8 @@ export async function revokeServiceToken(id: string) {
   return res.json();
 }
 
-export async function undeleteTask(taskId: string) {
-  const res = await fetch(`${BASE}/bg/undelete/${encodeURIComponent(taskId)}`, {
+export async function undeleteTask(taskId: string): Promise<TaskUndeletedResponse> {
+  const res = await fetch(`${API_BASE}/bg/undelete/${encodeURIComponent(taskId)}`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: getAuthHeaders(),
