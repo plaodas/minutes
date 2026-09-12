@@ -14,6 +14,7 @@ from minutes.schemas import (
     ("status", "expected"),
     [
         ("pending", TaskStage.PENDING),
+        (TaskStage.PENDING, TaskStage.PENDING),
         ("preprocess", TaskStage.PREPROCESS),
         ("transcribing:48.3s", TaskStage.TRANSCRIBING),
         ("formatting", TaskStage.FORMATTING),

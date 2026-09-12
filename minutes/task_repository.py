@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from .db import engine, session_scope
 from .models import Task, TaskHistory
-from .schemas import TaskEventType, normalize_task_status
+from .schemas import TaskEventType, normalize_task_status, task_status_value
 from .task_state import EventEmitter, parse_task_key
 
 logger = logging.getLogger("minutes.task_repository")
@@ -90,7 +90,7 @@ def get_task_snapshot(task_id: str) -> TaskSnapshot | None:
             except ValueError:
                 pass
         return {
-            "status": task.status,
+            "status": task_status_value(task.status),
             "detail": detail,
             "result": task.result,
             "error": None,

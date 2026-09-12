@@ -159,7 +159,15 @@ _STATUS_STAGE_ALIASES = {
 }
 
 
-def task_stage_from_status(status: str | None) -> TaskStage | None:
+def task_status_value(status: TaskStage | str | None) -> str:
+    if isinstance(status, TaskStage):
+        return status.value
+    return "" if status is None else str(status)
+
+
+def task_stage_from_status(status: TaskStage | str | None) -> TaskStage | None:
+    if isinstance(status, TaskStage):
+        return status
     if not status:
         return None
     normalized = status.strip().lower().split(":", 1)[0]

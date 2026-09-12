@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError, StatementError
 
 from minutes import task_deletion, task_event_service, task_events
 from minutes import tasks as task_workers
@@ -13,6 +13,8 @@ from minutes.bg_store import create_task, get_task, update_task_success
 from minutes.db import SessionLocal, session_scope
 from minutes.models import Task, TaskHistory
 from minutes.routers import background_task_lifecycle
+from minutes.schemas import TaskStage
+from minutes.task_state import set_task_stage
 
 
 def test_cancel_marks_task_cancelled_when_celery_revoke_fails(monkeypatch):
@@ -106,22 +108,49 @@ def test_undelete_restores_successful_task_to_success(monkeypatch):
         assert undeleted.payload == {"previous": "deleted", "status": "success"}
 
 
-def test_soft_delete_rejects_unknown_task_stage(monkeypatch):
+def test_task_status_rejects_unknown_stage():
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    with pytest.raises((LookupError, StatementError, IntegrityError)):
+        with session_scope() as session:
+            task = session.get(Task, task_id)
+            assert task is not None
+            task.status = "not-a-stage"
+
+    with session_scope() as session:
+        task = session.get(Task, task_id)
+        assert task is not None
+        assert task.status == TaskStage.PENDING
+
+
+def test_set_task_stage_rejects_unknown_current_status():
+    class _Row:
+        status = "not-a-stage"
+
+    with pytest.raises(ValueError, match="unknown current task stage"):
+        set_task_stage(_Row(), TaskStage.DELETED)
+
+
+def test_soft_delete_maps_invalid_stage_to_409(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
     published = []
     monkeypatch.setattr(task_events, "publish_event", published.append)
-    with session_scope() as session:
-        task = session.get(Task, task_id)
-        assert task is not None
-        task.status = "not-a-stage"
+
+    def reject_stage(_task, _target):
+        raise ValueError("unknown current task stage: 'not-a-stage'")
+
+    monkeypatch.setattr(
+        "minutes.task_lifecycle.set_task_stage",
+        reject_stage,
+    )
 
     response = TestClient(app).post(f"/api/bg/delete/{task_id}")
 
     assert response.status_code == 409
     assert response.json() == {"error": "unknown current task stage: 'not-a-stage'"}
     assert published == []
-    assert get_task(str(task_id))["status"] == "not-a-stage"
+    assert get_task(str(task_id))["status"] == "pending"
 
 
 def test_soft_delete_db_failure_does_not_mark_task_success(monkeypatch):

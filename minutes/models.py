@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Enum as SAEnum,
     ForeignKey,
     Integer,
     Numeric,
@@ -13,6 +14,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
+
+from minutes.schemas import TaskStage
 
 Base = declarative_base()
 
@@ -36,7 +39,19 @@ class Task(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     # short display name for the task (e.g. "Meeting: Engineering sync")
     name = Column(String, nullable=True, index=True)
-    status = Column(String, nullable=False, index=True)
+    status = Column(
+        SAEnum(
+            TaskStage,
+            name="task_stage",
+            native_enum=False,
+            create_constraint=True,
+            validate_strings=True,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+            length=32,
+        ),
+        nullable=False,
+        index=True,
+    )
     progress = Column(Numeric, default=0)
     result = Column(JSON, nullable=True)
     fail_count = Column(Integer, default=0)

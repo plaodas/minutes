@@ -11,6 +11,7 @@ from datetime import datetime
 
 from minutes.db import session_scope
 from minutes.models import Task
+from minutes.schemas import TaskStage, task_stage_from_status
 
 DB_FILE = os.environ.get("BG_TASK_DB", "data/bg_tasks.json")
 
@@ -36,7 +37,8 @@ def migrate():
             if not t:
                 t = Task(id=uuid.UUID(tid))
                 session.add(t)
-            t.status = item.get("status")
+            stage = task_stage_from_status(item.get("status"))
+            t.status = stage.value if stage else TaskStage.PENDING.value
             t.result = item.get("result")
             t.fail_count = int(item.get("fail_count") or 0)
             # parse timestamps if present

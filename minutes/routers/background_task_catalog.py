@@ -20,6 +20,7 @@ from minutes.schemas import (
     TaskListResponse,
     TaskNameResponse,
     task_stage_from_status,
+    task_status_value,
 )
 from minutes.summary import summarize_local
 
@@ -254,7 +255,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                 {
                     "id": str(task.id),
                     "name": task.name,
-                    "status": task.status,
+                    "status": task_status_value(task.status),
                     "stage": task_stage_from_status(task.status),
                     "progress": (
                         float(task.progress) if task.progress is not None else None

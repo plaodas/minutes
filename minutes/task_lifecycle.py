@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from minutes.models import Task
-from minutes.schemas import TaskStage
+from minutes.schemas import TaskStage, task_status_value
 from minutes.task_event_service import TaskEventService
 from minutes.task_events import emit_task_event
 from minutes.task_state import set_task_stage
@@ -17,7 +17,7 @@ def mark_task_deleted(task_id: str) -> bool:
         if not task:
             raise _TaskNotFoundError
 
-        previous_status = task.status
+        previous_status = task_status_value(task.status)
         set_task_stage(task, TaskStage.DELETED)
         task.deleted = True
         task.deleted_at = datetime.now(tz=timezone.utc)
@@ -43,7 +43,7 @@ def restore_task(task_id: str) -> bool:
             raise _TaskNotFoundError
 
         restored_stage = TaskStage.SUCCESS if task.result else TaskStage.PENDING
-        previous_status = task.status
+        previous_status = task_status_value(task.status)
         set_task_stage(task, restored_stage)
         task.deleted = False
         task.deleted_at = None
