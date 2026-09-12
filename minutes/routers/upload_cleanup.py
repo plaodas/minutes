@@ -11,7 +11,7 @@ from minutes.schemas import (
     UploadCleanupListResponse,
 )
 
-router = APIRouter(tags=["admin"])
+router = APIRouter(prefix="/admin/uploads", tags=["admin"])
 
 
 def _resolve_uploads_dir(
@@ -56,15 +56,7 @@ def _list_candidates(
 
 
 @router.get(
-    "/admin/uploads/cleanup",
-    response_model=UploadCleanupListResponse,
-    responses={
-        404: JSON_ERROR_RESPONSES[404],
-        500: JSON_ERROR_RESPONSES[500],
-    },
-)
-@router.get(
-    "/api/admin/uploads/cleanup",
+    "/cleanup",
     response_model=UploadCleanupListResponse,
     responses={
         404: JSON_ERROR_RESPONSES[404],
@@ -90,15 +82,7 @@ def list_uploads_for_cleanup(
 
 
 @router.post(
-    "/admin/uploads/cleanup",
-    response_model=UploadCleanupDeleteResponse,
-    responses={
-        404: JSON_ERROR_RESPONSES[404],
-        500: JSON_ERROR_RESPONSES[500],
-    },
-)
-@router.post(
-    "/api/admin/uploads/cleanup",
+    "/cleanup",
     response_model=UploadCleanupDeleteResponse,
     responses={
         404: JSON_ERROR_RESPONSES[404],

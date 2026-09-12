@@ -31,7 +31,7 @@ def test_reject_non_audio(monkeypatch):
     monkeypatch.setattr(tasks, "process_audio", lambda path: DummyTask("fake-id"))
 
     files = {"file": ("test.md", io.BytesIO(b"not audio"), "text/plain")}
-    r = client.post("/transcribe-upload-bg", files=files)
+    r = client.post("/api/transcribe-upload-bg", files=files)
     assert r.status_code == 400
 
 
@@ -53,7 +53,7 @@ def test_accept_wav_bg(monkeypatch):
 
     wav = make_wav_bytes()
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
-    r = client.post("/transcribe-upload-bg", files=files)
+    r = client.post("/api/transcribe-upload-bg", files=files)
     assert r.status_code == 200
     assert "task_id" in r.json()
 
@@ -66,6 +66,6 @@ def test_accept_wav_sync(monkeypatch):
 
     wav = make_wav_bytes()
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
-    r = client.post("/transcribe-upload", files=files)
+    r = client.post("/api/transcribe-upload", files=files)
     assert r.status_code == 200
     assert "task_id" in r.json()

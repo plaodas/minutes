@@ -25,7 +25,7 @@ def test_cleanup_dry_run(monkeypatch, tmp_path):
     # ensure admin
     headers = {"X-Admin": "1"}
     params = {"dir": str(tmp_path), "pattern": "minutes_", "older_than": 3600}
-    r = client.get("/admin/uploads/cleanup", params=params, headers=headers)
+    r = client.get("/api/admin/uploads/cleanup", params=params, headers=headers)
     assert r.status_code == 200
     data = r.json()
     assert data["count"] == 1
@@ -40,7 +40,7 @@ def test_cleanup_post_delete(monkeypatch, tmp_path):
     client = TestClient(app)
     headers = {"X-Admin": "1"}
     payload = {"dir": str(tmp_path), "pattern": "minutes_", "older_than": 3600}
-    r = client.post("/admin/uploads/cleanup", json=payload, headers=headers)
+    r = client.post("/api/admin/uploads/cleanup", json=payload, headers=headers)
     assert r.status_code == 200
     data = r.json()
     assert data["count"] == 1
@@ -49,7 +49,7 @@ def test_cleanup_post_delete(monkeypatch, tmp_path):
 
 def test_cleanup_rejects_unauthenticated_request(tmp_path):
     response = TestClient(app).get(
-        "/admin/uploads/cleanup", params={"dir": str(tmp_path)}
+        "/api/admin/uploads/cleanup", params={"dir": str(tmp_path)}
     )
 
     assert response.status_code == 403
@@ -60,7 +60,7 @@ def test_cleanup_accepts_force_admin_override(monkeypatch, tmp_path):
     monkeypatch.setenv("FORCE_ADMIN", "true")
 
     response = TestClient(app).get(
-        "/admin/uploads/cleanup", params={"dir": str(tmp_path)}
+        "/api/admin/uploads/cleanup", params={"dir": str(tmp_path)}
     )
 
     assert response.status_code == 200

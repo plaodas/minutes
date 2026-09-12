@@ -22,11 +22,10 @@ from minutes.schemas import (
 )
 
 logger = logging.getLogger("minutes.routers.authentication")
-router = APIRouter(tags=["authentication"])
+router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-@router.get("/auth/features", response_model=AuthFeaturesResponse)
-@router.get("/api/auth/features", response_model=AuthFeaturesResponse)
+@router.get("/features", response_model=AuthFeaturesResponse)
 def auth_features(
     x_admin: str | None = Header(None),
     minutes_session: str | None = Cookie(None),
@@ -52,12 +51,7 @@ def auth_features(
 
 
 @router.post(
-    "/auth/login",
-    response_model=AuthLoginResponse,
-    responses={401: JSON_ERROR_RESPONSES[401]},
-)
-@router.post(
-    "/api/auth/login",
+    "/login",
     response_model=AuthLoginResponse,
     responses={401: JSON_ERROR_RESPONSES[401]},
 )
@@ -113,8 +107,7 @@ def login(payload: AuthLoginRequest, response: Response):
         return result
 
 
-@router.post("/auth/logout", response_model=AuthLogoutResponse)
-@router.post("/api/auth/logout", response_model=AuthLogoutResponse)
+@router.post("/logout", response_model=AuthLogoutResponse)
 def logout(response: Response):
     logger.info("Logout requested")
     result = JSONResponse(AuthLogoutResponse(logged_out=True).model_dump())

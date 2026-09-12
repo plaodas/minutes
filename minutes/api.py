@@ -15,15 +15,24 @@ from minutes.routers.uploads import router as uploads_router
 from minutes.routers.user_buckets import router as user_buckets_router
 
 app = FastAPI(title="Minutes Service (prototype)", lifespan=app_lifespan)
+
+
+def include_canonical_and_legacy_alias(router, **kwargs) -> None:
+    app.include_router(router, prefix="/api", **kwargs)
+    app.include_router(router, include_in_schema=False, **kwargs)
+
+
 app.include_router(background_tasks_router)
 
 app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
 app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
-app.include_router(upload_cleanup_router, dependencies=[Depends(require_admin)])
+include_canonical_and_legacy_alias(
+    upload_cleanup_router, dependencies=[Depends(require_admin)]
+)
 app.include_router(pipeline_router)
-app.include_router(uploads_router)
+include_canonical_and_legacy_alias(uploads_router)
 app.include_router(user_buckets_router)
-app.include_router(authentication_router)
+include_canonical_and_legacy_alias(authentication_router)
 
 
 # CORS: allow local dev origins used by the frontend and Playwright

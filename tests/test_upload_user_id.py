@@ -42,7 +42,7 @@ def test_upload_sets_user_id(monkeypatch):
     wav = make_wav_bytes()
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
     headers = {"X-User-Id": "11111111-1111-1111-1111-111111111111"}
-    r = client.post("/transcribe-upload-bg", files=files, headers=headers)
+    r = client.post("/api/transcribe-upload-bg", files=files, headers=headers)
     assert r.status_code == 200
     data = r.json()
     assert "task_id" in data
@@ -61,6 +61,6 @@ def test_upload_sets_user_id(monkeypatch):
     monkeypatch.setattr(bg, "create_task", fake_create)
 
     # Trigger upload again to hit our fake
-    r2 = client.post("/transcribe-upload-bg", files=files, headers=headers)
+    r2 = client.post("/api/transcribe-upload-bg", files=files, headers=headers)
     assert r2.status_code == 200
     assert called.get("user_id") == "11111111-1111-1111-1111-111111111111"

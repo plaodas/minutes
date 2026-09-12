@@ -50,7 +50,7 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
     data = {"language": "Japanese", "include_actions": "0"}
 
-    r = client.post("/transcribe-upload-bg", files=files, data=data)
+    r = client.post("/api/transcribe-upload-bg", files=files, data=data)
     assert r.status_code == 200
     assert called.get("metadata")
     assert called["metadata"].get("language") == "Japanese"

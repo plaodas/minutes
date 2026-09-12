@@ -163,12 +163,12 @@ def test_service_token_routes_are_owned_by_router_module():
 
 def test_upload_cleanup_routes_are_owned_by_router_module():
     expected_routes = {
-        ("GET", "/admin/uploads/cleanup"),
-        ("POST", "/admin/uploads/cleanup"),
         ("GET", "/api/admin/uploads/cleanup"),
         ("POST", "/api/admin/uploads/cleanup"),
     }
-    routes = [route for route in app.routes if route.path.endswith("/uploads/cleanup")]
+    routes = [
+        route for route in app.routes if route.path == "/api/admin/uploads/cleanup"
+    ]
     actual_routes = {
         (method, route.path)
         for route in routes
@@ -200,18 +200,11 @@ def test_user_bucket_routes_are_owned_by_router_module():
 
 def test_auth_routes_are_owned_by_router_module():
     expected_routes = {
-        ("GET", "/auth/features"),
         ("GET", "/api/auth/features"),
-        ("POST", "/auth/login"),
         ("POST", "/api/auth/login"),
-        ("POST", "/auth/logout"),
         ("POST", "/api/auth/logout"),
     }
-    routes = [
-        route
-        for route in app.routes
-        if route.path.startswith("/auth/") or route.path.startswith("/api/auth/")
-    ]
+    routes = [route for route in app.routes if route.path.startswith("/api/auth/")]
     actual_routes = {
         (method, route.path)
         for route in routes
@@ -228,12 +221,12 @@ def test_auth_routes_are_owned_by_router_module():
 
 def test_upload_routes_are_owned_by_router_module():
     expected_routes = {
-        ("POST", "/transcribe-upload"),
         ("POST", "/api/transcribe-upload"),
-        ("POST", "/transcribe-upload-bg"),
         ("POST", "/api/transcribe-upload-bg"),
     }
-    routes = [route for route in app.routes if "transcribe-upload" in route.path]
+    routes = [
+        route for route in app.routes if route.path.startswith("/api/transcribe-upload")
+    ]
     actual_routes = {
         (method, route.path)
         for route in routes
@@ -245,6 +238,40 @@ def test_upload_routes_are_owned_by_router_module():
     assert all(
         route.endpoint.__module__ == "minutes.routers.uploads" for route in routes
     )
+
+
+LEGACY_UNPREFIXED_ALIASES = {
+    ("GET", "/auth/features"),
+    ("POST", "/auth/login"),
+    ("POST", "/auth/logout"),
+    ("POST", "/transcribe-upload"),
+    ("POST", "/transcribe-upload-bg"),
+    ("GET", "/admin/uploads/cleanup"),
+    ("POST", "/admin/uploads/cleanup"),
+}
+
+
+def test_legacy_unprefixed_aliases_stay_available_but_out_of_schema():
+    actual_routes = {
+        (method, route.path)
+        for route in app.routes
+        for method in getattr(route, "methods", set())
+        if method not in {"HEAD", "OPTIONS"}
+    }
+    schema_paths = set(app.openapi()["paths"])
+
+    assert LEGACY_UNPREFIXED_ALIASES <= actual_routes
+    assert {path for _, path in LEGACY_UNPREFIXED_ALIASES}.isdisjoint(schema_paths)
+    assert "/api/auth/features" in schema_paths
+    assert "/api/transcribe-upload-bg" in schema_paths
+    assert "/api/admin/uploads/cleanup" in schema_paths
+
+
+def test_legacy_auth_features_alias_still_responds():
+    response = TestClient(app).get("/auth/features")
+
+    assert response.status_code == 200
+    assert "is_admin" in response.json()
 
 
 def test_pipeline_routes_are_owned_by_router_module():

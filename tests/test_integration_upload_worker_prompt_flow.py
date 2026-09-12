@@ -85,7 +85,7 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
     data = {"language": "Japanese", "include_actions": "0"}
 
-    r = client.post("/transcribe-upload-bg", files=files, data=data)
+    r = client.post("/api/transcribe-upload-bg", files=files, data=data)
     assert r.status_code == 200
     resp = r.json()
     assert resp.get("task_id")
