@@ -13,6 +13,7 @@ from minutes.http_errors import error_json
 from minutes.minio_client import MinioService
 from minutes.schemas import ActionItemsResponse, JSON_ERROR_RESPONSES, ResultPendingResponse
 from minutes.summary import summarize_local
+from minutes.task_result import local_output_path, result_minio_object, result_output_file
 
 router = APIRouter()
 
@@ -68,21 +69,11 @@ def _successful_task_or_response(task_id: str):
     return task, None
 
 
-def _resolve_output_file_from_task(task_id: str):
-    task, error = _successful_task_or_response(task_id)
-    if error:
-        return None, error
-    result = task.get("result") or {}
-    output_file = None
-    if isinstance(result, dict):
-        output_file = result.get("output_file")
-        nested = result.get("result")
-        if not output_file and isinstance(nested, dict):
-            output_file = nested.get("output_file")
+def _local_output_from_result(result: object):
+    output_file = result_output_file(result)
     if not output_file:
         return None, error_json("no output file available", 404)
-    outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
-    return os.path.join(outputs_dir, os.path.basename(output_file)), None
+    return local_output_path(output_file), None
 
 
 def _stream_minio_object(
@@ -178,27 +169,18 @@ def bg_minutes_file(task_id: str):
     if error:
         return error
     result = task.get("result") or {}
-    output_file = None
-    if isinstance(result, dict):
-        output_file = result.get("output_file")
-        nested = result.get("result")
-        if not output_file and isinstance(nested, dict):
-            output_file = nested.get("output_file")
+    output_file = result_output_file(result)
     if not output_file:
         return error_json("no output file available", 404)
 
     filename = os.path.basename(output_file)
-    candidate = os.path.join(os.environ.get("OUTPUTS_DIR", "outputs"), filename)
+    candidate = local_output_path(output_file)
+    minio_object = result_minio_object(result)
     try:
-        if (
-            isinstance(result, dict)
-            and isinstance(result.get("minio"), dict)
-            and result["minio"].get("bucket")
-            and result["minio"].get("object")
-        ):
+        if minio_object:
             return _stream_minio_object(
-                result["minio"]["bucket"],
-                result["minio"]["object"],
+                minio_object[0],
+                minio_object[1],
                 filename=filename,
                 media_type="text/plain",
             )
@@ -222,7 +204,7 @@ def bg_transcript(task_id: str, format: str = "txt"):
     if isinstance(result, dict) and result.get("transcript"):
         text = result["transcript"]
     else:
-        candidate, error = _resolve_output_file_from_task(task_id)
+        candidate, error = _local_output_from_result(result)
         if error:
             return error
         try:
@@ -232,16 +214,10 @@ def bg_transcript(task_id: str, format: str = "txt"):
             return error_json("output file not found", 404)
         except (OSError, UnicodeDecodeError) as exc:
             return error_json(str(exc), 500)
-    if (
-        isinstance(result, dict)
-        and isinstance(result.get("minio"), dict)
-        and result["minio"].get("bucket")
-        and result["minio"].get("object")
-    ):
+    minio_object = result_minio_object(result)
+    if minio_object:
         try:
-            text = _read_minio_object_text(
-                result["minio"]["bucket"], result["minio"]["object"]
-            )
+            text = _read_minio_object_text(minio_object[0], minio_object[1])
         except (OSError, ImportError) as exc:
             logging.getLogger(__name__).debug(
                 "MinIO transcript read failed for %s: %s",
@@ -269,7 +245,7 @@ def bg_summary(task_id: str, format: str = "txt"):
     if isinstance(result, dict) and result.get("summary"):
         summary_text = result["summary"]
     else:
-        candidate, error = _resolve_output_file_from_task(task_id)
+        candidate, error = _local_output_from_result(result)
         if error:
             return error
         try:
@@ -325,7 +301,7 @@ def bg_action_items(task_id: str, format: str = "json"):
     if isinstance(result, dict) and isinstance(result.get("action_items"), list):
         items = result["action_items"]
     else:
-        candidate, error = _resolve_output_file_from_task(task_id)
+        candidate, error = _local_output_from_result(result)
         if error:
             return error
         try:

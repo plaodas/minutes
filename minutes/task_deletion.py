@@ -10,6 +10,7 @@ from minutes.minio_client import MinioService
 from minutes.models import Bucket, Task, TaskHistory
 from minutes.task_event_service import TaskEventService
 from minutes.task_events import emit_task_event
+from minutes.task_result import local_output_path, result_minio_info, result_output_file
 
 logger = logging.getLogger(__name__)
 
@@ -31,45 +32,31 @@ def delete_task_permanently(
 
         result = task.result or {}
         try:
-            if isinstance(result, dict):
-                minio_info = (
-                    result.get("minio")
-                    if isinstance(result.get("minio"), dict)
-                    else None
-                )
-                if minio_info and minio_info.get("bucket"):
-                    service = MinioService()
-                    bucket = minio_info["bucket"]
-                    if minio_info.get("object"):
-                        service.delete_object(
-                            bucket, minio_info["object"], ignore_missing=True
-                        )
-                    else:
-                        service.delete_objects_with_prefix(
-                            bucket,
-                            f"minutes/{task_id}/",
-                            ignore_missing=True,
-                        )
+            minio_info = result_minio_info(result)
+            if minio_info:
+                service = MinioService()
+                bucket = minio_info["bucket"]
+                if minio_info.get("object"):
+                    service.delete_object(
+                        bucket, minio_info["object"], ignore_missing=True
+                    )
+                else:
+                    service.delete_objects_with_prefix(
+                        bucket,
+                        f"minutes/{task_id}/",
+                        ignore_missing=True,
+                    )
         except (S3Error, RequestException, OSError, RuntimeError):
             logger.exception("MinIO deletion failed for task %s", task_id)
             if artifact_errors_fatal:
                 raise
 
         try:
-            if isinstance(result, dict):
-                nested_result = result.get("result")
-                output_file = result.get("output_file") or (
-                    nested_result.get("output_file")
-                    if isinstance(nested_result, dict)
-                    else None
-                )
-                if output_file:
-                    candidate = os.path.join(
-                        os.environ.get("OUTPUTS_DIR", "outputs"),
-                        os.path.basename(output_file),
-                    )
-                    if os.path.exists(candidate):
-                        os.remove(candidate)
+            output_file = result_output_file(result)
+            if output_file:
+                candidate = local_output_path(output_file)
+                if os.path.exists(candidate):
+                    os.remove(candidate)
         except OSError:
             logger.exception("Local output deletion failed for task %s", task_id)
 
@@ -77,27 +64,22 @@ def delete_task_permanently(
         db.delete(task)
 
         try:
-            if isinstance(result, dict):
-                minio_info = result.get("minio")
-                bucket_name = (
-                    minio_info.get("bucket") if isinstance(minio_info, dict) else None
+            minio_info = result_minio_info(result)
+            bucket_name = minio_info.get("bucket") if minio_info else None
+            if bucket_name:
+                other_tasks = (
+                    db.query(Task)
+                    .filter(Task.result["minio"]["bucket"].as_string() == bucket_name)
+                    .count()
                 )
-                if bucket_name:
-                    other_tasks = (
-                        db.query(Task)
-                        .filter(
-                            Task.result["minio"]["bucket"].as_string() == bucket_name
-                        )
-                        .count()
+                if other_tasks == 0:
+                    bucket = (
+                        db.query(Bucket)
+                        .filter(Bucket.name == bucket_name)
+                        .one_or_none()
                     )
-                    if other_tasks == 0:
-                        bucket = (
-                            db.query(Bucket)
-                            .filter(Bucket.name == bucket_name)
-                            .one_or_none()
-                        )
-                        if bucket:
-                            db.delete(bucket)
+                    if bucket:
+                        db.delete(bucket)
         except SQLAlchemyError:
             logger.exception("Bucket cleanup failed for task %s", task_id)
 

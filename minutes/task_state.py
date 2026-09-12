@@ -18,6 +18,7 @@ from .schemas import (
     task_stage_from_status,
 )
 from .summary import summarize_local
+from .task_result import local_output_path, result_minio_info, result_output_file
 from .task_event_service import TaskEventService
 from .task_ids import parse_task_key
 
@@ -98,10 +99,8 @@ def set_task_stage(task: Task, target: TaskStage) -> None:
 
 
 def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> None:
-    if not isinstance(result, dict):
-        return
-    minio_info = result.get("minio") or (result.get("result") or {}).get("minio")
-    if not isinstance(minio_info, dict) or not minio_info.get("bucket"):
+    minio_info = result_minio_info(result)
+    if minio_info is None:
         return
 
     bucket_name = str(minio_info["bucket"])
@@ -139,18 +138,10 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
         task.fail_count = 0
         task.last_success_ts = _now_utc()
 
-        if not task.name and isinstance(result, dict):
-            nested_result = result.get("result")
-            output_file = result.get("output_file") or (
-                nested_result.get("output_file")
-                if isinstance(nested_result, dict)
-                else None
-            )
+        if not task.name:
+            output_file = result_output_file(result)
             if output_file:
-                candidate = os.path.join(
-                    os.environ.get("OUTPUTS_DIR", "outputs"),
-                    os.path.basename(output_file),
-                )
+                candidate = local_output_path(output_file)
                 try:
                     with open(candidate, encoding="utf-8") as result_file:
                         summary = summarize_local(
