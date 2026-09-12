@@ -150,6 +150,34 @@ def test_user_bucket_routes_are_owned_by_router_module():
     )
 
 
+def test_auth_routes_are_owned_by_router_module():
+    expected_routes = {
+        ("GET", "/auth/features"),
+        ("GET", "/api/auth/features"),
+        ("POST", "/auth/login"),
+        ("POST", "/api/auth/login"),
+        ("POST", "/auth/logout"),
+        ("POST", "/api/auth/logout"),
+    }
+    routes = [
+        route
+        for route in app.routes
+        if route.path.startswith("/auth/") or route.path.startswith("/api/auth/")
+    ]
+    actual_routes = {
+        (method, route.path)
+        for route in routes
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert actual_routes == expected_routes
+    assert all(
+        route.endpoint.__module__ == "minutes.routers.authentication"
+        for route in routes
+    )
+
+
 def test_admin_bucket_creation_commits_once(monkeypatch):
     bucket_name = f"test-{uuid.uuid4()}"
     commits = []

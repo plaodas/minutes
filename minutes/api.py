@@ -8,7 +8,6 @@ import uuid
 from celery.result import AsyncResult
 from fastapi import (
     BackgroundTasks,
-    Cookie,
     Depends,
     FastAPI,
     File,
@@ -20,9 +19,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     JSONResponse,
-    Response,
 )
-from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes import tasks
@@ -34,13 +31,13 @@ from minutes.bg_store import (
     update_task_success,
 )
 from minutes.celery_app import celery
-from minutes.db import session_scope
 from minutes.minio_client import MinioService
 from minutes.ollama import format_minutes_from_raw
 from minutes.reconcile_bg_tasks import reconcile_once
 from minutes.request_auth import parse_header_user_id as _parse_header_user_id
 from minutes.request_auth import require_admin
 from minutes.routers.admin_buckets import router as admin_buckets_router
+from minutes.routers.authentication import router as authentication_router
 from minutes.routers.background_tasks import (
     router as background_tasks_router,
 )
@@ -245,6 +242,7 @@ app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
 app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
 app.include_router(upload_cleanup_router, dependencies=[Depends(require_admin)])
 app.include_router(user_buckets_router)
+app.include_router(authentication_router)
 
 
 # CORS: allow local dev origins used by the frontend and Playwright
@@ -573,127 +571,3 @@ def api_transcribe_upload(
         language=language,
         include_actions=include_actions,
     )
-
-
-@app.get("/auth/features")
-def auth_features(
-    x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)
-):
-    """Return feature flags for the current user.
-
-    Include an `authenticated` boolean based on the `minutes_session` cookie
-    so the frontend can update UI immediately after login/logout. Preserve
-    the legacy `X-Admin` header and `FORCE_ADMIN` env override for dev usage.
-    """
-    try:
-        force = os.environ.get("FORCE_ADMIN", "false").lower() in ("1", "true", "yes")
-        header_admin = x_admin == "1" or (
-            isinstance(x_admin, str) and x_admin.lower() == "true"
-        )
-        # Determine if a valid session cookie maps to a user
-        try:
-            from minutes.auth import get_current_user_from_cookie
-
-            user = get_current_user_from_cookie(minutes_session)
-        except (ImportError, HTTPException, ValueError, TypeError):
-            user = None
-
-        is_admin = bool(
-            force
-            or header_admin
-            or (user is not None and getattr(user, "is_admin", False))
-        )
-        authenticated = user is not None
-        return {"is_admin": bool(is_admin), "authenticated": bool(authenticated)}
-    except (ValueError, AttributeError, TypeError):
-        return {"is_admin": False, "authenticated": False}
-
-
-@app.get("/api/auth/features")
-def api_auth_features(
-    x_admin: str | None = Header(None), minutes_session: str | None = Cookie(None)
-):
-    """Compatibility wrapper for `/api/auth/features` used by the frontend."""
-    return auth_features(x_admin, minutes_session)
-
-
-class LoginReq(BaseModel):
-    username: str
-    password: str
-
-
-@app.post("/auth/login")
-def auth_login(payload: LoginReq, response: Response):
-    """Login endpoint: sets HttpOnly cookie `minutes_session` on success."""
-    from minutes.auth import create_access_token, verify_password
-    from minutes.models import User
-
-    logger = logging.getLogger("minutes.api")
-    logger.debug("Login attempt for username=%s", payload.username)
-
-    with session_scope() as db:
-        try:
-            from sqlalchemy.exc import SQLAlchemyError
-
-            user = (
-                db.query(User).filter(User.username == payload.username).one_or_none()
-            )
-        except SQLAlchemyError:
-            user = None
-
-        if not user:
-            logger.warning("Failed login: unknown user %s", payload.username)
-            return JSONResponse({"error": "invalid credentials"}, status_code=401)
-
-        try:
-            stored_hash = getattr(user, "password_hash", None)
-            if not stored_hash or not verify_password(payload.password, stored_hash):
-                logger.warning(
-                    "Failed login: bad password for user %s", payload.username
-                )
-                return JSONResponse({"error": "invalid credentials"}, status_code=401)
-        except (ValueError, TypeError):
-            logger.exception(
-                "Failed login: exception verifying password for %s", payload.username
-            )
-            return JSONResponse({"error": "invalid credentials"}, status_code=401)
-
-        token = create_access_token(str(user.id))
-        secure = os.environ.get("ENV", "").lower() == "production" or os.environ.get(
-            "FORCE_HTTPS", "false"
-        ).lower() in ("1", "true")
-        resp = JSONResponse(
-            {"id": str(user.id), "is_admin": bool(getattr(user, "is_admin", False))}
-        )
-        max_age = int(os.environ.get("JWT_EXPIRE_HOURS", "8")) * 3600
-        resp.set_cookie(
-            "minutes_session",
-            token,
-            httponly=True,
-            samesite="lax",
-            secure=secure,
-            max_age=max_age,
-        )
-        logger.info("User logged in: username=%s id=%s", payload.username, str(user.id))
-        return resp
-
-
-@app.post("/auth/logout")
-def auth_logout(response: Response):
-    logger = logging.getLogger("minutes.api")
-    logger.info("Logout requested")
-    resp = JSONResponse({"logged_out": True})
-    resp.delete_cookie("minutes_session")
-    return resp
-
-
-@app.post("/api/auth/login")
-def api_auth_login(payload: LoginReq, response: Response):
-    """Compatibility wrapper so frontend using `/api` prefix can login."""
-    return auth_login(payload, response)
-
-
-@app.post("/api/auth/logout")
-def api_auth_logout(response: Response):
-    """Compatibility wrapper so frontend using `/api` prefix can logout."""
-    return auth_logout(response)
