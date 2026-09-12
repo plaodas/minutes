@@ -158,3 +158,7 @@ This MVP targets a single Docker host. Redis outbox, GPU, OAuth, TLS, MinIO prod
 ## License
 
 See `LICENSE`.
+
+### 音声サンプルのクレジット
+VOICEVOX:波音リツ
+VOICEVOX:剣崎雌雄
