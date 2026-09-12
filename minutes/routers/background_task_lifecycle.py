@@ -1,6 +1,5 @@
 import logging
 import os
-from datetime import datetime, timezone
 
 from celery.exceptions import CeleryError
 from fastapi import APIRouter, Request
@@ -8,15 +7,10 @@ from fastapi.responses import JSONResponse
 from kombu.exceptions import KombuError
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.bg_store import (
-    _parse_key,
-    emit_task_event,
-    update_task_cancelled,
-)
+from minutes.bg_store import update_task_cancelled
 from minutes.celery_app import celery
-from minutes.db import session_scope
-from minutes.models import Task, TaskHistory
 from minutes.task_deletion import delete_task_permanently
+from minutes.task_lifecycle import mark_task_deleted, restore_task
 
 router = APIRouter()
 ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
@@ -51,22 +45,12 @@ def bg_cancel(task_id: str):
 @router.post("/delete/{task_id}")
 def bg_delete(task_id: str):
     try:
-        with session_scope() as db:
-            key = _parse_key(task_id)
-            task = db.get(Task, key)
-            if not task:
-                return JSONResponse({"error": "unknown task"}, status_code=404)
-            previous = task.status
-            payload = {"previous": previous}
-            task.status = "deleted"
-            task.deleted = True
-            task.deleted_at = datetime.now(tz=timezone.utc)
-            db.add(TaskHistory(task_id=key, event_type="deleted", payload=payload))
+        if not mark_task_deleted(task_id):
+            return JSONResponse({"error": "unknown task"}, status_code=404)
     except SQLAlchemyError as exc:
         logging.getLogger(__name__).exception("soft delete failed for %s", task_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
 
-    emit_task_event(task_id, "deleted", payload)
     return {"task_id": task_id, "deleted": True}
 
 
@@ -92,23 +76,12 @@ def bg_force_delete(task_id: str):
 @router.post("/undelete/{task_id}")
 def bg_undelete(task_id: str):
     try:
-        with session_scope() as db:
-            key = _parse_key(task_id)
-            task = db.get(Task, key)
-            if not task:
-                return JSONResponse({"error": "unknown task"}, status_code=404)
-            previous = task.status
-            restored_status = "success" if task.result else "pending"
-            payload = {"previous": previous, "status": restored_status}
-            task.status = restored_status
-            task.deleted = False
-            task.deleted_at = None
-            db.add(TaskHistory(task_id=key, event_type="undeleted", payload=payload))
+        if not restore_task(task_id):
+            return JSONResponse({"error": "unknown task"}, status_code=404)
     except SQLAlchemyError as exc:
         logging.getLogger(__name__).exception("undelete failed for %s", task_id)
         return JSONResponse({"error": str(exc)}, status_code=500)
 
-    emit_task_event(task_id, "undeleted", payload)
     return {"task_id": task_id, "undeleted": True}
 
 
@@ -122,7 +95,7 @@ def bg_hard_delete(task_id: str, request: Request = None):
 
             job = hard_delete_task.delay(task_id, None)
             return {"task_id": task_id, "enqueued": True, "job_id": str(job)}
-        except (ImportError, AttributeError, CeleryError):
+        except (ImportError, AttributeError, CeleryError, KombuError):
             return bg_force_delete(task_id)
     except (SQLAlchemyError, OSError, RuntimeError, CeleryError) as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

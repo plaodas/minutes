@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes import bg_store, task_deletion
+from minutes import bg_store, task_deletion, task_lifecycle
 from minutes import tasks as task_workers
 from minutes.api import app
 from minutes.bg_store import create_task, get_task
@@ -74,9 +74,7 @@ def test_soft_delete_db_failure_does_not_mark_task_success(monkeypatch):
         raise SQLAlchemyError("commit failed")
         yield
 
-    monkeypatch.setattr(
-        background_task_lifecycle, "session_scope", failing_session_scope
-    )
+    monkeypatch.setattr(task_lifecycle, "session_scope", failing_session_scope)
     monkeypatch.setattr(
         background_task_lifecycle,
         "update_task_success",
@@ -150,3 +148,25 @@ def test_force_delete_publishes_hard_delete_event(monkeypatch):
     assert get_task(str(task_id)) is None
     assert published[-1]["task_id"] == str(task_id)
     assert published[-1]["event_type"] == "deleted_hard"
+
+
+def test_hard_delete_falls_back_when_broker_is_unavailable(monkeypatch):
+    task_id = str(uuid.uuid4())
+
+    def fail_enqueue(*_args, **_kwargs):
+        raise background_task_lifecycle.KombuError("broker unavailable")
+
+    monkeypatch.setattr(task_workers.hard_delete_task, "delay", fail_enqueue)
+    monkeypatch.setattr(
+        background_task_lifecycle,
+        "bg_force_delete",
+        lambda fallback_task_id: {
+            "task_id": fallback_task_id,
+            "deleted": True,
+        },
+    )
+
+    response = TestClient(app).post(f"/api/bg/hard-delete/{task_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {"task_id": task_id, "deleted": True}
