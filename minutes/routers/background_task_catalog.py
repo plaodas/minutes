@@ -115,44 +115,73 @@ def bg_task_regenerate_name(task_id: str):
 def bg_tasks(limit: int = 50, offset: int = 0):
     """Return a paginated task list with recent history previews."""
     with session_scope() as session:
-        query = (
+        task_rows = (
             session.query(Task)
             .order_by(Task.created_at.desc(), Task.id.desc())
             .offset(int(offset))
             .limit(int(limit))
+            .all()
         )
-        tasks = []
-        for task in query.all():
-            previews = []
+        previews_by_task: dict[uuid.UUID, list[dict[str, Any]]] = {
+            task.id: [] for task in task_rows
+        }
+        counts_by_task: dict[uuid.UUID, int] = {task.id: 0 for task in task_rows}
+
+        if task_rows:
+            row_number = (
+                func.row_number()
+                .over(
+                    partition_by=TaskHistory.task_id,
+                    order_by=(
+                        TaskHistory.event_ts.desc(),
+                        TaskHistory.id.desc(),
+                    ),
+                )
+                .label("rn")
+            )
+            event_count = (
+                func.count(TaskHistory.id)
+                .over(partition_by=TaskHistory.task_id)
+                .label("event_count")
+            )
+            history_window = (
+                select(
+                    TaskHistory.task_id,
+                    TaskHistory.event_ts,
+                    TaskHistory.event_type,
+                    TaskHistory.payload,
+                    row_number,
+                    event_count,
+                )
+                .where(TaskHistory.task_id.in_(list(previews_by_task)))
+                .subquery()
+            )
             try:
-                rows = (
-                    session.query(TaskHistory)
-                    .filter(TaskHistory.task_id == task.id)
-                    .order_by(TaskHistory.event_ts.desc())
-                    .limit(3)
-                    .all()
-                )
-                previews = [
-                    {
-                        "event_ts": (
-                            row.event_ts.isoformat() + "Z" if row.event_ts else None
-                        ),
-                        "event_type": row.event_type,
-                        "payload": row.payload,
-                    }
-                    for row in rows
-                ]
-                total = (
-                    session.query(TaskHistory)
-                    .filter(TaskHistory.task_id == task.id)
-                    .count()
-                )
+                history_rows = session.execute(
+                    select(history_window)
+                    .where(history_window.c.rn <= 3)
+                    .order_by(history_window.c.task_id, history_window.c.rn)
+                ).all()
+                for row in history_rows:
+                    previews_by_task[row.task_id].append(
+                        {
+                            "event_ts": (
+                                row.event_ts.isoformat() + "Z"
+                                if row.event_ts
+                                else None
+                            ),
+                            "event_type": row.event_type,
+                            "payload": row.payload,
+                        }
+                    )
+                    counts_by_task[row.task_id] = int(row.event_count)
             except SQLAlchemyError:
                 logging.getLogger(__name__).exception(
-                    "failed to load TaskHistory preview for %s", task.id
+                    "failed to load task history previews"
                 )
-                previews = []
-                total = 0
+
+        tasks = []
+        for task in task_rows:
             tasks.append(
                 {
                     "id": str(task.id),
@@ -171,8 +200,8 @@ def bg_tasks(limit: int = 50, offset: int = 0):
                         if task.last_success_ts
                         else None
                     ),
-                    "preview_events": previews,
-                    "event_count": int(total),
+                    "preview_events": previews_by_task[task.id],
+                    "event_count": counts_by_task[task.id],
                 }
             )
     return {"tasks": tasks}
