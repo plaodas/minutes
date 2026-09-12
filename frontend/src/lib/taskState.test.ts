@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import type { TaskEvent } from './taskEvents';
 import {
+  applyActiveTaskEvent,
   applyTaskEvent,
   parseTaskHistoryResponse,
   parseTaskListResponse,
+  shapeTaskResult,
   toHistoryItem,
   type TaskListItem,
 } from './taskState';
@@ -164,6 +166,30 @@ describe('applyTaskEvent', () => {
 
     expect(result.tasks).toBe(tasks);
     expect(result.shouldReload).toBe(true);
+  });
+});
+
+describe('applyActiveTaskEvent', () => {
+  it('updates one task with the shared event rules', () => {
+    const next = applyActiveTaskEvent(
+      tasks[0],
+      event({
+        task_id: 'task-1',
+        event_type: 'status',
+        payload: { status: 'formatting' },
+      })
+    );
+
+    expect(next).toMatchObject({ status: 'formatting', stage: 'formatting' });
+  });
+});
+
+describe('shapeTaskResult', () => {
+  it('adds the task id when the result object has none', () => {
+    expect(shapeTaskResult({ summary: 'done' }, 'task-1')).toEqual({
+      summary: 'done',
+      task_id: 'task-1',
+    });
   });
 });
 

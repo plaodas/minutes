@@ -99,6 +99,22 @@ export function toHistoryItem(task: TaskListItem): HistoryItem {
   };
 }
 
+export function shapeTaskResult(result: unknown, taskId: string): unknown {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
+    return { ...record, task_id: 'task_id' in record ? record.task_id : taskId };
+  }
+  return result;
+}
+
+export function applyActiveTaskEvent(task: TaskListItem, event: TaskEvent): TaskListItem | null {
+  const result = applyTaskEvent([task], event);
+  if (event.event_type === 'deleted_hard') {
+    return null;
+  }
+  return result.tasks[0] ?? task;
+}
+
 export function applyTaskEvent(tasks: TaskListItem[], event: TaskEvent): ApplyTaskEventResult {
   const index = tasks.findIndex((task) => String(task.id) === String(event.task_id));
   if (index === -1) {

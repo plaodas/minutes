@@ -1,16 +1,16 @@
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 
+import { uploadAudioBgWithProgress } from '../api/client';
+import { useActiveTask } from '../hooks/useActiveTask';
 import sanitizeError from '../lib/sanitizeError';
-import { taskStageFromStatus, taskStageToIndex } from '../lib/taskEvents';
-import { useTaskEvents } from '../events/TaskEventsProvider';
-import { uploadAudioBgWithProgress, getBgStatus, getBgResult } from '../api/client';
 
 import ErrorModal from './ErrorModal';
+import UploadProgress from './UploadProgress';
 
 type Props = {
   setActiveIndex: (i: number) => void;
-  setResult: (r: any | null) => void;
+  setResult: (r: unknown | null) => void;
 };
 
 export default function Dropzone({ setActiveIndex, setResult }: Props) {
@@ -18,163 +18,57 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [lastFile, setLastFile] = useState<File | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [lastErrorDetails, setLastErrorDetails] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadErrorDetails, setUploadErrorDetails] = useState<string | null>(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
-  const pollRef = useRef<number | null>(0);
   const [running, setRunning] = useState(false);
-  const [transcribeProgress, setTranscribeProgress] = useState<number | null>(null);
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearTimeout(pollRef.current);
-      pollRef.current = 0;
-    }
-  }, []);
-
-  const completeTask = useCallback(
-    async (id: string, eventResult?: unknown) => {
-      const response = eventResult === undefined ? await getBgResult(id) : eventResult;
-      const result =
-        eventResult === undefined &&
-        response &&
-        typeof response === 'object' &&
-        'result' in response
-          ? response.result
-          : response;
-      const structured =
-        result && typeof result === 'object' && !Array.isArray(result)
-          ? { ...result, task_id: 'task_id' in result ? result.task_id : id }
-          : result;
-      stopPolling();
-      setResult(structured);
-      setActiveIndex(4);
-      setTranscribeProgress(null);
+  const {
+    transcribeProgress,
+    error: taskError,
+    lastErrorDetails: taskErrorDetails,
+    stopPolling,
+  } = useActiveTask(running ? taskId : null, {
+    onStageIndex: setActiveIndex,
+    onResult: (result) => {
+      setResult(result);
       setRunning(false);
     },
-    [setActiveIndex, setResult, stopPolling]
-  );
-
-  const eventConnectionState = useTaskEvents(
-    (event) => {
-      if (event.event_type === 'progress') {
-        setTranscribeProgress(Math.round(event.payload.progress));
-      }
-      if (event.event_type === 'status') {
-        const stage = event.stage ?? taskStageFromStatus(event.payload.status);
-        const idx = taskStageToIndex(stage);
-        setActiveIndex(idx);
-        if (idx >= 3) {
-          setTranscribeProgress(null);
-        }
-        if (idx >= 4 && taskId) {
-          void completeTask(taskId);
-        }
-      }
-      if (event.event_type === 'success' && taskId) {
-        void completeTask(taskId, event.payload.result);
-      }
-      if (event.event_type === 'failure') {
-        const message = event.payload.error || 'Task failed';
-        stopPolling();
-        setError(message);
-        setLastErrorDetails(sanitizeError(message));
-        setActiveIndex(-1);
-        setTranscribeProgress(null);
-        setRunning(false);
-        window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message } }));
-      }
-      if (event.event_type === 'cancelled') {
-        stopPolling();
-        setActiveIndex(-1);
-        setTranscribeProgress(null);
-        setRunning(false);
-      }
+    onFailure: () => {
+      setRunning(false);
     },
-    running ? taskId : null
-  );
-
-  const pollTaskStatus = useCallback(
-    async (id: string): Promise<boolean> => {
-      try {
-        const statusResponse = await getBgStatus(id);
-        const status = statusResponse.status || '';
-        const backendError = statusResponse.error;
-
-        if (backendError || statusResponse.stage === 'failed') {
-          const message = backendError ? String(backendError) : 'Task failed';
-          setError(message);
-          setLastErrorDetails(sanitizeError(backendError || message));
-          setActiveIndex(-1);
-          window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message } }));
-          setRunning(false);
-          return true;
-        }
-
-        const index = taskStageToIndex(statusResponse.stage ?? taskStageFromStatus(status));
-        setActiveIndex(index);
-        if (index >= 4) {
-          await completeTask(id);
-          return true;
-        }
-        return false;
-      } catch (pollError) {
-        console.warn('poll error', pollError);
-        const detail = pollError instanceof Error ? pollError.message : String(pollError);
-        setError(detail);
-        setLastErrorDetails(sanitizeError(pollError));
-        setRunning(false);
-        return true;
-      }
+    onCancelled: () => {
+      setRunning(false);
     },
-    [completeTask, setActiveIndex]
-  );
+  });
 
-  useEffect(() => {
-    stopPolling();
-    if (
-      !running ||
-      !taskId ||
-      eventConnectionState === 'open' ||
-      eventConnectionState === 'connecting'
-    ) {
-      return;
+  const error = uploadError ?? taskError;
+  const lastErrorDetails = uploadErrorDetails ?? taskErrorDetails;
+
+  const abortUpload = useCallback(() => {
+    if (!xhrRef.current) return;
+    try {
+      xhrRef.current.abort();
+    } catch {
+      // XHR may already be closed
     }
-
-    let cancelled = false;
-    const poll = async () => {
-      const terminal = await pollTaskStatus(taskId);
-      if (!cancelled && !terminal) {
-        pollRef.current = window.setTimeout(poll, 10000);
-      }
-    };
-    pollRef.current = window.setTimeout(poll, 1500);
-
-    return () => {
-      cancelled = true;
-      stopPolling();
-    };
-  }, [eventConnectionState, pollTaskStatus, running, stopPolling, taskId]);
+    xhrRef.current = null;
+  }, []);
 
   const onDrop = useCallback(
     async (files: FileList | null) => {
-      setError(null);
+      setUploadError(null);
+      setUploadErrorDetails(null);
       if (!files || files.length === 0) return;
       const f = files[0];
       setLastFile(f);
       setFileName(f.name);
-      setTranscribeProgress(null);
 
-      // abort any previous operations
-      if (xhrRef.current) {
-        try {
-          xhrRef.current.abort();
-        } catch {}
-        xhrRef.current = null;
-      }
+      abortUpload();
       stopPolling();
+      setRunning(false);
 
       try {
         // ensure a user id exists in localStorage so uploads include X-User-Id
@@ -184,7 +78,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
           if (!existing) {
             try {
               const id =
-                (window as any).crypto?.randomUUID?.() ||
+                (window as Window & { crypto?: Crypto }).crypto?.randomUUID?.() ||
                 'id-' + Math.random().toString(36).slice(2, 10);
               localStorage.setItem('minutes.userId', id);
               try {
@@ -193,8 +87,10 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
                     detail: { type: 'success', message: 'User ID generated and saved for uploads' },
                   })
                 );
-              } catch {}
-            } catch (e) {
+              } catch {
+                // toast dispatch is best-effort
+              }
+            } catch {
               try {
                 const id2 = 'id-' + Math.random().toString(36).slice(2, 10);
                 localStorage.setItem('minutes.userId', id2);
@@ -207,11 +103,17 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
                       },
                     })
                   );
-                } catch {}
-              } catch {}
+                } catch {
+                  // toast dispatch is best-effort
+                }
+              } catch {
+                // localStorage unavailable
+              }
             }
           }
-        } catch {}
+        } catch {
+          // localStorage unavailable
+        }
 
         setActiveIndex(0);
         setUploadProgress(0);
@@ -222,36 +124,32 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         if (!id) throw new Error('no task id returned');
         setTaskId(id);
 
-        // persist recent task id for History view
         try {
           const raw = localStorage.getItem('recent_tasks');
           const arr = raw ? JSON.parse(raw) : [];
           arr.unshift({ id, name: f.name, created_at: new Date().toISOString() });
-          // keep up to 50 entries
-          const trimmed = arr.slice(0, 50);
-          localStorage.setItem('recent_tasks', JSON.stringify(trimmed));
+          localStorage.setItem('recent_tasks', JSON.stringify(arr.slice(0, 50)));
         } catch {
-          // ignore
+          // recent-task cache is optional
         }
 
-        // clear upload UI
         setUploadProgress(null);
         setRunning(true);
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error(e);
-        const msg = String(e?.message || e);
-        setError(msg);
+        const msg = e instanceof Error ? e.message : String(e);
+        setUploadError(msg);
         try {
-          setLastErrorDetails(sanitizeError(e));
+          setUploadErrorDetails(sanitizeError(e));
         } catch {
-          setLastErrorDetails(msg);
+          setUploadErrorDetails(msg);
         }
         setActiveIndex(-1);
         setUploadProgress(null);
         setRunning(false);
       }
     },
-    [setActiveIndex, stopPolling]
+    [abortUpload, setActiveIndex, stopPolling]
   );
 
   const handleDrop: React.DragEventHandler = (e) => {
@@ -272,12 +170,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   };
 
   const cancelAll = useCallback(() => {
-    if (xhrRef.current) {
-      try {
-        xhrRef.current.abort();
-      } catch {}
-      xhrRef.current = null;
-    }
+    abortUpload();
     stopPolling();
     setRunning(false);
     setUploadProgress(null);
@@ -286,7 +179,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     window.dispatchEvent(
       new CustomEvent('appToast', { detail: { type: 'info', message: 'Upload cancelled' } })
     );
-  }, [setActiveIndex, stopPolling]);
+  }, [abortUpload, setActiveIndex, stopPolling]);
 
   return (
     <div>
@@ -318,30 +211,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
               Selected: {fileName}
             </div>
           )}
-          {uploadProgress !== null && (
-            <div className="w-full mt-3">
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-[var(--accent)] h-2 rounded-full"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-              <div className="text-xs text-[var(--muted)] mt-1">Uploading: {uploadProgress}%</div>
-            </div>
-          )}
-          {transcribeProgress !== null && (
-            <div className="w-full mt-3">
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-green-500 h-2 rounded-full"
-                  style={{ width: `${transcribeProgress}%` }}
-                />
-              </div>
-              <div className="text-xs text-[var(--muted)] mt-1">
-                Transcribing: {transcribeProgress}%
-              </div>
-            </div>
-          )}
+          <UploadProgress uploadProgress={uploadProgress} transcribeProgress={transcribeProgress} />
           {running && (
             <div className="mt-3">
               <button className="px-3 py-1 rounded bg-gray-200" onClick={cancelAll}>
