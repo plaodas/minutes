@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 import threading
 import uuid
@@ -18,9 +17,9 @@ from .schemas import (
     task_stage_from_status,
 )
 from .summary import summarize_local
-from .task_result import local_output_path, result_minio_info, result_output_file
 from .task_event_service import TaskEventService
 from .task_ids import parse_task_key
+from .task_result import MissingOutputFileError, read_local_output_text, result_minio_info
 
 logger = logging.getLogger("minutes.task_state")
 _lock = threading.Lock()
@@ -139,22 +138,22 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
         task.last_success_ts = _now_utc()
 
         if not task.name:
-            output_file = result_output_file(result)
-            if output_file:
-                candidate = local_output_path(output_file)
-                try:
-                    with open(candidate, encoding="utf-8") as result_file:
-                        summary = summarize_local(
-                            result_file.read(), max_sentences=1
-                        ).strip()
-                    if summary:
-                        task.name = _make_task_title(summary, max_chars=20)
-                except (OSError, UnicodeDecodeError, ValueError) as exc:
-                    logger.debug(
-                        "update_success: failed to read/parse %s: %s",
-                        candidate,
-                        exc,
-                    )
+            try:
+                text = read_local_output_text(result)
+                summary = summarize_local(text, max_sentences=1).strip()
+                if summary:
+                    task.name = _make_task_title(summary, max_chars=20)
+            except (
+                MissingOutputFileError,
+                OSError,
+                UnicodeDecodeError,
+                ValueError,
+            ) as exc:
+                logger.debug(
+                    "update_success: failed to read/parse output for %s: %s",
+                    task_id,
+                    exc,
+                )
 
         _ensure_result_bucket(session, task, result, task_id)
 

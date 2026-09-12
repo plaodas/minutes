@@ -23,7 +23,7 @@ from minutes.schemas import (
     task_status_value,
 )
 from minutes.summary import summarize_local
-from minutes.task_result import local_output_path, result_output_file
+from minutes.task_result import MissingOutputFileError, read_local_output_text
 
 router = APIRouter()
 
@@ -137,12 +137,10 @@ def bg_task_regenerate_name(task_id: str):
         if not task:
             raise _TaskNotFoundError
         result = task.result or {}
-        output_file = result_output_file(result)
-        if not output_file:
+        try:
+            text = read_local_output_text(result)
+        except MissingOutputFileError:
             raise _TaskOutputUnavailableError
-        candidate = local_output_path(output_file)
-        with open(candidate, "r", encoding="utf-8") as input_file:
-            text = input_file.read()
         short = summarize_local(text, max_sentences=1).strip()
         if short and len(short) > 120:
             short = short[:117].rstrip() + "..."

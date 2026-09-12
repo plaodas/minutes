@@ -58,3 +58,15 @@ def local_output_path(output_file: str, outputs_dir: str | None = None) -> str:
         else os.environ.get("OUTPUTS_DIR", "outputs")
     )
     return os.path.join(directory, os.path.basename(output_file))
+
+
+class MissingOutputFileError(LookupError):
+    """Task result does not name a local output file."""
+
+
+def read_local_output_text(result: object, outputs_dir: str | None = None) -> str:
+    output_file = result_output_file(result)
+    if not output_file:
+        raise MissingOutputFileError("no output file available")
+    with open(local_output_path(output_file, outputs_dir), encoding="utf-8") as handle:
+        return handle.read()

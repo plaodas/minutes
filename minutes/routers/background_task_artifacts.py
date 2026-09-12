@@ -13,7 +13,13 @@ from minutes.http_errors import error_json
 from minutes.minio_client import MinioService
 from minutes.schemas import ActionItemsResponse, JSON_ERROR_RESPONSES, ResultPendingResponse
 from minutes.summary import summarize_local
-from minutes.task_result import local_output_path, result_minio_object, result_output_file
+from minutes.task_result import (
+    MissingOutputFileError,
+    local_output_path,
+    read_local_output_text,
+    result_minio_object,
+    result_output_file,
+)
 
 router = APIRouter()
 
@@ -69,11 +75,24 @@ def _successful_task_or_response(task_id: str):
     return task, None
 
 
-def _local_output_from_result(result: object):
-    output_file = result_output_file(result)
-    if not output_file:
+def _local_output_text_or_response(result: object):
+    try:
+        return read_local_output_text(result), None
+    except MissingOutputFileError:
         return None, error_json("no output file available", 404)
-    return local_output_path(output_file), None
+    except FileNotFoundError:
+        return None, error_json("output file not found", 404)
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, error_json(str(exc), 500)
+
+
+def _formatted_text_response(text: str, format: str):
+    if format not in ("txt", "md"):
+        return error_json("unsupported format", 400)
+    return Response(
+        content=text,
+        media_type="text/markdown" if format == "md" else "text/plain",
+    )
 
 
 def _stream_minio_object(
@@ -204,16 +223,9 @@ def bg_transcript(task_id: str, format: str = "txt"):
     if isinstance(result, dict) and result.get("transcript"):
         text = result["transcript"]
     else:
-        candidate, error = _local_output_from_result(result)
+        text, error = _local_output_text_or_response(result)
         if error:
             return error
-        try:
-            with open(candidate, "r", encoding="utf-8") as input_file:
-                text = input_file.read()
-        except FileNotFoundError:
-            return error_json("output file not found", 404)
-        except (OSError, UnicodeDecodeError) as exc:
-            return error_json(str(exc), 500)
     minio_object = result_minio_object(result)
     if minio_object:
         try:
@@ -225,11 +237,7 @@ def bg_transcript(task_id: str, format: str = "txt"):
                 str(exc),
                 exc_info=True,
             )
-    if format not in ("txt", "md"):
-        return error_json("unsupported format", 400)
-    return Response(
-        content=text, media_type="text/markdown" if format == "md" else "text/plain"
-    )
+    return _formatted_text_response(text, format)
 
 
 @router.get(
@@ -245,16 +253,9 @@ def bg_summary(task_id: str, format: str = "txt"):
     if isinstance(result, dict) and result.get("summary"):
         summary_text = result["summary"]
     else:
-        candidate, error = _local_output_from_result(result)
+        text, error = _local_output_text_or_response(result)
         if error:
             return error
-        try:
-            with open(candidate, "r", encoding="utf-8") as input_file:
-                text = input_file.read()
-        except FileNotFoundError:
-            return error_json("output file not found", 404)
-        except (OSError, UnicodeDecodeError) as exc:
-            return error_json(str(exc), 500)
         match = re.search(
             r"(?ims)^\s*summary\s*$\n(.*?)\n\s*(?:action items|transcript|$)", text
         )
@@ -271,12 +272,7 @@ def bg_summary(task_id: str, format: str = "txt"):
                     exc_info=True,
                 )
                 summary_text = ""
-    if format not in ("txt", "md"):
-        return error_json("unsupported format", 400)
-    return Response(
-        content=summary_text,
-        media_type="text/markdown" if format == "md" else "text/plain",
-    )
+    return _formatted_text_response(summary_text, format)
 
 
 @router.get(
@@ -301,16 +297,9 @@ def bg_action_items(task_id: str, format: str = "json"):
     if isinstance(result, dict) and isinstance(result.get("action_items"), list):
         items = result["action_items"]
     else:
-        candidate, error = _local_output_from_result(result)
+        text, error = _local_output_text_or_response(result)
         if error:
             return error
-        try:
-            with open(candidate, "r", encoding="utf-8") as input_file:
-                text = input_file.read()
-        except FileNotFoundError:
-            return error_json("output file not found", 404)
-        except (OSError, UnicodeDecodeError) as exc:
-            return error_json(str(exc), 500)
         items = []
         match = re.search(r"(?ims)^\s*action items\s*$\n(.*)$", text)
         section = match.group(1) if match else None

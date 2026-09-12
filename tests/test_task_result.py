@@ -1,7 +1,11 @@
 import os
 
+import pytest
+
 from minutes.task_result import (
+    MissingOutputFileError,
     local_output_path,
+    read_local_output_text,
     result_minio_info,
     result_minio_object,
     result_output_file,
@@ -36,3 +40,14 @@ def test_result_minio_info_and_object():
 def test_local_output_path_uses_basename(monkeypatch):
     monkeypatch.setenv("OUTPUTS_DIR", os.path.join("tmp", "outs"))
     assert local_output_path("dir/file.txt") == os.path.join("tmp", "outs", "file.txt")
+
+
+def test_read_local_output_text(tmp_path, monkeypatch):
+    monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path))
+    (tmp_path / "notes.txt").write_text("hello", encoding="utf-8")
+    assert read_local_output_text({"output_file": "dir/notes.txt"}) == "hello"
+
+
+def test_read_local_output_text_missing_path():
+    with pytest.raises(MissingOutputFileError):
+        read_local_output_text({})
