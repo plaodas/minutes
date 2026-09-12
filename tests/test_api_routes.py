@@ -382,14 +382,27 @@ def test_background_rename_persists_history_and_event(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
     published = []
-    monkeypatch.setattr(bg_store, "publish_event", published.append)
+    operations = []
 
-    response = TestClient(app).post(
-        f"/api/bg/task/{task_id}/rename",
-        json={"name": "Planning notes"},
-    )
+    def track_commit(_session):
+        operations.append("commit")
+
+    def track_publish(task_event):
+        published.append(task_event)
+        operations.append("publish")
+
+    monkeypatch.setattr(bg_store, "publish_event", track_publish)
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    try:
+        response = TestClient(app).post(
+            f"/api/bg/task/{task_id}/rename",
+            json={"name": "Planning notes"},
+        )
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
 
     assert response.status_code == 200
+    assert operations == ["commit", "publish"]
     with session_scope() as session:
         task = session.get(Task, task_id)
         history = (

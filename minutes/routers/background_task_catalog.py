@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.bg_store import record_history
+from minutes.bg_store import record_and_publish, record_history
 from minutes.db import session_scope
 from minutes.models import Task, TaskHistory
 from minutes.schemas import task_stage_from_status
@@ -27,6 +27,10 @@ class IdList(BaseModel):
     limit: int | None = 1
     offset: int | None = 0
     offsets: dict[str, int] | None = None
+
+
+class _TaskNotFoundError(Exception):
+    pass
 
 
 @router.get("/history/{task_id}")
@@ -61,17 +65,29 @@ def bg_task_rename(task_id: str, payload: dict[str, str]):
     name = (payload or {}).get("name")
     if not name:
         return JSONResponse({"error": "missing name"}, status_code=400)
-    with session_scope() as session:
-        try:
-            key = uuid.UUID(task_id)
-        except (ValueError, TypeError):
-            return JSONResponse({"error": "invalid task id"}, status_code=400)
+
+    try:
+        uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        return JSONResponse({"error": "invalid task id"}, status_code=400)
+
+    def rename_task(session, key):
         task = session.get(Task, key)
         if not task:
-            return JSONResponse({"error": "unknown task"}, status_code=404)
+            raise _TaskNotFoundError
         task.name = name
         session.add(task)
-    record_history(task_id, "rename", {"name": name})
+
+    try:
+        record_and_publish(
+            task_id,
+            "rename",
+            {"name": name},
+            mutate=rename_task,
+        )
+    except _TaskNotFoundError:
+        return JSONResponse({"error": "unknown task"}, status_code=404)
+
     return {"task_id": task_id, "name": name}
 
 

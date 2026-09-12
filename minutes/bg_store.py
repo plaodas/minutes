@@ -1,11 +1,16 @@
 import logging
 import os
+import uuid
+from collections.abc import Callable
 from typing import Any
+
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger("minutes.bg_store")
 
 from .schemas import TaskEventType, TaskStage
 from .task_creation import create_task as create_task_record
+from .task_event_service import TaskEventService
 from .task_events import emit_task_event as publish_task_event
 from .task_repository import TaskSnapshot, get_task_snapshot, record_task_history
 from .task_state import (
@@ -51,6 +56,21 @@ def emit_task_event(
 ) -> None:
     """Publish a typed task event without requiring a history row."""
     publish_task_event(task_id, event_type, payload, publisher=publish_event)
+
+
+def record_and_publish(
+    task_id: str,
+    event_type: TaskEventType | str,
+    payload: dict[str, Any] | None = None,
+    *,
+    mutate: Callable[[Session, uuid.UUID], Any] | None = None,
+) -> Any:
+    return TaskEventService(emit_task_event).record_and_publish(
+        task_id,
+        event_type,
+        payload,
+        mutate=mutate,
+    )
 
 
 def create_task(
