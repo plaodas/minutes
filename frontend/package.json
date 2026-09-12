@@ -11,7 +11,7 @@
     "generate:api-types": "python3 ../scripts/export_openapi.py ../spec_snapshot/openapi.json && openapi-typescript ../spec_snapshot/openapi.json -o src/api/generated.ts",
     "test:e2e": "playwright test",
     "test:e2e:ci": "E2E_PORT=8090 npx playwright test --reporter=list",
-    "test:unit": "vitest src/lib src/events src/hooks --environment jsdom --run"
+    "test:unit": "vitest src/lib src/events src/hooks src/components/HistoryList.test.tsx --environment jsdom --run"
   },
   "dependencies": {
     "framer-motion": "^8.0.0",
