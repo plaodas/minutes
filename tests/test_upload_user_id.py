@@ -51,7 +51,6 @@ def test_upload_sets_user_id(monkeypatch):
     # create_task was called with the expected user_id by monkeypatching it.
     called = {}
 
-    import minutes.api as api_mod
     import minutes.bg_store as bg
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
@@ -59,9 +58,7 @@ def test_upload_sets_user_id(monkeypatch):
         called["metadata"] = metadata
         called["user_id"] = user_id
 
-    # Patch both the bg_store and the imported reference in the API module
     monkeypatch.setattr(bg, "create_task", fake_create)
-    monkeypatch.setattr(api_mod, "create_task", fake_create)
 
     # Trigger upload again to hit our fake
     r2 = client.post("/transcribe-upload-bg", files=files, headers=headers)

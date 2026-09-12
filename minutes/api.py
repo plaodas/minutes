@@ -4,14 +4,9 @@ import os
 
 from celery.result import AsyncResult
 from fastapi import (
-    BackgroundTasks,
     Depends,
     FastAPI,
-    File,
-    Form,
-    Header,
     HTTPException,
-    UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
@@ -19,7 +14,6 @@ from fastapi.responses import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.bg_store import create_task
 from minutes.celery_app import celery
 from minutes.ollama import format_minutes_from_raw
 from minutes.reconcile_bg_tasks import reconcile_once
@@ -31,9 +25,9 @@ from minutes.routers.background_tasks import (
 )
 from minutes.routers.service_tokens import router as service_tokens_router
 from minutes.routers.upload_cleanup import router as upload_cleanup_router
+from minutes.routers.uploads import router as uploads_router
 from minutes.routers.user_buckets import router as user_buckets_router
-from minutes.schemas import CreateTaskResponse, FormatRawRequest, FormatRawResponse
-from minutes.upload_service import handle_audio_upload
+from minutes.schemas import FormatRawRequest, FormatRawResponse
 
 app = FastAPI(title="Minutes Service (prototype)")
 app.include_router(background_tasks_router)
@@ -41,6 +35,7 @@ app.include_router(background_tasks_router)
 app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
 app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
 app.include_router(upload_cleanup_router, dependencies=[Depends(require_admin)])
+app.include_router(uploads_router)
 app.include_router(user_buckets_router)
 app.include_router(authentication_router)
 
@@ -133,25 +128,6 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/transcribe-upload", response_model=CreateTaskResponse)
-def transcribe_upload(
-    file: UploadFile = File(...),  # noqa: B008
-    x_user_id: str | None = Header(None),
-    authorization: str | None = Header(None),
-    language: str | None = Form(None),
-    include_actions: str | None = Form(None),
-):
-    return handle_audio_upload(
-        file,
-        x_user_id=x_user_id,
-        authorization=authorization,
-        language=language,
-        include_actions=include_actions,
-        create_task_record=create_task,
-        include_filename=True,
-    )
-
-
 @app.post("/api/format-raw", response_model=FormatRawResponse)
 def format_raw(payload: FormatRawRequest):
     """Accept JSON {"raw": "..."} and return formatted minutes as JSON."""
@@ -194,78 +170,3 @@ def task_result(task_id: str):
 
 def api_task_result(task_id: str):
     return task_result(task_id)
-
-
-@app.post("/transcribe-upload-bg", response_model=CreateTaskResponse)
-def transcribe_upload_bg(
-    file: UploadFile = File(...),  # noqa: B008
-    background_tasks: BackgroundTasks = None,
-    x_user_id: str | None = Header(None),
-    authorization: str | None = Header(None),
-    language: str | None = Form(None),
-    include_actions: str | None = Form(None),
-):
-    return handle_audio_upload(
-        file,
-        x_user_id=x_user_id,
-        authorization=authorization,
-        language=language,
-        include_actions=include_actions,
-        create_task_record=create_task,
-        include_filename=False,
-    )
-
-
-@app.post("/api/transcribe-upload-bg", response_model=CreateTaskResponse)
-def api_transcribe_upload_bg(
-    file: UploadFile = File(...),  # noqa: B008
-    background_tasks: BackgroundTasks = None,
-    x_user_id: str | None = Header(None),
-    authorization: str | None = Header(None),
-    language: str | None = Form(None),
-    include_actions: str | None = Form(None),
-):
-    """Compatibility wrapper for `/api/transcribe-upload-bg` used by the frontend."""
-    return transcribe_upload_bg(
-        file=file,
-        background_tasks=background_tasks,
-        x_user_id=x_user_id,
-        authorization=authorization,
-        language=language,
-        include_actions=include_actions,
-    )
-
-
-@app.post("/transcribe-upload", response_model=CreateTaskResponse)
-def root_transcribe_upload(
-    file: UploadFile = File(...),  # noqa: B008
-    x_user_id: str | None = Header(None),
-    authorization: str | None = Header(None),
-    language: str | None = Form(None),
-    include_actions: str | None = Form(None),
-):
-    """Root-path compatibility wrapper for older clients/tests."""
-    return transcribe_upload(
-        file=file,
-        x_user_id=x_user_id,
-        authorization=authorization,
-        language=language,
-        include_actions=include_actions,
-    )
-
-
-def api_transcribe_upload(
-    file: UploadFile = File(...),  # noqa: B008
-    x_user_id: str | None = Header(None),
-    authorization: str | None = Header(None),
-    language: str | None = Form(None),
-    include_actions: str | None = Form(None),
-):
-    """Compatibility wrapper for `/api/transcribe-upload` (synchronous) used by some clients."""
-    return transcribe_upload(
-        file=file,
-        x_user_id=x_user_id,
-        authorization=authorization,
-        language=language,
-        include_actions=include_actions,
-    )

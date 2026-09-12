@@ -37,7 +37,6 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
         monkeypatch.setattr(tasks, "process_audio", lambda path: Dummy("fake-id-xyz"))
 
     called = {}
-    import minutes.api as api_mod
     import minutes.bg_store as bg
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
@@ -46,7 +45,6 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
         called["user_id"] = user_id
 
     monkeypatch.setattr(bg, "create_task", fake_create)
-    monkeypatch.setattr(api_mod, "create_task", fake_create)
 
     wav = make_wav_bytes()
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}

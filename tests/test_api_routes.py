@@ -178,6 +178,27 @@ def test_auth_routes_are_owned_by_router_module():
     )
 
 
+def test_upload_routes_are_owned_by_router_module():
+    expected_routes = {
+        ("POST", "/transcribe-upload"),
+        ("POST", "/api/transcribe-upload"),
+        ("POST", "/transcribe-upload-bg"),
+        ("POST", "/api/transcribe-upload-bg"),
+    }
+    routes = [route for route in app.routes if "transcribe-upload" in route.path]
+    actual_routes = {
+        (method, route.path)
+        for route in routes
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert actual_routes == expected_routes
+    assert all(
+        route.endpoint.__module__ == "minutes.routers.uploads" for route in routes
+    )
+
+
 def test_admin_bucket_creation_commits_once(monkeypatch):
     bucket_name = f"test-{uuid.uuid4()}"
     commits = []

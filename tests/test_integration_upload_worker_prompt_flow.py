@@ -40,7 +40,6 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
     )
 
     # ensure create_task writes a DB Task row with metadata so worker can read it
-    import minutes.api as api_mod
     from minutes import bg_store
 
     def fake_create(task_id, metadata=None, user_id=None, db=None):
@@ -73,7 +72,6 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
                 raise
 
     monkeypatch.setattr(bg_store, "create_task", fake_create)
-    monkeypatch.setattr(api_mod, "create_task", fake_create)
 
     captured = {}
 
