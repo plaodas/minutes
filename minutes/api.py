@@ -3,7 +3,6 @@ import logging
 import os
 import shutil
 import time
-import typing
 import uuid
 
 from celery.result import AsyncResult
@@ -41,6 +40,7 @@ from minutes.minio_client import MinioService
 from minutes.models import DUMMY_OWNER_ID, Bucket
 from minutes.ollama import format_minutes_from_raw
 from minutes.reconcile_bg_tasks import reconcile_once
+from minutes.routers.admin_buckets import router as admin_buckets_router
 from minutes.routers.background_tasks import (
     router as background_tasks_router,
 )
@@ -379,6 +379,9 @@ def require_admin(req: Request = None):
     raise HTTPException(status_code=403, detail="forbidden")
 
 
+app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
+
+
 # CORS: allow local dev origins used by the frontend and Playwright
 app.add_middleware(
     CORSMiddleware,
@@ -465,130 +468,6 @@ async def shutdown_reconciler():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
-
-
-@app.get("/api/admin/buckets", dependencies=[Depends(require_admin)])
-def admin_list_buckets():
-    try:
-        svc = MinioService()
-        # List DB-backed buckets first, then include any MinIO-only buckets
-        with session_scope() as session:
-            db_buckets = {b.name: b for b in session.query(Bucket).all()}
-
-        out = []
-        try:
-            from minio.error import S3Error
-        except ImportError:
-            S3Error = Exception
-        try:
-            minio_buckets = svc.list_buckets()
-        except (S3Error, OSError):
-            minio_buckets = []
-
-        seen = set()
-        for b in minio_buckets:
-            name = b.name
-            created = getattr(b, "creation_date", None)
-            rec = db_buckets.get(name)
-            out.append(
-                {
-                    "name": name,
-                    "created_at": (
-                        rec.created_at.isoformat() + "Z"
-                        if rec and rec.created_at
-                        else (created.isoformat() if created else None)
-                    ),
-                    "public": bool(rec.public) if rec is not None else None,
-                    "owner_id": str(rec.owner_id) if rec is not None else None,
-                    "in_db": rec is not None,
-                }
-            )
-            seen.add(name)
-
-        # include DB-only buckets (if any)
-        for name, rec in db_buckets.items():
-            if name in seen:
-                continue
-            out.append(
-                {
-                    "name": name,
-                    "created_at": (
-                        rec.created_at.isoformat() + "Z"
-                        if rec and rec.created_at
-                        else None
-                    ),
-                    "public": bool(rec.public) if rec is not None else None,
-                    "owner_id": str(rec.owner_id) if rec is not None else None,
-                    "in_db": True,
-                }
-            )
-
-        return {"buckets": out}
-    except (SQLAlchemyError, OSError, RuntimeError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-def api_admin_list_buckets():
-    return admin_list_buckets()
-
-
-@app.post("/api/admin/buckets", dependencies=[Depends(require_admin)])
-def admin_create_bucket(payload: dict[str, typing.Any]):
-    name = (payload or {}).get("name")
-    if not name:
-        return JSONResponse({"error": "missing name"}, status_code=400)
-    public = bool((payload or {}).get("public", False))
-    try:
-        from minio.error import S3Error
-    except ImportError:
-        S3Error = Exception
-    try:
-        svc = MinioService()
-        svc.create_bucket(name, public=public)
-        # create DB record if not exists
-        with session_scope() as session:
-            existing = session.query(Bucket).filter(Bucket.name == name).one_or_none()
-            if not existing:
-                b = Bucket(name=name, public=public)
-                session.add(b)
-                try:
-                    session.commit()
-                except IntegrityError:
-                    session.rollback()
-        return {"name": name}
-    except ValueError:
-        return JSONResponse({"error": "already exists"}, status_code=409)
-    except (S3Error, OSError, SQLAlchemyError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-def api_admin_create_bucket(payload: dict[str, typing.Any]):
-    return admin_create_bucket(payload)
-
-
-@app.delete("/api/admin/buckets/{name}", dependencies=[Depends(require_admin)])
-def admin_delete_bucket(name: str, force: bool = False):
-    try:
-        try:
-            from minio.error import S3Error
-        except ImportError:
-            S3Error = Exception
-        svc = MinioService()
-        svc.delete_bucket(name, force=force)
-        # remove DB record if present
-        with session_scope() as session:
-            session.query(Bucket).filter(Bucket.name == name).delete()
-            try:
-                session.commit()
-            except SQLAlchemyError:
-                session.rollback()
-        return {"deleted": True}
-    except (S3Error, OSError, SQLAlchemyError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-def api_admin_delete_bucket(name: str, force: bool = False):
-    return admin_delete_bucket(name, force=force)
 
 
 @app.post("/api/transcribe-upload", response_model=CreateTaskResponse)
