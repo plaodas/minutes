@@ -1,9 +1,11 @@
 import uuid
 from contextlib import contextmanager
 
+from sqlalchemy import event
+
 from minutes import bg_store
 from minutes.bg_store import create_task
-from minutes.db import session_scope
+from minutes.db import SessionLocal, session_scope
 from minutes.models import Bucket, Task, TaskHistory
 
 
@@ -107,6 +109,63 @@ def test_success_records_history_and_publishes_status(monkeypatch):
     assert history.payload == {"result": {"summary": "done"}}
     assert published[-1]["event_type"] == "status"
     assert published[-1]["stage"] == "success"
+
+
+def test_failure_update_commits_state_and_history_once(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    commits = []
+    published = []
+
+    def track_commit(_session):
+        commits.append("commit")
+
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+    try:
+        bg_store.update_task_failure(str(task_id), "transcription failed")
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert commits == ["commit"]
+    with session_scope() as db:
+        task = db.get(Task, task_id)
+        history = (
+            db.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "failure",
+            )
+            .one()
+        )
+        assert task is not None
+        assert task.status == "failed"
+        assert history.payload == {"error": "transcription failed"}
+    assert published[-1]["event_type"] == "failure"
+
+
+def test_cancelled_update_records_state_history_and_event(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    bg_store.update_task_cancelled(str(task_id))
+
+    with session_scope() as db:
+        task = db.get(Task, task_id)
+        history = (
+            db.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "cancelled",
+            )
+            .one()
+        )
+        assert task is not None
+        assert task.status == "cancelled"
+        assert history.payload == {}
+    assert published[-1]["event_type"] == "cancelled"
 
 
 def test_success_registers_minio_bucket():

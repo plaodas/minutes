@@ -527,62 +527,68 @@ def update_task_success(task_id: str, result: Any, db=None):
             logger.exception("update_task_success failed for %s", task_id)
 
 
-def update_task_failure(task_id: str, error_msg: str, db=None):
-    with _lock, maybe_session(db) as (s, _created):
+def update_task_failure(task_id: str, error_msg: str):
+    with _lock:
         try:
-            key = _parse_key(task_id)
-            t = s.get(Task, key)
-            if not t:
-                try:
-                    create_task(task_id, metadata=None)
-                except (SQLAlchemyError, OperationalError):
-                    logger.exception(
-                        "create_task failed while ensuring task row for %s",
-                        task_id,
+            with session_scope() as s:
+                key = _parse_key(task_id)
+                task = s.get(Task, key)
+                if not task:
+                    if not isinstance(key, uuid.UUID):
+                        logger.error("Cannot create task for non-UUID id %s", task_id)
+                        return
+                    task = Task(
+                        id=key,
+                        status="pending",
+                        progress=None,
+                        fail_count=0,
                     )
-                t = s.get(Task, key)
-            t.status = "failed"
-            t.result = None
-            t.fail_count = (t.fail_count or 0) + 1
-            t.last_failure_ts = _now_utc()
-            try:
-                s.commit()
-            except IntegrityError:
-                s.rollback()
-            try:
-                record_history(task_id, "failure", {"error": error_msg})
-            except SQLAlchemyError:
-                logger.exception('record_history("failure") failed for %s', task_id)
+                    s.add(task)
+
+                task.status = "failed"
+                task.result = None
+                task.fail_count = (task.fail_count or 0) + 1
+                task.last_failure_ts = _now_utc()
+                s.add(
+                    TaskHistory(
+                        task_id=key,
+                        event_type="failure",
+                        payload={"error": error_msg},
+                    )
+                )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_task_failure failed for %s", task_id)
+            return
+
+    emit_task_event(task_id, "failure", {"error": error_msg})
 
 
-def update_task_cancelled(task_id: str, db=None):
-    with _lock, maybe_session(db) as (s, _created):
+def update_task_cancelled(task_id: str):
+    with _lock:
         try:
-            key = _parse_key(task_id)
-            t = s.get(Task, key)
-            if not t:
-                try:
-                    create_task(task_id, metadata=None)
-                except (SQLAlchemyError, OperationalError):
-                    logger.exception(
-                        "create_task failed while ensuring task row for %s",
-                        task_id,
+            with session_scope() as s:
+                key = _parse_key(task_id)
+                task = s.get(Task, key)
+                if not task:
+                    if not isinstance(key, uuid.UUID):
+                        logger.error("Cannot create task for non-UUID id %s", task_id)
+                        return
+                    task = Task(
+                        id=key,
+                        status="pending",
+                        progress=None,
+                        fail_count=0,
                     )
-                t = s.get(Task, key)
-            t.status = "cancelled"
-            t.result = None
-            try:
-                s.commit()
-            except IntegrityError:
-                s.rollback()
-            try:
-                record_history(task_id, "cancelled", {})
-            except SQLAlchemyError:
-                logger.exception('record_history("cancelled") failed for %s', task_id)
+                    s.add(task)
+
+                task.status = "cancelled"
+                task.result = None
+                s.add(TaskHistory(task_id=key, event_type="cancelled", payload={}))
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_task_cancelled failed for %s", task_id)
+            return
+
+    emit_task_event(task_id, "cancelled", {})
 
 
 def update_task_status(task_id: str, status: TaskStage | str, db=None):
