@@ -6,10 +6,12 @@ from typing import Any
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
-from .db import engine, session_scope
-from .models import Task, TaskHistory, User
+from .db import engine
+from .models import Task, User
 from .schemas import TaskEventType
+from .task_event_service import TaskEventService
 from .task_state import parse_task_key
 
 try:
@@ -24,6 +26,7 @@ EventEmitter = Callable[[str, TaskEventType | str, dict[str, Any]], None]
 
 
 def _persist_task_creation(
+    session: Session,
     task_id: str,
     task_key: uuid.UUID,
     metadata: dict | None,
@@ -31,26 +34,40 @@ def _persist_task_creation(
     *,
     use_pg_upsert: bool,
 ) -> None:
-    with session_scope() as session:
-        persisted_owner_id = owner_id
-        dialect_name = getattr(session.get_bind().dialect, "name", "").lower()
-        if (
-            persisted_owner_id is not None
-            and dialect_name == "postgresql"
-            and sa_inspect(session.get_bind()).has_table("users")
-            and session.get(User, persisted_owner_id) is None
-        ):
-            logger.warning(
-                "create_task: provided user_id %s not found; clearing owner for task %s",
-                persisted_owner_id,
-                task_id,
-            )
-            persisted_owner_id = None
+    persisted_owner_id = owner_id
+    dialect_name = getattr(session.get_bind().dialect, "name", "").lower()
+    if (
+        persisted_owner_id is not None
+        and dialect_name == "postgresql"
+        and sa_inspect(session.get_bind()).has_table("users")
+        and session.get(User, persisted_owner_id) is None
+    ):
+        logger.warning(
+            "create_task: provided user_id %s not found; clearing owner for task %s",
+            persisted_owner_id,
+            task_id,
+        )
+        persisted_owner_id = None
 
-        if use_pg_upsert:
-            statement = (
-                pg_insert(Task.__table__)
-                .values(
+    if use_pg_upsert:
+        statement = (
+            pg_insert(Task.__table__)
+            .values(
+                id=task_key,
+                status="pending",
+                progress=None,
+                result=metadata or None,
+                fail_count=0,
+                user_id=persisted_owner_id,
+            )
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+        session.execute(statement)
+    else:
+        task = session.get(Task, task_key)
+        if not task:
+            session.add(
+                Task(
                     id=task_key,
                     status="pending",
                     progress=None,
@@ -58,35 +75,12 @@ def _persist_task_creation(
                     fail_count=0,
                     user_id=persisted_owner_id,
                 )
-                .on_conflict_do_nothing(index_elements=["id"])
             )
-            session.execute(statement)
         else:
-            task = session.get(Task, task_key)
-            if not task:
-                session.add(
-                    Task(
-                        id=task_key,
-                        status="pending",
-                        progress=None,
-                        result=metadata or None,
-                        fail_count=0,
-                        user_id=persisted_owner_id,
-                    )
-                )
-            else:
-                if metadata:
-                    task.result = metadata
-                if persisted_owner_id and not task.user_id:
-                    task.user_id = persisted_owner_id
-
-        session.add(
-            TaskHistory(
-                task_id=task_key,
-                event_type="created",
-                payload={"status": "pending"},
-            )
-        )
+            if metadata:
+                task.result = metadata
+            if persisted_owner_id and not task.user_id:
+                task.user_id = persisted_owner_id
 
 
 def create_task(
@@ -119,26 +113,31 @@ def create_task(
                 and getattr(getattr(engine, "dialect", None), "name", "").lower()
                 == "postgresql"
             )
-            try:
-                _persist_task_creation(
+
+            def persist(use_upsert: bool) -> None:
+                TaskEventService(emit_event).record_and_publish(
                     task_id,
-                    task_key,
-                    metadata,
-                    owner_id,
-                    use_pg_upsert=use_pg_upsert,
+                    TaskEventType.CREATED,
+                    {"status": "pending"},
+                    mutate=lambda session, _key: _persist_task_creation(
+                        session,
+                        task_id,
+                        task_key,
+                        metadata,
+                        owner_id,
+                        use_pg_upsert=use_upsert,
+                    ),
+                    task_key=task_key,
                 )
+
+            try:
+                persist(use_pg_upsert)
             except OperationalError:
                 logger.exception(
                     "Task creation failed for %s; retrying with a fresh session",
                     task_id,
                 )
-                _persist_task_creation(
-                    task_id,
-                    task_key,
-                    metadata,
-                    owner_id,
-                    use_pg_upsert=use_pg_upsert,
-                )
+                persist(use_pg_upsert)
             except (SQLAlchemyError, AttributeError, TypeError):
                 if not use_pg_upsert:
                     raise
@@ -146,15 +145,7 @@ def create_task(
                     "PostgreSQL upsert failed for %s; using generic persistence",
                     task_id,
                 )
-                _persist_task_creation(
-                    task_id,
-                    task_key,
-                    metadata,
-                    owner_id,
-                    use_pg_upsert=False,
-                )
+                persist(False)
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("create_task failed for %s", task_id)
             return
-
-    emit_event(task_id, "created", {"status": "pending"})

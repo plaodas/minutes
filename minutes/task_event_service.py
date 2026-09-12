@@ -29,8 +29,9 @@ class TaskEventService:
         *,
         mutate: TaskMutation[MutationResult] | None = None,
         record_history: bool = True,
+        task_key: uuid.UUID | None = None,
     ) -> MutationResult | None:
-        key = parse_task_key(task_id)
+        key = task_key or parse_task_key(task_id)
         if not isinstance(key, uuid.UUID):
             raise TypeError(f"invalid task id: {task_id!r}")
 

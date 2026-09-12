@@ -46,20 +46,27 @@ def test_create_task_with_user_id():
         assert t.result.get("foo") == "bar"
 
 
-def test_create_task_commits_task_and_history_once():
+def test_create_task_commits_task_and_history_before_event(monkeypatch):
     task_id = uuid.uuid4()
-    commits = []
+    operations = []
+    published = []
 
     def track_commit(_session):
-        commits.append("commit")
+        operations.append("commit")
+
+    def track_publish(task_event):
+        published.append(task_event)
+        operations.append("publish")
 
     event.listen(SessionLocal.class_, "after_commit", track_commit)
+    monkeypatch.setattr(bg_store, "publish_event", track_publish)
     try:
         create_task(str(task_id), metadata={"source": "upload"})
     finally:
         event.remove(SessionLocal.class_, "after_commit", track_commit)
 
-    assert commits == ["commit"]
+    assert operations == ["commit", "publish"]
+    assert published[0]["event_type"] == "created"
     with session_scope() as db:
         task = db.get(Task, task_id)
         history = (
