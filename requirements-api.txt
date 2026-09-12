@@ -1,5 +1,6 @@
 fastapi==0.100.0
 uvicorn[standard]==0.23.1
+alembic==1.11.1
 python-multipart==0.0.6
 aiofiles==23.1.0
 requests==2.33.1
@@ -11,4 +12,5 @@ psycopg2-binary>=2.9
 python-magic
 minio
 pyjwt
-passlib
+passlib[bcrypt]
+bcrypt<4.1

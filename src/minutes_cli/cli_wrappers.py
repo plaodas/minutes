@@ -1,58 +1,37 @@
-import datetime
-import sys
+import argparse
+from collections.abc import Sequence
 
-from minutes.audio import preprocess
-from minutes.ollama import format_minutes_from_raw
-from minutes.transcribe import transcribe
+from minutes.pipeline.task_runner import run_audio_pipeline
+from minutes.task_result import result_output_file
 
 
 def run_minute_pipeline(audio: str) -> str:
-    output_date = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d")
-    raw_file = f"raw_{output_date}.txt"
-    final_file = f"minutes_{output_date}.txt"
-
-    _mono, _norm, clean = preprocess(audio)
-    prompt = ()
-    raw_text, _segments = transcribe(
-        clean, model_size="medium", prompt=prompt, raw_out=raw_file
-    )
-    final_minutes = format_minutes_from_raw(raw_text)
-    with open(final_file, "w", encoding="utf-8") as f:
-        f.write(final_minutes)
-    return final_file
+    """Run the same pipeline used by Celery and return its output path."""
+    response = run_audio_pipeline(audio)
+    output_file = result_output_file(response.get("result"))
+    if not output_file:
+        raise RuntimeError("pipeline completed without an output file")
+    return output_file
 
 
 def auto_minutes_ollama(audio: str, prompt: str | None = None) -> str:
-    output_date = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%d")
-    raw_file = f"raw_{output_date}.txt"
-    final_file = f"minutes_{output_date}.txt"
+    """Backward-compatible alias for the canonical pipeline command."""
+    del prompt
+    return run_minute_pipeline(audio)
 
-    _mono, _norm, clean = preprocess(audio)
-    if prompt is None:
-        prompt = ""
-    raw_text, _segments = transcribe(
-        clean, model_size="medium", prompt=prompt, raw_out=raw_file
+
+def _main_from_argv(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="minutes-cli",
+        description="Run the Minutes audio pipeline locally.",
     )
-    final_minutes = format_minutes_from_raw(raw_text)
-    with open(final_file, "w", encoding="utf-8") as f:
-        f.write(final_minutes)
-    return final_file
+    parser.add_argument("command", choices=("run", "auto"))
+    parser.add_argument("audio_file")
+    args = parser.parse_args(argv)
 
-
-def _main_from_argv():
-    if len(sys.argv) < 3:
-        print("Usage: minutes_cli <command> <audio_file>")
-        sys.exit(1)
-    cmd = sys.argv[1]
-    audio = sys.argv[2]
-    if cmd == "run":
-        out = run_minute_pipeline(audio)
-    elif cmd == "auto":
-        out = auto_minutes_ollama(audio)
-    else:
-        print("Unknown command")
-        sys.exit(2)
-    print(f"Wrote: {out}")
+    runner = run_minute_pipeline if args.command == "run" else auto_minutes_ollama
+    output_file = runner(args.audio_file)
+    print(f"Wrote: {output_file}")
 
 
 if __name__ == "__main__":

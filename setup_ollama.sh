@@ -1,21 +1,6 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "Starting Ollama container..."
-docker compose -f docker-compose.ollama.yml up -d
-
-echo "Waiting for Ollama to be ready..."
-sleep 5
-
-# ダウンロードしたいモデルをここに並べる
-MODELS=(
-"gemma4:e4b"
-"qwen3.5:4b"
-)
-
-for model in "${MODELS[@]}"; do
-  echo "Pulling model: $model"
-  docker exec ollama-container ollama pull "$model"
-done
-
-echo "Ollama setup complete."
+# The llm profile starts Ollama and waits for it before pulling OLLAMA_MODEL.
+docker compose --profile llm up --build -d ollama ollama-pull
+docker compose --profile llm logs ollama-pull

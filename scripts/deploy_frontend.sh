@@ -19,14 +19,8 @@ cd "$FRONTEND_DIR"
 
 if [ "$NO_INSTALL" = false ]; then
   if [ -f package.json ]; then
-    echo "Installing frontend dependencies (pnpm/yarn/npm)..."
-    if command -v pnpm >/dev/null 2>&1; then
-      pnpm install
-    elif command -v yarn >/dev/null 2>&1; then
-      yarn install --frozen-lockfile || yarn install
-    else
-      npm install
-    fi
+    echo "Installing frontend dependencies with npm..."
+    npm ci
   fi
 fi
 

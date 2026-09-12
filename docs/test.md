@@ -1,52 +1,34 @@
+# Test guide
 
-- フロントエンドをデプロイ:
+## Automated checks
+
 ```bash
-./scripts/deploy_frontend.sh
+export DATABASE_URL=sqlite:///./.pytest_sqlite.db
+pytest -q
+
+cd frontend
+npm ci
+npm run test:unit
+npm run lint
+npm run build
 ```
 
-- Docker Compose でサービスを再起動:
+## Compose smoke test
+
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.minio.yml down
-docker compose -f docker-compose.yml -f docker-compose.minio.yml up --build
+docker compose up --build -d
+python3 scripts/smoke_compose.py
 ```
 
-- 単体テスト実行:
-```bash
-PYTHONPATH=. pytest -q
-```
+The smoke test verifies the required containers, Alembic revision, Redis, the frontend `/api` proxy, and cookie login.
 
-- E2E テスト実行:
-```bash
-pnpm run test:e2e
-```
+## Manual end-to-end acceptance
 
+1. Open <http://localhost:8080> and sign in with the credentials from `.env`.
+2. Upload a short speech recording.
+3. Confirm the task reaches preprocess, transcribing, formatting, and success.
+4. Open the result and download its transcript, summary, and minutes.
+5. Open History and confirm the same task is present.
+6. Stop Ollama or omit the `llm` profile and confirm the task still succeeds with `[FALLBACK]` output.
 
-
-- サービス起動確認:
-```bash
-docker compose ps
-```
-
-- SSE エンドポイント応答確認:
-```bash
-curl -sS -D - http://localhost:8000/bg/events -o /dev/null
-→ header に content-type: text/event-stream が含まれる。
-```
-
-- 単一インスタンステスト（ブラウザで履歴画面を開いた状態で実行）:
-```bash
-TASK_ID=$(curl -sS http://localhost:8000/bg/tasks | jq -r '.tasks[0].id')
-curl -sS -X POST http://localhost:8000/bg/task/$TASK_ID/rename -H 'Content-Type: application/json' -d '{"name":"SSE TEST NAME"}'
-```
-
-→ ブラウザの該当タスク名／履歴が即時更新されるはず。
-- クロスインスタンス（Redis 経由）テスト例（直接 Redis に publish）:
-```bash
-docker exec -it $(docker ps -qf name=minutes-redis) redis-cli PUBLISH minutes:events '{"type":"task.event","task_id":"<TASK_ID>","event_type":"status","payload":{"status":"transcribing"}}'
-```
-
-→ 他インスタンスのフロントにも反映されるはず。
-- ログ確認:
-```bash
-docker compose logs -f minutes
-```
+For SSE fallback testing, block `/api/bg/events` in browser developer tools. Status polling should still complete the active task.

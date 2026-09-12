@@ -10,6 +10,7 @@ import type { TaskListItem } from '../lib/taskState';
 
 const FALLBACK_POLL_INITIAL_MS = 1_500;
 const FALLBACK_POLL_INTERVAL_MS = 10_000;
+const MAX_CONSECUTIVE_POLL_ERRORS = 3;
 
 export type UseActiveTaskOptions = {
   onStageIndex?: (index: number) => void;
@@ -31,6 +32,7 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
   const [error, setError] = useState<string | null>(null);
   const [lastErrorDetails, setLastErrorDetails] = useState<string | null>(null);
   const pollRef = useRef<number | null>(0);
+  const consecutivePollErrorsRef = useRef(0);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -49,6 +51,7 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
     setTask(createPendingTask(taskId));
     setError(null);
     setLastErrorDetails(null);
+    consecutivePollErrorsRef.current = 0;
   }, [taskId]);
 
   const failTask = useCallback(
@@ -125,6 +128,7 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
     async (id: string): Promise<boolean> => {
       try {
         const statusResponse = await getBgStatus(id);
+        consecutivePollErrorsRef.current = 0;
         const status = statusResponse.status || '';
         const backendError = statusResponse.error;
 
@@ -150,6 +154,10 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
         return false;
       } catch (pollError) {
         console.warn('poll error', pollError);
+        consecutivePollErrorsRef.current += 1;
+        if (consecutivePollErrorsRef.current < MAX_CONSECUTIVE_POLL_ERRORS) {
+          return false;
+        }
         const detail = pollError instanceof Error ? pollError.message : String(pollError);
         failTask(detail, pollError);
         return true;

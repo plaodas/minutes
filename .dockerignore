@@ -4,9 +4,16 @@ __pycache__/
 venv/
 *.log
 .git/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 raw_*.txt
 voice_data/
 models/
+data/
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
 *.pth
 *.pt
 *.bin

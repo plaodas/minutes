@@ -19,6 +19,7 @@ def test_bg_tasks_loads_history_previews_in_one_bulk_query():
                     id=task_id,
                     status="success",
                     progress=100,
+                    deleted=False,
                     created_at=datetime(2100, 1, 1, tzinfo=timezone.utc),
                 )
             )
@@ -46,7 +47,7 @@ def test_bg_tasks_loads_history_previews_in_one_bulk_query():
 
     event.listen(engine, "before_cursor_execute", record_select)
     try:
-        response = bg_tasks(limit=2)
+        response = bg_tasks(limit=10_000)
     finally:
         event.remove(engine, "before_cursor_execute", record_select)
 
@@ -55,16 +56,37 @@ def test_bg_tasks_loads_history_previews_in_one_bulk_query():
         for task_id in task_ids:
             task = tasks_by_id[str(task_id)]
             assert task["event_count"] == 4
-            assert [
-                preview["event_type"] for preview in task["preview_events"]
-            ] == ["success", "formatting", "transcribing"]
+            assert [preview["event_type"] for preview in task["preview_events"]] == [
+                "success",
+                "formatting",
+                "transcribing",
+            ]
         assert len(select_statements) == 2
     finally:
         with session_scope() as session:
-            session.query(TaskHistory).filter(
-                TaskHistory.task_id.in_(task_ids)
-            ).delete(synchronize_session=False)
+            session.query(TaskHistory).filter(TaskHistory.task_id.in_(task_ids)).delete(
+                synchronize_session=False
+            )
             session.query(Task).filter(Task.id.in_(task_ids)).delete(
+                synchronize_session=False
+            )
+
+
+def test_bg_tasks_excludes_soft_deleted_tasks():
+    visible_id = uuid.uuid4()
+    deleted_id = uuid.uuid4()
+    with session_scope() as session:
+        session.add(Task(id=visible_id, status="success", progress=100, deleted=False))
+        session.add(Task(id=deleted_id, status="deleted", progress=100, deleted=True))
+
+    try:
+        response = bg_tasks(limit=100)
+        returned_ids = {task["id"] for task in response["tasks"]}
+        assert str(visible_id) in returned_ids
+        assert str(deleted_id) not in returned_ids
+    finally:
+        with session_scope() as session:
+            session.query(Task).filter(Task.id.in_([visible_id, deleted_id])).delete(
                 synchronize_session=False
             )
 
@@ -111,18 +133,20 @@ def test_bg_histories_batches_ids_in_one_query_with_individual_offsets():
         event.remove(engine, "before_cursor_execute", record_select)
 
     try:
-        assert [
-            item["event_type"] for item in response["histories"][first_id]
-        ] == ["success", "formatting"]
-        assert [
-            item["event_type"] for item in response["histories"][second_id]
-        ] == ["formatting", "transcribing"]
+        assert [item["event_type"] for item in response["histories"][first_id]] == [
+            "success",
+            "formatting",
+        ]
+        assert [item["event_type"] for item in response["histories"][second_id]] == [
+            "formatting",
+            "transcribing",
+        ]
         assert len(select_statements) == 1
     finally:
         with session_scope() as session:
-            session.query(TaskHistory).filter(
-                TaskHistory.task_id.in_(task_ids)
-            ).delete(synchronize_session=False)
+            session.query(TaskHistory).filter(TaskHistory.task_id.in_(task_ids)).delete(
+                synchronize_session=False
+            )
             session.query(Task).filter(Task.id.in_(task_ids)).delete(
                 synchronize_session=False
             )

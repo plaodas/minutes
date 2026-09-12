@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 
-import { uploadAudioBgWithProgress } from '../api/client';
+import { cancelTask, uploadAudioBgWithProgress } from '../api/client';
 import { useActiveTask } from '../hooks/useActiveTask';
 import { ensureUserId } from '../lib/apiConfig';
 import { dispatchAppToast } from '../lib/appEvents';
@@ -136,17 +136,31 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     onDrop(dt.files);
   };
 
-  const cancelAll = useCallback(() => {
+  const cancelAll = useCallback(async () => {
+    const activeTaskId = taskId;
     abortUpload();
     stopPolling();
     setRunning(false);
     setUploadProgress(null);
     setTaskId(null);
     setActiveIndex(-1);
-    window.dispatchEvent(
-      new CustomEvent('appToast', { detail: { type: 'info', message: 'Upload cancelled' } })
-    );
-  }, [abortUpload, setActiveIndex, stopPolling]);
+    if (!activeTaskId) {
+      dispatchAppToast({ type: 'info', message: 'Upload cancelled' });
+      return;
+    }
+    try {
+      await cancelTask(activeTaskId);
+      dispatchAppToast({ type: 'info', message: 'Task cancelled' });
+    } catch (error: unknown) {
+      dispatchAppToast({
+        type: 'error',
+        message:
+          error instanceof Error
+            ? `Task cancellation failed: ${error.message}`
+            : 'Task cancellation failed',
+      });
+    }
+  }, [abortUpload, setActiveIndex, stopPolling, taskId]);
 
   return (
     <div>
@@ -181,7 +195,11 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
           <UploadProgress uploadProgress={uploadProgress} transcribeProgress={transcribeProgress} />
           {running && (
             <div className="mt-3">
-              <button className="px-3 py-1 rounded bg-gray-200" onClick={cancelAll}>
+              <button
+                type="button"
+                className="px-3 py-1 rounded bg-gray-200"
+                onClick={() => void cancelAll()}
+              >
                 Cancel
               </button>
             </div>

@@ -14,6 +14,7 @@ export type AuthFeaturesResponse = ApiSchemas['AuthFeaturesResponse'];
 export type AuthLoginResponse = ApiSchemas['AuthLoginResponse'];
 export type TaskListItemResponse = ApiSchemas['TaskListItemResponse'];
 export type TaskHistoryRecord = ApiSchemas['TaskHistoryRecord'];
+export type TaskCancelledResponse = ApiSchemas['TaskCancelledResponse'];
 export type TaskDeletedResponse = ApiSchemas['TaskDeletedResponse'];
 export type TaskUndeletedResponse = ApiSchemas['TaskUndeletedResponse'];
 export type ErrorResponse = ApiSchemas['ErrorResponse'];

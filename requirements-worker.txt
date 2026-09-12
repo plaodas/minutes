@@ -1,0 +1,3 @@
+# CPU-only dependencies required by the Celery audio worker.
+# API and Celery dependencies are installed from requirements-api.txt first.
+faster-whisper==1.2.1

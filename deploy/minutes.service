@@ -1,13 +1,13 @@
 [Unit]
-Description=Minutes Service (Docker Compose minimal)
+Description=Minutes Portfolio MVP (Docker Compose)
 After=network.target docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/home/agake/minutes
-ExecStart=/usr/bin/docker compose -f /home/agake/minutes/docker-compose.minimal.yml up -d --build
-ExecStop=/usr/bin/docker compose -f /home/agake/minutes/docker-compose.minimal.yml down
+ExecStart=/usr/bin/docker compose -f /home/agake/minutes/docker-compose.yml up -d --build
+ExecStop=/usr/bin/docker compose -f /home/agake/minutes/docker-compose.yml down
 TimeoutStartSec=600
 TimeoutStopSec=120
 

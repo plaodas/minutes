@@ -5,12 +5,15 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
-    Enum as SAEnum,
     ForeignKey,
     Integer,
     Numeric,
     String,
+    false,
     func,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
@@ -58,7 +61,7 @@ class Task(Base):
     last_failure_ts = Column(DateTime, nullable=True)
     last_success_ts = Column(DateTime, nullable=True)
     # Soft-delete flag and timestamp
-    deleted = Column(Boolean, nullable=False, server_default="false")
+    deleted = Column(Boolean, nullable=False, server_default=false())
     deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

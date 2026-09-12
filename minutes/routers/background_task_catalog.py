@@ -164,6 +164,7 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     with session_scope() as session:
         task_rows = (
             session.query(Task)
+            .filter(Task.deleted.is_(False))
             .order_by(Task.created_at.desc(), Task.id.desc())
             .offset(int(offset))
             .limit(int(limit))

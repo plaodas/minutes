@@ -1,157 +1,181 @@
-version: "3.8"
+x-app-environment: &app-environment
+  PYTHONUNBUFFERED: "1"
+  DATABASE_URL: postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
+  REDIS_URL: redis://redis:6379/0
+  OUTPUTS_DIR: /app/outputs
+  UPLOADS_DIR: /app/uploads
+  JWT_SECRET: ${JWT_SECRET:-portfolio-dev-secret-change-me}
+  ENV: dev
+  FORCE_HTTPS: "0"
+
+x-app-volumes: &app-volumes
+  - ./data/uploads:/app/uploads
+  - ./data/outputs:/app/outputs
+
 services:
-  minutes:
-    build:
-      context: .
-      args:
-        INSTALL_FULL: "false"
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./:/app
-      - ./data/uploads:/app/uploads
-      - ./data/outputs:/app/outputs
-      - ./data:/app/data
+  db:
+    image: postgres:15-alpine
     environment:
-      - PYTHONUNBUFFERED=1
-      - OLLAMA_HOST=http://ollama-container:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:e4b}
-      - OLLAMA_FALLBACK_MODELS=${OLLAMA_FALLBACK_MODELS:-qwen3.5:4b}
-      - INFERENCE_URL=http://inference:5001/transcribe
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
-      - REDIS_URL=redis://redis:6379/0
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
-      - FORCE_ADMIN=true
-      - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-outputs}
-      - JWT_SECRET=${JWT_SECRET}
-      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN}
-      # - ENV=production
-      # - FORCE_HTTPS=1
-      - ENV=dev
-      - FORCE_HTTPS=0
-    env_file:
-      - .env
-    depends_on:
-      - db
-    # wait for DB and Redis to be reachable before starting the API
-    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh db 5432 redis 6379 -- uvicorn backend.app:app --host 0.0.0.0 --port 8000"]
+      POSTGRES_USER: ${POSTGRES_USER:-minutes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minutes_password}
+      POSTGRES_DB: ${POSTGRES_DB:-minutes}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
-    networks:
-      - minutes-net
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    networks:
-      - minutes-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
 
-  worker:
+  migrate:
+    image: minutes-api:local
     build:
       context: .
       args:
         INSTALL_FULL: "false"
-    # Wait for Redis and Postgres to be reachable before starting the worker
-    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh redis 6379 db 5432 -- celery -A minutes.tasks worker -Q minutes --loglevel=debug"]
-    volumes:
-      - ./:/app
-      - ./data/uploads:/app/uploads
-      - ./data/outputs:/app/outputs
-      - ./data:/app/data
-    environment:
-      - PYTHONUNBUFFERED=1
-      - OLLAMA_HOST=http://ollama-container:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:e4b}
-      - OLLAMA_FALLBACK_MODELS=${OLLAMA_FALLBACK_MODELS:-qwen3.5:4b}
-      - INFERENCE_URL=http://inference:5001/transcribe
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
-      - REDIS_URL=redis://redis:6379/0
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
-      - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-outputs}
-    env_file:
-      - .env
+    environment: *app-environment
+    command: ["alembic", "upgrade", "head"]
     depends_on:
-      - redis
-      - db
-      - inference
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  bootstrap:
+    image: minutes-api:local
+    build:
+      context: .
+      args:
+        INSTALL_FULL: "false"
+    environment:
+      <<: *app-environment
+      ADMIN_USER: ${ADMIN_USER:-demo}
+      ADMIN_PASS: ${ADMIN_PASS:-demo}
+    command: ["python", "scripts/create_admin.py"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  minutes:
+    image: minutes-api:local
+    build:
+      context: .
+      args:
+        INSTALL_FULL: "false"
+    environment: *app-environment
+    volumes: *app-volumes
+    command: ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
     restart: unless-stopped
-    networks:
-      - minutes-net
+
+  worker:
+    image: minutes-worker:local
+    build:
+      context: .
+      args:
+        INSTALL_WORKER: "true"
+    environment:
+      <<: *app-environment
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_FALLBACK_MODELS: ${OLLAMA_FALLBACK_MODELS:-}
+      OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-5}
+      TRANSCRIBE_MODEL_SIZE: ${TRANSCRIBE_MODEL_SIZE:-small}
+    volumes: *app-volumes
+    command:
+      [
+        "celery",
+        "-A",
+        "minutes.celery_app.celery",
+        "worker",
+        "-Q",
+        "minutes",
+        "--loglevel=info",
+      ]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A minutes.celery_app.celery inspect ping -d celery@$${HOSTNAME} --timeout 5 | grep -q pong",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       args:
-        VITE_API_BASE: "/api"
+        VITE_API_BASE: /api
         VITE_SHOW_ADMIN_CONTROLS: "true"
     ports:
-      - "8080:80"
+      - "${FRONTEND_PORT:-8080}:80"
     depends_on:
-      - minutes
+      minutes:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
-    networks:
-      - minutes-net
 
-  inference:
-    build:
-      context: .
-      args:
-        INSTALL_FULL: "true"
-    ports:
-      - "5001:5001"
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
     volumes:
-      - ./:/app
-      - ./data/uploads:/app/uploads
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
-      - MINIO_DEFAULT_BUCKET=${MINIO_DEFAULT_BUCKET:-outputs}
-      - REDIS_URL=redis://redis:6379/0
-    # wait for DB and Redis to be reachable before starting inference service
-    command: ["/bin/bash", "-lc", "./scripts/wait-for-deps.sh db 5432 redis 6379 -- uvicorn minutes.inference_app:app --host 0.0.0.0 --port 5001"]
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
-    networks:
-      - minutes-net
-  db:
-    image: postgres:15
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-minutes}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-minutes_password}
-      - POSTGRES_DB=${POSTGRES_DB:-minutes}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    networks:
-      - minutes-net
 
-  nginx:
-    image: nginx:1.25-alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./deploy/nginx_test.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./deploy/frontend_html:/usr/share/nginx/html:ro
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: ["pull", "${OLLAMA_MODEL:-qwen2.5:3b}"]
     depends_on:
-      - minutes
-      - redis
-    restart: unless-stopped
-    networks:
-      - minutes-net
+      ollama:
+        condition: service_healthy
+    restart: "no"
 
 volumes:
   pgdata:
-    driver: local
-
-
-networks:
-  minutes-net:
-    name: minutes-net
+  ollama_data:

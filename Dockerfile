@@ -1,6 +1,7 @@
 FROM python:3.11-slim
 
 ARG INSTALL_FULL=false
+ARG INSTALL_WORKER=false
 ARG INSTALL_DEV=false
 ENV PYTHONUNBUFFERED=1
 ENV PIP_DEFAULT_TIMEOUT=120
@@ -15,11 +16,15 @@ WORKDIR /app
 # INSTALL_FULL can install the full requirements when requested.
 COPY requirements-api.txt requirements-api.txt ./
 COPY requirements.txt requirements.txt ./
+COPY requirements-worker.txt requirements-worker.txt ./
 COPY requirements-dev.txt requirements-dev.txt ./
 
 RUN pip install --disable-pip-version-check --no-cache-dir --upgrade pip setuptools wheel || \
     pip install --disable-pip-version-check --no-cache-dir --upgrade pip setuptools wheel --timeout 120
 RUN pip install --no-cache-dir -r requirements-api.txt
+# The default portfolio worker uses faster-whisper on CPU without the
+# CUDA/PyTorch-heavy full development dependency set.
+RUN if [ "${INSTALL_WORKER}" = "true" ]; then pip install --no-cache-dir -r requirements-worker.txt; fi
 # If full install requested, install the main requirements.txt (may be large)
 RUN if [ "${INSTALL_FULL}" = "true" ]; then pip install --no-cache-dir -r requirements.txt; fi
 # If development install requested, install dev requirements (pytest, requests)

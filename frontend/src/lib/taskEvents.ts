@@ -83,10 +83,7 @@ export function parseTaskEvent(value: unknown): TaskEvent | null {
   if (typeof value.task_id !== 'string') return null;
   if (typeof value.event_type !== 'string' || !eventTypeSet.has(value.event_type)) return null;
   if (!isRecord(value.payload)) return null;
-  if (
-    value.stage != null &&
-    (typeof value.stage !== 'string' || !stageSet.has(value.stage))
-  ) {
+  if (value.stage != null && (typeof value.stage !== 'string' || !stageSet.has(value.stage))) {
     return null;
   }
   if (value.event_type === 'status' && typeof value.payload.status !== 'string') return null;

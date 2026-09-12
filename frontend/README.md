@@ -1,18 +1,21 @@
-# Minutes Frontend (starter)
+# Minutes frontend
 
-This is a starter React + Vite + TypeScript + Tailwind project for the audio-to-summary front-end.
-
-Run locally:
+React, Vite, TypeScript, Tailwind, and a generated service worker provide the Minutes browser UI.
 
 ```bash
-cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Environment:
+The development server proxies `/api` to `http://localhost:8000`. Production uses `nginx.conf` in the frontend image and preserves the same `/api` paths.
 
-Notes:
-PWA notes:
-- `vite-plugin-pwa` is integrated in `vite.config.ts`. Service worker is only enabled in production builds by default.
-- SW update events trigger a `swUpdated` event on `window`; the app shows a small update toast to apply the new version.
+Useful commands:
+
+```bash
+npm run test:unit
+npm run lint
+npm run build
+npm run generate:api-types
+```
+
+`package-lock.json` is the only dependency lockfile. Generated OpenAPI types live in `src/api/generated.ts`.

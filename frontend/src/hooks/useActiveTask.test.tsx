@@ -152,4 +152,59 @@ describe('useActiveTask', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('tolerates transient polling errors before failing the task', async () => {
+    const instances: MockEventSource[] = [];
+
+    class MockEventSource {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+
+      constructor() {
+        instances.push(this);
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+    const client = await import('../api/client');
+    const statusSpy = vi
+      .spyOn(client, 'getBgStatus')
+      .mockRejectedValueOnce(new Error('temporary outage'))
+      .mockRejectedValueOnce(new Error('temporary outage'))
+      .mockResolvedValue({
+        task_id: 'task-1',
+        status: 'transcribing',
+        stage: 'transcribing',
+        progress: 50,
+      });
+    const onFailure = vi.fn();
+
+    vi.useFakeTimers();
+    const view = render(
+      <TaskEventsProvider>
+        <TestComponent
+          taskId="task-1"
+          onReady={(state) => {
+            if (state.error) onFailure(state.error);
+          }}
+        />
+      </TaskEventsProvider>
+    );
+
+    try {
+      expect(instances).toHaveLength(1);
+      act(() => instances[0].onerror?.());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(21_500);
+      });
+      expect(statusSpy).toHaveBeenCalledTimes(3);
+      expect(onFailure).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
 });

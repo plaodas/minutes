@@ -6,12 +6,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from minutes.bg_store import update_task_success
 
 
-def reconcile_once(outputs_dir: str = "data/outputs") -> None:
+def reconcile_once(outputs_dir: str | None = None) -> None:
     """Scan DB tasks and outputs folder, and map an unreferenced output to a single pending task.
 
     This function is best-effort: DB errors are logged and result in an empty tasks map.
     """
     logger = logging.getLogger("minutes.reconcile")
+    outputs_dir = outputs_dir or os.environ.get("OUTPUTS_DIR", "outputs")
 
     # Load tasks from the DB only. Do not fall back to a file-based store.
     tasks: dict[str, dict] = {}

@@ -18,6 +18,7 @@ import type {
   ServiceTokenCreatedResponse,
   ServiceTokenListResponse,
   StatusResponse,
+  TaskCancelledResponse,
   TaskDeletedResponse,
   TaskUndeletedResponse,
   UploadCleanupDeleteResponse,
@@ -199,6 +200,16 @@ export async function deleteTask(taskId: string): Promise<TaskDeletedResponse> {
   });
   if (!res.ok) throw new Error('delete failed');
   return res.json();
+}
+
+export async function cancelTask(taskId: string): Promise<TaskCancelledResponse> {
+  const res = await fetch(`${API_BASE}/bg/cancel/${encodeURIComponent(taskId)}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error('cancel failed');
+  return res.json() as Promise<TaskCancelledResponse>;
 }
 
 export async function forceDeleteTask(taskId: string): Promise<TaskDeletedResponse> {

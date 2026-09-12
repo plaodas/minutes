@@ -18,7 +18,10 @@ logger = logging.getLogger("minutes.celery")
 
 celery = Celery("minutes", broker=REDIS_URL, backend=REDIS_URL)
 
-celery.conf.update(task_routes={"minutes.tasks.*": {"queue": "minutes"}})
+celery.conf.update(
+    include=["minutes.tasks"],
+    task_routes={"minutes.tasks.*": {"queue": "minutes"}},
+)
 
 
 @worker_process_init.connect
