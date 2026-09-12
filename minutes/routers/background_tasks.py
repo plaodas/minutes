@@ -87,7 +87,10 @@ async def bg_events(request: Request):
                 if await request.is_disconnected():
                     break
                 try:
-                    event = await queue.get()
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
                 except asyncio.CancelledError:
                     break
                 try:
@@ -100,7 +103,15 @@ async def bg_events(request: Request):
         finally:
             unregister_queue(queue)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get(

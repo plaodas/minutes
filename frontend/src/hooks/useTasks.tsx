@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getBgTasks } from '../api/client';
 import { applyTaskEvent, parseTaskListResponse } from '../lib/taskState';
@@ -63,6 +63,16 @@ export function useTasks() {
       return result.tasks;
     });
   });
+  const hasOpenedEvents = useRef(false);
+
+  useEffect(() => {
+    if (eventConnectionState !== 'open') return;
+    if (!hasOpenedEvents.current) {
+      hasOpenedEvents.current = true;
+      return;
+    }
+    void load(true);
+  }, [eventConnectionState, load]);
 
   useEffect(() => {
     if (eventConnectionState !== 'error' && eventConnectionState !== 'unavailable') {

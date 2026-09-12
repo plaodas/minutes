@@ -79,8 +79,6 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
         captured["prompt"] = system_prompt
         return "FORMATTED"
 
-    monkeypatch.setattr(tasks, "format_minutes_from_raw", fake_format)
-
     wav = make_wav_bytes()
     files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
     data = {"language": "Japanese", "include_actions": "0"}
@@ -96,10 +94,10 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
         assert t is not None
         meta = t.result or {}
 
-    # build prompt and call the (monkeypatched) formatter to simulate worker using it
+    # build prompt and call the formatter to simulate worker using it
     prompt = tasks.build_system_prompt(meta)
     assert prompt is not None
-    tasks.format_minutes_from_raw("raw transcript", system_prompt=prompt)
+    fake_format("raw transcript", system_prompt=prompt)
     assert "日本語" in (captured.get("prompt") or "") or "Japanese" in (
         captured.get("prompt") or ""
     )

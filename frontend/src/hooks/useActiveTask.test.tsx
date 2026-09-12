@@ -137,11 +137,15 @@ describe('useActiveTask', () => {
       });
       expect(statusSpy).toHaveBeenCalledTimes(1);
 
-      act(() => instances[0].onopen?.());
+      act(() => instances.at(-1)?.onopen?.());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(statusSpy).toHaveBeenCalledTimes(2);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(20_000);
       });
-      expect(statusSpy).toHaveBeenCalledTimes(1);
+      expect(statusSpy).toHaveBeenCalledTimes(2);
     } finally {
       view.unmount();
       vi.useRealTimers();

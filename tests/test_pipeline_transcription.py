@@ -36,6 +36,25 @@ def test_transcribe_locally_reports_segment_and_completion_progress():
     assert progress == [50.0, 100.0]
 
 
+def test_transcribe_locally_uses_model_size_env(monkeypatch):
+    monkeypatch.setenv("TRANSCRIBE_MODEL_SIZE", "tiny")
+    seen = {}
+
+    def transcriber(_path, **kwargs):
+        seen.update(kwargs)
+        return "raw", []
+
+    transcribe_locally(
+        "clean.wav",
+        duration_seconds=None,
+        transcriber=transcriber,
+        update_status=lambda _stage, _detail: None,
+        update_progress=lambda _progress: None,
+    )
+
+    assert seen["model_size"] == "tiny"
+
+
 def test_transcribe_locally_skips_percentage_without_duration():
     progress = []
 

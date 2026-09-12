@@ -1,56 +1,23 @@
-import os
 import sys
-import uuid
 
-import requests
+from requests.exceptions import RequestException
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.audio import preprocess
-from minutes.bg_store import update_task_failure, update_task_success
-from minutes.ollama import format_minutes_from_raw
-from minutes.pipeline.artifacts import write_text_atomic
-from minutes.pipeline.formatting import format_transcript
-from minutes.transcribe import transcribe
+from minutes.pipeline.task_runner import run_audio_pipeline
 
 
 def run(upload_path: str, task_id: str):
     try:
-        _mono, _norm, clean = preprocess(upload_path)
-        # use a smaller model to reduce memory use
-        model_size = os.environ.get("TRANSCRIBE_MODEL_SIZE", "small")
-        raw_text, _segments = transcribe(clean, model_size=model_size, prompt=None)
-        try:
-            final_minutes = format_transcript(
-                raw_text,
-                None,
-                format_minutes_from_raw,
-            )
-        except (requests.exceptions.RequestException, ValueError, TypeError) as fe:
-            # Ollama formatting failed; fall back to raw transcript with header
-            final_minutes = (
-                "[FALLBACK] Ollama formatting failed: " + str(fe) + "\n\n" + raw_text
-            )
-
-        outputs_dir = os.environ.get("OUTPUTS_DIR", "data/outputs")
-        now = uuid.uuid4().hex
-        out_file = os.path.join(outputs_dir, f"minutes_{now}.txt")
-        write_text_atomic(final_minutes, out_file)
-
-        if not os.path.exists(out_file) or os.path.getsize(out_file) == 0:
-            raise RuntimeError(f"Output write failed: {out_file}")
-
-        update_task_success(task_id, {"output_file": out_file})
-        print("SUCCESS", out_file)
+        result = run_audio_pipeline(upload_path, task_id)
+        print("SUCCESS", result["result"]["output_file"])
     except (
         OSError,
         RuntimeError,
         ValueError,
-        requests.exceptions.RequestException,
+        TypeError,
+        RequestException,
+        SQLAlchemyError,
     ) as exc:
-        try:
-            update_task_failure(task_id, str(exc))
-        except SQLAlchemyError:
-            pass
         print("FAILED", repr(exc))
 
 

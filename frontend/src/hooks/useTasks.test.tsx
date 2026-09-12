@@ -113,11 +113,15 @@ describe('useTasks', () => {
       });
       expect(fetchSpy).toHaveBeenCalledTimes(2);
 
-      act(() => instances[0].onopen?.());
+      act(() => instances.at(-1)?.onopen?.());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
     } finally {
       view.unmount();
       vi.useRealTimers();

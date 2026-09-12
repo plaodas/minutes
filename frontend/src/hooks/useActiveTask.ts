@@ -115,6 +115,11 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
   );
 
   const eventConnectionState = useTaskEvents(applyEvent, taskId);
+  const hasOpenedEvents = useRef(false);
+
+  useEffect(() => {
+    hasOpenedEvents.current = false;
+  }, [taskId]);
 
   const pollTaskStatus = useCallback(
     async (id: string): Promise<boolean> => {
@@ -152,6 +157,15 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
     },
     [completeTask, failTask]
   );
+
+  useEffect(() => {
+    if (!taskId || eventConnectionState !== 'open') return;
+    if (!hasOpenedEvents.current) {
+      hasOpenedEvents.current = true;
+      return;
+    }
+    void pollTaskStatus(taskId);
+  }, [eventConnectionState, pollTaskStatus, taskId]);
 
   useEffect(() => {
     stopPolling();

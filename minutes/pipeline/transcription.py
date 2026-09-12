@@ -96,7 +96,7 @@ def transcribe_locally(
 
     raw_text, segments = transcriber(
         audio_path,
-        model_size="small",
+        model_size=os.environ.get("TRANSCRIBE_MODEL_SIZE", "small"),
         prompt=None,
         progress_callback=report_progress,
     )

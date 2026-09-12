@@ -73,7 +73,55 @@ describe('TaskEventsProvider', () => {
     act(() => instances[0].onerror?.());
     expect(connectionStates.at(-1)).toBe('error');
     view.unmount();
-    expect(instances[0].close).toHaveBeenCalledOnce();
+    expect(instances[0].close).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('opens a new EventSource after the previous connection closes', () => {
+    const instances: MockEventSource[] = [];
+
+    class MockEventSource {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+      readyState = 1;
+
+      constructor() {
+        instances.push(this);
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+    vi.useFakeTimers();
+    const connectionStates: string[] = [];
+
+    function Consumer() {
+      connectionStates.push(useTaskEvents(() => undefined));
+      return null;
+    }
+
+    const view = render(
+      <TaskEventsProvider>
+        <Consumer />
+      </TaskEventsProvider>
+    );
+
+    act(() => instances[0].onopen?.());
+    expect(connectionStates.at(-1)).toBe('open');
+    act(() => {
+      instances[0].readyState = 2;
+      instances[0].onerror?.();
+    });
+    expect(connectionStates.at(-1)).toBe('error');
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(instances).toHaveLength(2);
+    act(() => instances[1].onopen?.());
+    expect(connectionStates.at(-1)).toBe('open');
+    view.unmount();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 });

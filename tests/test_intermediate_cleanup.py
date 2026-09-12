@@ -1,12 +1,7 @@
 import os
-import types
 
 from minutes import tasks
-
-
-class DummySelf:
-    def __init__(self, id="test-task"):
-        self.request = types.SimpleNamespace(id=id)
+from minutes.pipeline import task_runner
 
 
 def _make_files(tmp_path):
@@ -38,14 +33,14 @@ def test_cleanup_intermediates_enabled(monkeypatch, tmp_path):
     input_path, mono, norm, clean = _make_files(tmp_path)
 
     # Patch heavy functions to short-circuit processing
-    monkeypatch.setattr(tasks, "preprocess", lambda p: (mono, norm, clean))
-    monkeypatch.setattr(tasks, "transcribe", lambda c, **kw: ("raw", []))
-    monkeypatch.setattr(tasks, "format_minutes_from_raw", lambda r: "minutes")
+    monkeypatch.setattr(task_runner, "preprocess", lambda p: (mono, norm, clean))
+    monkeypatch.setattr(task_runner, "transcribe", lambda c, **kw: ("raw", []))
+    monkeypatch.setattr(task_runner, "format_minutes_from_raw", lambda r: "minutes")
     monkeypatch.setattr(
-        tasks, "update_task_success", lambda tid, structured, db=None: None
+        task_runner, "update_task_success", lambda tid, structured, db=None: None
     )
-    monkeypatch.setattr(tasks, "update_task_status", lambda *a, **k: None)
-    monkeypatch.setattr(tasks, "update_task_progress", lambda *a, **k: None)
+    monkeypatch.setattr(task_runner, "update_task_status", lambda *a, **k: None)
+    monkeypatch.setattr(task_runner, "update_task_progress", lambda *a, **k: None)
 
     # Ensure cleanup enabled
     monkeypatch.setenv("DELETE_INTERMEDIATE", "true")
@@ -65,14 +60,14 @@ def test_cleanup_intermediates_enabled(monkeypatch, tmp_path):
 def test_no_cleanup_when_disabled(monkeypatch, tmp_path):
     input_path, mono, norm, clean = _make_files(tmp_path)
 
-    monkeypatch.setattr(tasks, "preprocess", lambda p: (mono, norm, clean))
-    monkeypatch.setattr(tasks, "transcribe", lambda c, **kw: ("raw", []))
-    monkeypatch.setattr(tasks, "format_minutes_from_raw", lambda r: "minutes")
+    monkeypatch.setattr(task_runner, "preprocess", lambda p: (mono, norm, clean))
+    monkeypatch.setattr(task_runner, "transcribe", lambda c, **kw: ("raw", []))
+    monkeypatch.setattr(task_runner, "format_minutes_from_raw", lambda r: "minutes")
     monkeypatch.setattr(
-        tasks, "update_task_success", lambda tid, structured, db=None: None
+        task_runner, "update_task_success", lambda tid, structured, db=None: None
     )
-    monkeypatch.setattr(tasks, "update_task_status", lambda *a, **k: None)
-    monkeypatch.setattr(tasks, "update_task_progress", lambda *a, **k: None)
+    monkeypatch.setattr(task_runner, "update_task_status", lambda *a, **k: None)
+    monkeypatch.setattr(task_runner, "update_task_progress", lambda *a, **k: None)
 
     monkeypatch.setenv("DELETE_INTERMEDIATE", "false")
     monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path / "outputs"))
