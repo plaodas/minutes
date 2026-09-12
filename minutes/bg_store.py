@@ -436,23 +436,34 @@ def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> Non
         )
 
 
+def _get_or_create_task(session, task_id: str) -> tuple[uuid.UUID, Task] | None:
+    key = _parse_key(task_id)
+    if not isinstance(key, uuid.UUID):
+        logger.error("Cannot create task for non-UUID id %s", task_id)
+        return None
+
+    task = session.get(Task, key)
+    if task:
+        return key, task
+
+    task = Task(
+        id=key,
+        status="pending",
+        progress=None,
+        fail_count=0,
+    )
+    session.add(task)
+    return key, task
+
+
 def update_task_success(task_id: str, result: Any):
     with _lock:
         try:
             with session_scope() as s:
-                key = _parse_key(task_id)
-                task = s.get(Task, key)
-                if not task:
-                    if not isinstance(key, uuid.UUID):
-                        logger.error("Cannot create task for non-UUID id %s", task_id)
-                        return
-                    task = Task(
-                        id=key,
-                        status="pending",
-                        progress=None,
-                        fail_count=0,
-                    )
-                    s.add(task)
+                resolved = _get_or_create_task(s, task_id)
+                if not resolved:
+                    return
+                key, task = resolved
 
                 task.status = "success"
                 task.result = result
@@ -507,19 +518,10 @@ def update_task_failure(task_id: str, error_msg: str):
     with _lock:
         try:
             with session_scope() as s:
-                key = _parse_key(task_id)
-                task = s.get(Task, key)
-                if not task:
-                    if not isinstance(key, uuid.UUID):
-                        logger.error("Cannot create task for non-UUID id %s", task_id)
-                        return
-                    task = Task(
-                        id=key,
-                        status="pending",
-                        progress=None,
-                        fail_count=0,
-                    )
-                    s.add(task)
+                resolved = _get_or_create_task(s, task_id)
+                if not resolved:
+                    return
+                key, task = resolved
 
                 task.status = "failed"
                 task.result = None
@@ -543,19 +545,10 @@ def update_task_cancelled(task_id: str):
     with _lock:
         try:
             with session_scope() as s:
-                key = _parse_key(task_id)
-                task = s.get(Task, key)
-                if not task:
-                    if not isinstance(key, uuid.UUID):
-                        logger.error("Cannot create task for non-UUID id %s", task_id)
-                        return
-                    task = Task(
-                        id=key,
-                        status="pending",
-                        progress=None,
-                        fail_count=0,
-                    )
-                    s.add(task)
+                resolved = _get_or_create_task(s, task_id)
+                if not resolved:
+                    return
+                key, task = resolved
 
                 task.status = "cancelled"
                 task.result = None
@@ -572,19 +565,10 @@ def update_task_status(task_id: str, status: TaskStage | str):
     with _lock:
         try:
             with session_scope() as s:
-                key = _parse_key(task_id)
-                task = s.get(Task, key)
-                if not task:
-                    if not isinstance(key, uuid.UUID):
-                        logger.error("Cannot create task for non-UUID id %s", task_id)
-                        return
-                    task = Task(
-                        id=key,
-                        status="pending",
-                        progress=None,
-                        fail_count=0,
-                    )
-                    s.add(task)
+                resolved = _get_or_create_task(s, task_id)
+                if not resolved:
+                    return
+                key, task = resolved
                 task.status = status_value
                 s.add(
                     TaskHistory(
@@ -605,19 +589,10 @@ def update_task_progress(task_id: str, progress: float):
     with _lock:
         try:
             with session_scope() as s:
-                key = _parse_key(task_id)
-                task = s.get(Task, key)
-                if not task:
-                    if not isinstance(key, uuid.UUID):
-                        logger.error("Cannot create task for non-UUID id %s", task_id)
-                        return
-                    task = Task(
-                        id=key,
-                        status="pending",
-                        progress=None,
-                        fail_count=0,
-                    )
-                    s.add(task)
+                resolved = _get_or_create_task(s, task_id)
+                if not resolved:
+                    return
+                key, task = resolved
                 task.progress = progress_value
 
                 last = (

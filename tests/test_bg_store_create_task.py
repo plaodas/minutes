@@ -150,6 +150,29 @@ def test_status_update_commits_state_and_history_once(monkeypatch):
     assert published[-1]["event_type"] == "status"
 
 
+def test_status_update_creates_missing_task_atomically(monkeypatch):
+    task_id = uuid.uuid4()
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    bg_store.update_task_status(str(task_id), "transcribing")
+
+    with session_scope() as db:
+        task = db.get(Task, task_id)
+        history = (
+            db.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "status",
+            )
+            .one()
+        )
+        assert task is not None
+        assert task.status == "transcribing"
+        assert history.payload == {"status": "transcribing"}
+    assert published[-1]["stage"] == "transcribing"
+
+
 def test_success_records_history_and_publishes_status(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
