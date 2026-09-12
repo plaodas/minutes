@@ -6,13 +6,16 @@ from minio.error import S3Error
 from requests.exceptions import RequestException
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.db import session_scope
 from minutes.minio_client import MinioService
 from minutes.models import Bucket, Task, TaskHistory
+from minutes.task_event_service import TaskEventService
 from minutes.task_events import emit_task_event
-from minutes.task_state import parse_task_key
 
 logger = logging.getLogger(__name__)
+
+
+class _TaskNotFoundError(Exception):
+    pass
 
 
 def delete_task_permanently(
@@ -21,12 +24,10 @@ def delete_task_permanently(
     *,
     artifact_errors_fatal: bool = True,
 ) -> dict[str, object]:
-    key = parse_task_key(task_id)
-
-    with session_scope() as db:
+    def delete_task(db, key):
         task = db.get(Task, key)
         if not task:
-            return {"deleted": False, "reason": "unknown task"}
+            raise _TaskNotFoundError
 
         result = task.result or {}
         try:
@@ -100,12 +101,18 @@ def delete_task_permanently(
         except SQLAlchemyError:
             logger.exception("Bucket cleanup failed for task %s", task_id)
 
-    emit_task_event(
-        task_id,
-        "deleted_hard",
-        {
-            "requester": requester or None,
-            "deleted_at": datetime.now(tz=timezone.utc).isoformat(),
-        },
-    )
+    try:
+        TaskEventService(emit_task_event).record_and_publish(
+            task_id,
+            "deleted_hard",
+            {
+                "requester": requester or None,
+                "deleted_at": datetime.now(tz=timezone.utc).isoformat(),
+            },
+            mutate=delete_task,
+            record_history=False,
+        )
+    except _TaskNotFoundError:
+        return {"deleted": False, "reason": "unknown task"}
+
     return {"deleted": True}

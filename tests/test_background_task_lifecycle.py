@@ -1,6 +1,7 @@
 import uuid
 from contextlib import contextmanager
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
@@ -114,14 +115,51 @@ def test_hard_delete_removes_task_and_publishes_event(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
     published = []
-    monkeypatch.setattr(task_events, "publish_event", published.append)
+    operations = []
 
-    result = task_workers.hard_delete_task.run(str(task_id), None)
+    def track_commit(_session):
+        operations.append("commit")
+
+    def track_publish(task_event):
+        published.append(task_event)
+        operations.append("publish")
+
+    monkeypatch.setattr(task_events, "publish_event", track_publish)
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    try:
+        result = task_workers.hard_delete_task.run(str(task_id), None)
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
 
     assert result == {"deleted": True}
+    assert operations == ["commit", "publish"]
     assert get_task(str(task_id)) is None
     assert published[-1]["event_type"] == "deleted_hard"
     assert published[-1]["task_id"] == str(task_id)
+
+
+def test_hard_delete_db_failure_does_not_publish(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+
+    @contextmanager
+    def failing_session_scope():
+        raise SQLAlchemyError("commit failed")
+        yield
+
+    monkeypatch.setattr(
+        task_event_service,
+        "session_scope",
+        failing_session_scope,
+    )
+    monkeypatch.setattr(task_events, "publish_event", published.append)
+
+    with pytest.raises(SQLAlchemyError, match="commit failed"):
+        task_deletion.delete_task_permanently(str(task_id))
+
+    assert published == []
+    assert get_task(str(task_id)) is not None
 
 
 def test_hard_delete_removes_minio_artifact(monkeypatch):
