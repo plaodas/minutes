@@ -258,7 +258,7 @@ def test_status_update_rejects_backward_transition(monkeypatch):
         assert {"status": "transcribing"} not in status_payloads
 
 
-def test_success_records_history_and_publishes_status(monkeypatch):
+def test_success_records_and_publishes_one_success_event(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
     published = []
@@ -277,8 +277,8 @@ def test_success_records_history_and_publishes_status(monkeypatch):
         )
     assert history is not None
     assert history.payload == {"result": {"summary": "done"}}
-    assert published[-1]["event_type"] == "status"
-    assert published[-1]["stage"] == "success"
+    assert [task_event["event_type"] for task_event in published] == ["success"]
+    assert published[0]["stage"] == "success"
 
 
 def test_success_update_commits_state_and_history_once(monkeypatch):

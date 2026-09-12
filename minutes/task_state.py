@@ -9,7 +9,6 @@ from typing import Any
 
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 
-from .db import session_scope
 from .models import DUMMY_OWNER_ID, Bucket, Task, TaskHistory
 from .schemas import (
     TaskEventType,
@@ -180,9 +179,6 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
             logger.exception("update_success failed for %s", task_id)
             return
 
-    emit_event(task_id, TaskEventType.STATUS, {"status": "success"})
-
-
 def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> None:
     def mark_failure(session, _key):
         resolved = _get_or_create_task(session, task_id)
@@ -259,58 +255,61 @@ def update_status(
 
 def update_progress(task_id: str, progress: float, emit_event: EventEmitter) -> None:
     progress_value = float(progress)
+
+    def store_progress(session, _key):
+        resolved = _get_or_create_task(session, task_id)
+        if not resolved:
+            return
+        key, task = resolved
+        task.progress = progress_value
+        last = (
+            session.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == key,
+                TaskHistory.event_type == "progress",
+            )
+            .order_by(TaskHistory.event_ts.desc())
+            .limit(1)
+            .one_or_none()
+        )
+        should_record = True
+        if last and isinstance(last.payload, dict):
+            try:
+                last_progress = float(last.payload.get("progress", 0.0))
+            except (TypeError, ValueError):
+                last_progress = None
+            if last_progress is not None:
+                now = _now_utc()
+                last_event = _ensure_aware(last.event_ts) or now
+                if (
+                    abs(progress_value - last_progress) < 5.0
+                    and (now - last_event).total_seconds() < 5.0
+                ):
+                    should_record = False
+        if should_record:
+            now = _now_utc()
+            last_event = _ensure_aware(last.event_ts) if last else None
+            if last and last_event and (now - last_event).total_seconds() < 86400:
+                last.payload = {"progress": progress_value}
+                last.event_ts = now
+            else:
+                session.add(
+                    TaskHistory(
+                        task_id=key,
+                        event_type="progress",
+                        payload={"progress": progress_value},
+                    )
+                )
+
     with _lock:
         try:
-            with session_scope() as session:
-                resolved = _get_or_create_task(session, task_id)
-                if not resolved:
-                    return
-                key, task = resolved
-                task.progress = progress_value
-                last = (
-                    session.query(TaskHistory)
-                    .filter(
-                        TaskHistory.task_id == key,
-                        TaskHistory.event_type == "progress",
-                    )
-                    .order_by(TaskHistory.event_ts.desc())
-                    .limit(1)
-                    .one_or_none()
-                )
-                should_record = True
-                if last and isinstance(last.payload, dict):
-                    try:
-                        last_progress = float(last.payload.get("progress", 0.0))
-                    except (TypeError, ValueError):
-                        last_progress = None
-                    if last_progress is not None:
-                        now = _now_utc()
-                        last_event = _ensure_aware(last.event_ts) or now
-                        if (
-                            abs(progress_value - last_progress) < 5.0
-                            and (now - last_event).total_seconds() < 5.0
-                        ):
-                            should_record = False
-                if should_record:
-                    now = _now_utc()
-                    last_event = _ensure_aware(last.event_ts) if last else None
-                    if (
-                        last
-                        and last_event
-                        and (now - last_event).total_seconds() < 86400
-                    ):
-                        last.payload = {"progress": progress_value}
-                        last.event_ts = now
-                    else:
-                        session.add(
-                            TaskHistory(
-                                task_id=key,
-                                event_type="progress",
-                                payload={"progress": progress_value},
-                            )
-                        )
+            TaskEventService(emit_event).record_and_publish(
+                task_id,
+                TaskEventType.PROGRESS,
+                {"progress": progress_value},
+                mutate=store_progress,
+                record_history=False,
+            )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_progress failed for %s", task_id)
             return
-
-    emit_event(task_id, TaskEventType.PROGRESS, {"progress": progress_value})

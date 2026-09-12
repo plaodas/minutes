@@ -28,6 +28,7 @@ class TaskEventService:
         payload: dict[str, Any] | PayloadFactory[MutationResult] | None = None,
         *,
         mutate: TaskMutation[MutationResult] | None = None,
+        record_history: bool = True,
     ) -> MutationResult | None:
         key = parse_task_key(task_id)
         if not isinstance(key, uuid.UUID):
@@ -36,17 +37,18 @@ class TaskEventService:
         with session_scope() as session:
             result = mutate(session, key) if mutate else None
             event_payload = dict(payload(result) if callable(payload) else payload or {})
-            session.add(
-                TaskHistory(
-                    task_id=key,
-                    event_type=(
-                        event_type.value
-                        if isinstance(event_type, TaskEventType)
-                        else event_type
-                    ),
-                    payload=event_payload,
+            if record_history:
+                session.add(
+                    TaskHistory(
+                        task_id=key,
+                        event_type=(
+                            event_type.value
+                            if isinstance(event_type, TaskEventType)
+                            else event_type
+                        ),
+                        payload=event_payload,
+                    )
                 )
-            )
 
         self._emit_event(task_id, event_type, event_payload)
         return result
