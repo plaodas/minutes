@@ -151,12 +151,20 @@ export function applyTaskEvent(tasks: TaskListItem[], event: TaskEvent): ApplyTa
   let shouldReload = false;
 
   if (event.event_type === 'progress') {
-    task = { ...task, progress: event.payload.progress };
+    const progress = event.payload.progress;
+    if (typeof progress !== 'number' || !Number.isFinite(progress)) {
+      return { tasks, shouldReload: false };
+    }
+    task = { ...task, progress };
   } else if (event.event_type === 'status') {
+    const status = event.payload.status;
+    if (typeof status !== 'string' || !status) {
+      return { tasks, shouldReload: false };
+    }
     task = {
       ...task,
-      status: event.payload.status,
-      stage: event.stage ?? taskStageFromStatus(event.payload.status) ?? task.stage,
+      status,
+      stage: event.stage ?? taskStageFromStatus(status) ?? task.stage,
     };
   } else if (event.event_type === 'success') {
     task = {

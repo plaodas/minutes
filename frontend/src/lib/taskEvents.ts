@@ -1,6 +1,6 @@
-import type { TaskEventPayload, TaskEventType, TaskStage } from '../api/types';
+import type { TaskEvent, TaskEventPayload, TaskEventType, TaskStage } from '../api/types';
 
-export type { TaskEventPayload, TaskEventType, TaskStage };
+export type { TaskEvent, TaskEventPayload, TaskEventType, TaskStage };
 
 export const taskStages = [
   'pending',
@@ -26,22 +26,6 @@ export const taskEventTypes = [
   'deleted_hard',
 ] as const satisfies readonly TaskEventType[];
 
-type TaskEventBase = {
-  type: 'task.event';
-  task_id: string;
-  stage?: TaskStage;
-};
-
-export type TaskEvent = TaskEventBase &
-  (
-    | { event_type: 'status'; payload: TaskEventPayload & { status: string } }
-    | { event_type: 'progress'; payload: TaskEventPayload & { progress: number } }
-    | {
-        event_type: Exclude<TaskEventType, 'status' | 'progress'>;
-        payload: TaskEventPayload;
-      }
-  );
-
 const stageSet = new Set<string>(taskStages);
 const eventTypeSet = new Set<string>(taskEventTypes);
 
@@ -49,9 +33,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function taskStageFromStatus(status: string | undefined): TaskStage | undefined {
-  if (!status) return undefined;
-  const normalized = status.trim().toLowerCase().split(':', 1)[0];
+export function taskStageFromStatus(
+  status: TaskStage | string | null | undefined
+): TaskStage | undefined {
+  if (status == null || status === '') return undefined;
+  if (stageSet.has(status)) return status as TaskStage;
+  const normalized = String(status).trim().toLowerCase().split(':', 1)[0];
   if (stageSet.has(normalized)) return normalized as TaskStage;
   const aliases: Record<string, TaskStage> = {
     queued: 'pending',
@@ -92,14 +79,19 @@ export function parseTaskEvent(value: unknown): TaskEvent | null {
   if (typeof value.task_id !== 'string') return null;
   if (typeof value.event_type !== 'string' || !eventTypeSet.has(value.event_type)) return null;
   if (!isRecord(value.payload)) return null;
-  if (value.stage !== undefined && (typeof value.stage !== 'string' || !stageSet.has(value.stage)))
+  if (
+    value.stage != null &&
+    (typeof value.stage !== 'string' || !stageSet.has(value.stage))
+  ) {
     return null;
+  }
   if (value.event_type === 'status' && typeof value.payload.status !== 'string') return null;
   if (
     value.event_type === 'progress' &&
     (typeof value.payload.progress !== 'number' || !Number.isFinite(value.payload.progress))
-  )
+  ) {
     return null;
+  }
   return value as TaskEvent;
 }
 

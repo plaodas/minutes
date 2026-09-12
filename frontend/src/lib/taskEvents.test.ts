@@ -31,6 +31,15 @@ describe('task event contract', () => {
         payload: { status: 'formatting' },
       })
     ).not.toBeNull();
+    expect(
+      parseTaskEvent({
+        type: 'task.event',
+        task_id: 'task-id',
+        event_type: 'created',
+        stage: null,
+        payload: {},
+      })
+    ).not.toBeNull();
   });
 
   it('rejects malformed events', () => {
