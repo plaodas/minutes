@@ -10,7 +10,6 @@ import logging
 # local sqlite file when `DATABASE_URL` is not set, so drop the file
 # JSON fallback to avoid split-brain between file and DB stores.
 import uuid
-from contextlib import contextmanager
 
 from .db import engine, session_scope
 
@@ -138,24 +137,6 @@ def _parse_key(maybe_id):
         return uuid.UUID(cleaned)
     except (ValueError, AttributeError):
         return maybe_id
-
-
-@contextmanager
-def maybe_session(db=None):
-    """Context manager that yields (session, created_flag).
-
-    If `db` is None, a new session is created via `session_scope()` and
-    `created_flag` is True. If `db` is provided, it is yielded and
-    `created_flag` is False (caller-managed session).
-    """
-    if db is None:
-        with session_scope() as s:
-            yield s, True
-    else:
-        try:
-            yield db, False
-        finally:
-            pass
 
 
 def record_history(
@@ -586,11 +567,7 @@ def update_task_cancelled(task_id: str):
     emit_task_event(task_id, "cancelled", {})
 
 
-def update_task_status(task_id: str, status: TaskStage | str, db=None):
-    # Use a fresh short-lived session for status updates to avoid leaving a
-    # caller-provided session in an open transaction. Treat the provided `db`
-    # as advisory only; we will perform the update in an independent session
-    # that is committed and closed immediately.
+def update_task_status(task_id: str, status: TaskStage | str):
     status_value = status.value if isinstance(status, TaskStage) else status
     with _lock:
         try:
@@ -643,32 +620,26 @@ def update_task_status(task_id: str, status: TaskStage | str, db=None):
             logger.exception('record_history("status") failed for %s', task_id)
 
 
-def update_task_progress(task_id: str, progress: float, db=None):
-    with _lock, maybe_session(db) as (s, _created):
+def update_task_progress(task_id: str, progress: float):
+    progress_value = float(progress)
+    with _lock:
         try:
-            key = _parse_key(task_id)
-            t = s.get(Task, key)
-            if not t:
-                try:
-                    create_task(task_id, metadata=None)
-                except (SQLAlchemyError, OperationalError):
-                    logger.exception(
-                        "create_task failed while ensuring task row for %s",
-                        task_id,
+            with session_scope() as s:
+                key = _parse_key(task_id)
+                task = s.get(Task, key)
+                if not task:
+                    if not isinstance(key, uuid.UUID):
+                        logger.error("Cannot create task for non-UUID id %s", task_id)
+                        return
+                    task = Task(
+                        id=key,
+                        status="pending",
+                        progress=None,
+                        fail_count=0,
                     )
-                t = s.get(Task, key)
-            # Always update the Task.progress column so reads get latest value
-            t.progress = float(progress)
-            try:
-                s.commit()
-            except SQLAlchemyError:
-                s.rollback()
+                    s.add(task)
+                task.progress = progress_value
 
-            # Coalesce frequent progress updates to avoid inserting too many
-            # TaskHistory rows. Only record a new progress row when either:
-            # - delta >= 5.0 percentage points from the most recent progress row, or
-            # - the most recent progress row is older than 5 seconds.
-            try:
                 last = (
                     s.query(TaskHistory)
                     .filter(
@@ -686,9 +657,8 @@ def update_task_progress(task_id: str, progress: float, db=None):
                     except (TypeError, ValueError):
                         last_progress = None
                     if last_progress is not None:
-                        delta = abs(float(progress) - last_progress)
+                        delta = abs(progress_value - last_progress)
                         now = _now_utc()
-                        # normalize last.event_ts to timezone-aware UTC for safe arithmetic
                         try:
                             last_evt = _ensure_aware(last.event_ts) or now
                         except (AttributeError, TypeError, ValueError):
@@ -697,65 +667,31 @@ def update_task_progress(task_id: str, progress: float, db=None):
                         if delta < 5.0 and age < 5.0:
                             should_record = False
                 if should_record:
-                    # If a recent progress row exists, update it in-place to avoid
-                    # accumulating many small progress INSERTs. Otherwise INSERT.
-                    try:
-                        recent_seconds = (
-                            24 * 3600
-                        )  # keep one day's worth of updates consolidated
-                        now = _now_utc()
-                        # normalize last.event_ts before subtraction to avoid mixing
-                        # offset-naive and offset-aware datetimes
-                        if last and getattr(last, "event_ts", None):
-                            try:
-                                le = _ensure_aware(last.event_ts) or now
-                                last_age = (now - le).total_seconds()
-                            except (AttributeError, TypeError, ValueError):
-                                last_age = None
-                        else:
+                    now = _now_utc()
+                    if last and getattr(last, "event_ts", None):
+                        try:
+                            last_event = _ensure_aware(last.event_ts) or now
+                            last_age = (now - last_event).total_seconds()
+                        except (AttributeError, TypeError, ValueError):
                             last_age = None
-                        if last and last_age is not None and last_age < recent_seconds:
-                            # update existing row
-                            try:
-                                last.payload = {"progress": float(progress)}
-                                last.event_ts = _now_utc()
-                                s.add(last)
-                                s.commit()
-                            except SQLAlchemyError:
-                                s.rollback()
-                                # fallback to inserting a new row if update fails
-                                record_history(
-                                    task_id,
-                                    "progress",
-                                    {"progress": float(progress)},
-                                    emit_event=False,
-                                )
-                        else:
-                            record_history(
-                                task_id,
-                                "progress",
-                                {"progress": float(progress)},
-                                emit_event=False,
+                    else:
+                        last_age = None
+                    if last and last_age is not None and last_age < 24 * 3600:
+                        last.payload = {"progress": progress_value}
+                        last.event_ts = now
+                    else:
+                        s.add(
+                            TaskHistory(
+                                task_id=key,
+                                event_type="progress",
+                                payload={"progress": progress_value},
                             )
-                    except SQLAlchemyError:
-                        logger.exception(
-                            "failed to upsert progress history for %s", task_id
                         )
-            except SQLAlchemyError:
-                logger.exception('record_history("progress") failed for %s', task_id)
-
-            try:
-                publish_event(
-                    build_task_event(
-                        str(key),
-                        TaskEventType.PROGRESS,
-                        {"progress": float(progress)},
-                    )
-                )
-            except (RuntimeError, OSError):
-                logger.exception("publish_event failed for %s", task_id)
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_task_progress failed for %s", task_id)
+            return
+
+    emit_task_event(task_id, TaskEventType.PROGRESS, {"progress": progress_value})
 
 
 def get_task(task_id: str) -> dict[str, Any] | None:

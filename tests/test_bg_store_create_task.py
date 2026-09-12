@@ -83,9 +83,38 @@ def test_progress_updates_publish_when_history_is_coalesced(monkeypatch):
     bg_store.update_task_progress(str(task_id), 10.0)
     bg_store.update_task_progress(str(task_id), 20.0)
 
+    with session_scope() as db:
+        history = (
+            db.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "progress",
+            )
+            .all()
+        )
+    assert len(history) == 1
+    assert history[0].payload == {"progress": 20.0}
     assert [event["payload"]["progress"] for event in published] == [10.0, 20.0]
     assert all(event["event_type"] == "progress" for event in published)
     assert all(event["type"] == "task.event" for event in published)
+
+
+def test_progress_update_commits_state_and_history_once(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    commits = []
+
+    def track_commit(_session):
+        commits.append("commit")
+
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    monkeypatch.setattr(bg_store, "publish_event", lambda _event: None)
+    try:
+        bg_store.update_task_progress(str(task_id), 10.0)
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert commits == ["commit"]
 
 
 def test_success_records_history_and_publishes_status(monkeypatch):
