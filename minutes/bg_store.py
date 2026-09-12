@@ -433,98 +433,93 @@ def _ensure_result_bucket(session, task: Task, result: Any, task_id: str) -> Non
         return
 
     bucket_name = str(minio_info["bucket"])
+    existing = session.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
+    if existing:
+        return
+
     try:
-        existing = (
-            session.query(Bucket).filter(Bucket.name == bucket_name).one_or_none()
-        )
-        if existing:
-            return
-        session.add(
-            Bucket(
-                name=bucket_name,
-                owner_id=getattr(task, "user_id", None) or DUMMY_OWNER_ID,
-                bucket_metadata=minio_info.get("metadata") or {},
+        with session.begin_nested():
+            session.add(
+                Bucket(
+                    name=bucket_name,
+                    owner_id=getattr(task, "user_id", None) or DUMMY_OWNER_ID,
+                    bucket_metadata=minio_info.get("metadata") or {},
+                )
             )
-        )
-        session.commit()
+            session.flush()
     except IntegrityError:
-        session.rollback()
         logger.debug("Bucket row already exists for %s", bucket_name)
     except SQLAlchemyError:
-        session.rollback()
         logger.exception(
             "failed to ensure bucket row for %s (task %s)", bucket_name, task_id
         )
 
 
-def update_task_success(task_id: str, result: Any, db=None):
-    with _lock, maybe_session(db) as (s, _created):
+def update_task_success(task_id: str, result: Any):
+    with _lock:
         try:
-            key = _parse_key(task_id)
-            t = s.get(Task, key)
-            if not t:
-                # ensure task row exists atomically
-                try:
-                    create_task(task_id, metadata=None)
-                except (SQLAlchemyError, OperationalError):
-                    logger.exception(
-                        "create_task failed while ensuring task row for %s",
-                        task_id,
+            with session_scope() as s:
+                key = _parse_key(task_id)
+                task = s.get(Task, key)
+                if not task:
+                    if not isinstance(key, uuid.UUID):
+                        logger.error("Cannot create task for non-UUID id %s", task_id)
+                        return
+                    task = Task(
+                        id=key,
+                        status="pending",
+                        progress=None,
+                        fail_count=0,
                     )
-                t = s.get(Task, key)
-            t.status = "success"
-            t.result = result
-            t.progress = 100.0
-            t.fail_count = 0
-            t.last_success_ts = _now_utc()
+                    s.add(task)
 
-            if (not getattr(t, "name", None)) and isinstance(result, dict):
-                output_file = result.get("output_file") or (
-                    result.get("result") or {}
-                ).get("output_file")
-                if output_file:
-                    outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
-                    fname = os.path.basename(output_file)
-                    candidate = os.path.join(outputs_dir, fname)
-                    try:
-                        with open(candidate, "r", encoding="utf-8") as rf:
-                            text = rf.read()
-                            short = summarize_local(text, max_sentences=1).strip()
-                            if short:
-                                # produce a markdown-stripped short title (~20 chars)
-                                title = _make_task_title(short, max_chars=20)
-                                if title:
-                                    t.name = title
-                    except (OSError, UnicodeDecodeError, ValueError) as exc:
-                        logger.debug(
-                            "update_task_success: failed to read/parse %s: %s",
-                            candidate,
-                            exc,
+                task.status = "success"
+                task.result = result
+                task.progress = 100.0
+                task.fail_count = 0
+                task.last_success_ts = _now_utc()
+
+                if (not getattr(task, "name", None)) and isinstance(result, dict):
+                    nested_result = result.get("result")
+                    output_file = result.get("output_file") or (
+                        nested_result.get("output_file")
+                        if isinstance(nested_result, dict)
+                        else None
+                    )
+                    if output_file:
+                        candidate = os.path.join(
+                            os.environ.get("OUTPUTS_DIR", "outputs"),
+                            os.path.basename(output_file),
                         )
+                        try:
+                            with open(candidate, "r", encoding="utf-8") as rf:
+                                text = rf.read()
+                                short = summarize_local(text, max_sentences=1).strip()
+                                if short:
+                                    title = _make_task_title(short, max_chars=20)
+                                    if title:
+                                        task.name = title
+                        except (OSError, UnicodeDecodeError, ValueError) as exc:
+                            logger.debug(
+                                "update_task_success: failed to read/parse %s: %s",
+                                candidate,
+                                exc,
+                            )
 
-            try:
-                s.commit()
-            except IntegrityError:
-                s.rollback()
-            _ensure_result_bucket(s, t, result, task_id)
-            try:
-                record_history(task_id, "success", {"result": result})
-            except SQLAlchemyError:
-                logger.exception('record_history("success") failed for %s', task_id)
-            try:
-                publish_event(
-                    build_task_event(
-                        str(key) if isinstance(key, uuid.UUID) else str(task_id),
-                        TaskEventType.STATUS,
-                        {"status": "success"},
+                _ensure_result_bucket(s, task, result, task_id)
+                s.add(
+                    TaskHistory(
+                        task_id=key,
+                        event_type="success",
+                        payload={"result": result},
                     )
-                )
-            except (RuntimeError, OSError):
-                logger.exception(
-                    "publish_event failed for success status for %s", task_id
                 )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_task_success failed for %s", task_id)
+            return
+
+    emit_task_event(task_id, "success", {"result": result})
+    emit_task_event(task_id, TaskEventType.STATUS, {"status": "success"})
 
 
 def update_task_failure(task_id: str, error_msg: str):

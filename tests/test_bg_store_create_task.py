@@ -111,6 +111,24 @@ def test_success_records_history_and_publishes_status(monkeypatch):
     assert published[-1]["stage"] == "success"
 
 
+def test_success_update_commits_state_and_history_once(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    commits = []
+
+    def track_commit(_session):
+        commits.append("commit")
+
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    monkeypatch.setattr(bg_store, "publish_event", lambda _event: None)
+    try:
+        bg_store.update_task_success(str(task_id), {"summary": "done"})
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert commits == ["commit"]
+
+
 def test_failure_update_commits_state_and_history_once(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
