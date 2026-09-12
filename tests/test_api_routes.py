@@ -1,9 +1,14 @@
+import uuid
 from collections import Counter
 
 import pytest
 from fastapi.testclient import TestClient
 
+from minutes import bg_store
 from minutes.api import app
+from minutes.bg_store import create_task
+from minutes.db import session_scope
+from minutes.models import Task, TaskHistory
 from minutes.routers import background_task_artifacts
 
 
@@ -87,3 +92,31 @@ def test_background_rename_requires_name():
 
     assert response.status_code == 400
     assert response.json() == {"error": "missing name"}
+
+
+def test_background_rename_persists_history_and_event(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    published = []
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+
+    response = TestClient(app).post(
+        f"/api/bg/task/{task_id}/rename",
+        json={"name": "Planning notes"},
+    )
+
+    assert response.status_code == 200
+    with session_scope() as session:
+        task = session.get(Task, task_id)
+        history = (
+            session.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "rename",
+            )
+            .one()
+        )
+        assert task is not None
+        assert task.name == "Planning notes"
+        assert history.payload == {"name": "Planning notes"}
+    assert published[-1]["event_type"] == "rename"

@@ -1,9 +1,33 @@
 import uuid
+from contextlib import contextmanager
 
 from minutes import bg_store
 from minutes.bg_store import create_task
 from minutes.db import session_scope
 from minutes.models import Bucket, Task, TaskHistory
+
+
+def test_record_history_commits_once_via_transaction_scope(monkeypatch):
+    commits = []
+
+    class FakeSession:
+        def add(self, _row):
+            pass
+
+        def commit(self):
+            commits.append("commit")
+
+    @contextmanager
+    def fake_session_scope():
+        session = FakeSession()
+        yield session
+        session.commit()
+
+    monkeypatch.setattr(bg_store, "session_scope", fake_session_scope)
+
+    bg_store.record_history(str(uuid.uuid4()), "created", emit_event=False)
+
+    assert commits == ["commit"]
 
 
 def test_create_task_with_user_id():

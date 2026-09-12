@@ -162,7 +162,6 @@ def record_history(
     task_id: str,
     event_type: str,
     payload: dict | None = None,
-    db=None,
     emit_event: bool = True,
 ):
     logger.debug(
@@ -179,18 +178,14 @@ def record_history(
         logger.debug("record_history skipping non-UUID task_id=%s", task_id)
         return
     try:
-        with maybe_session(db) as (s, _created):
-            h = TaskHistory(task_id=key, event_type=event_type, payload=payload or {})
-            s.add(h)
-            try:
-                s.commit()
-            except SQLAlchemyError:
-                logger.exception("record_history commit failed for %s", task_id)
-                try:
-                    s.rollback()
-                except SQLAlchemyError:
-                    logger.exception("record_history rollback failed for %s", task_id)
-                return
+        with session_scope() as session:
+            session.add(
+                TaskHistory(
+                    task_id=key,
+                    event_type=event_type,
+                    payload=payload or {},
+                )
+            )
     except SQLAlchemyError:
         logger.exception("record_history DB error for %s", task_id)
         return
@@ -513,7 +508,7 @@ def update_task_success(task_id: str, result: Any, db=None):
                 s.rollback()
             _ensure_result_bucket(s, t, result, task_id)
             try:
-                record_history(task_id, "success", {"result": result}, db=s)
+                record_history(task_id, "success", {"result": result})
             except SQLAlchemyError:
                 logger.exception('record_history("success") failed for %s', task_id)
             try:
@@ -555,7 +550,7 @@ def update_task_failure(task_id: str, error_msg: str, db=None):
             except IntegrityError:
                 s.rollback()
             try:
-                record_history(task_id, "failure", {"error": error_msg}, db=s)
+                record_history(task_id, "failure", {"error": error_msg})
             except SQLAlchemyError:
                 logger.exception('record_history("failure") failed for %s', task_id)
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
@@ -583,7 +578,7 @@ def update_task_cancelled(task_id: str, db=None):
             except IntegrityError:
                 s.rollback()
             try:
-                record_history(task_id, "cancelled", {}, db=s)
+                record_history(task_id, "cancelled", {})
             except SQLAlchemyError:
                 logger.exception('record_history("cancelled") failed for %s', task_id)
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
@@ -732,7 +727,6 @@ def update_task_progress(task_id: str, progress: float, db=None):
                                     task_id,
                                     "progress",
                                     {"progress": float(progress)},
-                                    db=s,
                                     emit_event=False,
                                 )
                         else:
@@ -740,7 +734,6 @@ def update_task_progress(task_id: str, progress: float, db=None):
                                 task_id,
                                 "progress",
                                 {"progress": float(progress)},
-                                db=s,
                                 emit_event=False,
                             )
                     except SQLAlchemyError:

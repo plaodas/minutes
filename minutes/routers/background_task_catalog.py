@@ -71,13 +71,7 @@ def bg_task_rename(task_id: str, payload: dict[str, str]):
             return JSONResponse({"error": "unknown task"}, status_code=404)
         task.name = name
         session.add(task)
-        session.commit()
-        try:
-            record_history(task_id, "rename", {"name": name}, db=session)
-        except SQLAlchemyError:
-            logging.getLogger(__name__).exception(
-                "record_history failed for %s", task_id
-            )
+    record_history(task_id, "rename", {"name": name})
     return {"task_id": task_id, "name": name}
 
 
@@ -109,18 +103,12 @@ def bg_task_regenerate_name(task_id: str):
                 short = short[:117].rstrip() + "..."
             task.name = short
             session.add(task)
-            session.commit()
-            try:
-                record_history(task_id, "rename", {"name": short}, db=session)
-            except SQLAlchemyError:
-                logging.getLogger(__name__).exception(
-                    "record_history failed for %s", task_id
-                )
-            return {"task_id": task_id, "name": short}
         except FileNotFoundError:
             return JSONResponse({"error": "output file not found"}, status_code=404)
         except (OSError, UnicodeError, ValueError, TypeError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
+    record_history(task_id, "rename", {"name": short})
+    return {"task_id": task_id, "name": short}
 
 
 @router.get("/tasks")
