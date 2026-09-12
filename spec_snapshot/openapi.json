@@ -720,6 +720,43 @@
         "title": "TaskDeletedResponse",
         "type": "object"
       },
+      "TaskEvent": {
+        "properties": {
+          "event_type": {
+            "$ref": "#/components/schemas/TaskEventType"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/TaskEventPayload"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskStage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "task.event",
+            "default": "task.event",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "event_type",
+          "payload"
+        ],
+        "title": "TaskEvent",
+        "type": "object"
+      },
       "TaskEventPayload": {
         "additionalProperties": true,
         "properties": {
@@ -1983,11 +2020,13 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskEvent"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Server-sent events stream. Each `data:` line is a TaskEvent JSON object. Idle connections receive `: keepalive` comments every 15 seconds."
           }
         },
         "summary": "Bg Events",

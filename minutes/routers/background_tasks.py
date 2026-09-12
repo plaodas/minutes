@@ -17,6 +17,7 @@ from minutes.schemas import (
     ResultPendingResponse,
     ResultSuccess,
     StatusResponse,
+    TaskEvent,
     TaskEventsResponse,
     normalize_task_status,
     task_stage_from_status,
@@ -24,6 +25,12 @@ from minutes.schemas import (
 from minutes.sse import register_queue, unregister_queue
 
 router = APIRouter(prefix="/api/bg", tags=["background-tasks"])
+
+
+class EventStreamResponse(JSONResponse):
+    """Declare the SSE media type in OpenAPI. Handlers still return a stream."""
+
+    media_type = "text/event-stream"
 
 
 @router.get(
@@ -76,7 +83,21 @@ def bg_result(task_id: str):
     return {"status": "success", "result": result if isinstance(result, dict) else {}}
 
 
-@router.get("/events")
+@router.get(
+    "/events",
+    response_class=EventStreamResponse,
+    response_model=TaskEvent,
+    responses={
+        200: {
+            "model": TaskEvent,
+            "description": (
+                "Server-sent events stream. Each `data:` line is a TaskEvent JSON "
+                "object. Idle connections receive `: keepalive` comments every "
+                "15 seconds."
+            ),
+        }
+    },
+)
 async def bg_events(request: Request):
     """Stream task events to clients using server-sent events."""
     queue = register_queue()

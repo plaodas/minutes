@@ -4,6 +4,7 @@ export type ApiSchemas = components['schemas'];
 export type TaskStage = ApiSchemas['TaskStage'];
 export type TaskEventType = ApiSchemas['TaskEventType'];
 export type TaskEventPayload = ApiSchemas['TaskEventPayload'];
+export type TaskEvent = ApiSchemas['TaskEvent'];
 export type StatusResponse = ApiSchemas['StatusResponse'];
 export type ResultSuccess = ApiSchemas['ResultSuccess'];
 export type CreateTaskResponse = ApiSchemas['CreateTaskResponse'];

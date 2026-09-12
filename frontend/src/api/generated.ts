@@ -793,6 +793,20 @@ export interface components {
             /** Task Id */
             task_id: string;
         };
+        /** TaskEvent */
+        TaskEvent: {
+            event_type: components["schemas"]["TaskEventType"];
+            payload: components["schemas"]["TaskEventPayload"];
+            stage?: components["schemas"]["TaskStage"] | null;
+            /** Task Id */
+            task_id: string;
+            /**
+             * Type
+             * @default task.event
+             * @constant
+             */
+            type: "task.event";
+        };
         /** TaskEventPayload */
         TaskEventPayload: {
             /** Detail */
@@ -1445,13 +1459,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Server-sent events stream. Each `data:` line is a TaskEvent JSON object. Idle connections receive `: keepalive` comments every 15 seconds. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "text/event-stream": components["schemas"]["TaskEvent"];
                 };
             };
         };

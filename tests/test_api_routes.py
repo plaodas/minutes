@@ -70,6 +70,11 @@ def test_task_read_routes_publish_typed_openapi_responses():
     assert _json_schema_ref(paths, "/api/auth/login", "post", 401) == (
         "#/components/schemas/ErrorResponse"
     )
+    events = paths["/api/bg/events"]["get"]["responses"]["200"]["content"]
+    assert "application/json" not in events
+    assert events["text/event-stream"]["schema"]["$ref"] == (
+        "#/components/schemas/TaskEvent"
+    )
     assert _json_schema_ref(paths, "/api/admin/buckets", "get", 200) == (
         "#/components/schemas/AdminBucketListResponse"
     )
