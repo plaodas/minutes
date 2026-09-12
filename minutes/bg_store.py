@@ -573,51 +573,31 @@ def update_task_status(task_id: str, status: TaskStage | str):
         try:
             with session_scope() as s:
                 key = _parse_key(task_id)
-                logger.debug(
-                    "update_task_status start (isolated): task_id=%s status=%s",
-                    task_id,
-                    status_value,
+                task = s.get(Task, key)
+                if not task:
+                    if not isinstance(key, uuid.UUID):
+                        logger.error("Cannot create task for non-UUID id %s", task_id)
+                        return
+                    task = Task(
+                        id=key,
+                        status="pending",
+                        progress=None,
+                        fail_count=0,
+                    )
+                    s.add(task)
+                task.status = status_value
+                s.add(
+                    TaskHistory(
+                        task_id=key,
+                        event_type="status",
+                        payload={"status": status_value},
+                    )
                 )
-                try:
-                    t = s.get(Task, key)
-                except OperationalError:
-                    logger.exception(
-                        "OperationalError on s.get in update_task_status for %s",
-                        task_id,
-                    )
-                    raise
-                if not t:
-                    try:
-                        # create_task uses its own session and commits
-                        create_task(task_id, metadata=None)
-                    except (SQLAlchemyError, OperationalError):
-                        logger.exception(
-                            "create_task failed inside update_task_status for %s",
-                            task_id,
-                        )
-                    # re-fetch after create to get ORM object in this session
-                    t = s.get(Task, key)
-                t.status = status_value
-                try:
-                    s.commit()
-                    logger.debug(
-                        "update_task_status commit ok: task_id=%s status=%s",
-                        task_id,
-                        status_value,
-                    )
-                except IntegrityError:
-                    s.rollback()
-                    logger.exception(
-                        "IntegrityError committing update_task_status for %s", task_id
-                    )
-        # Record history using an independent session to ensure visibility
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_task_status failed for %s", task_id)
-        # Record history using an independent session to ensure visibility
-        try:
-            record_history(task_id, "status", {"status": status_value})
-        except SQLAlchemyError:
-            logger.exception('record_history("status") failed for %s', task_id)
+            return
+
+    emit_task_event(task_id, TaskEventType.STATUS, {"status": status_value})
 
 
 def update_task_progress(task_id: str, progress: float):

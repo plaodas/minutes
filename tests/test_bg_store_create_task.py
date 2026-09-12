@@ -117,6 +117,39 @@ def test_progress_update_commits_state_and_history_once(monkeypatch):
     assert commits == ["commit"]
 
 
+def test_status_update_commits_state_and_history_once(monkeypatch):
+    task_id = uuid.uuid4()
+    create_task(str(task_id))
+    commits = []
+    published = []
+
+    def track_commit(_session):
+        commits.append("commit")
+
+    event.listen(SessionLocal.class_, "after_commit", track_commit)
+    monkeypatch.setattr(bg_store, "publish_event", published.append)
+    try:
+        bg_store.update_task_status(str(task_id), "formatting")
+    finally:
+        event.remove(SessionLocal.class_, "after_commit", track_commit)
+
+    assert commits == ["commit"]
+    with session_scope() as db:
+        task = db.get(Task, task_id)
+        history = (
+            db.query(TaskHistory)
+            .filter(
+                TaskHistory.task_id == task_id,
+                TaskHistory.event_type == "status",
+            )
+            .one()
+        )
+        assert task is not None
+        assert task.status == "formatting"
+        assert history.payload == {"status": "formatting"}
+    assert published[-1]["event_type"] == "status"
+
+
 def test_success_records_history_and_publishes_status(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
