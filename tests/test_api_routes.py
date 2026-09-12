@@ -75,6 +75,18 @@ def test_task_read_routes_publish_typed_openapi_responses():
     assert events["text/event-stream"]["schema"]["$ref"] == (
         "#/components/schemas/TaskEvent"
     )
+    for artifact_path in (
+        "/api/bg/minutes/{task_id}",
+        "/api/bg/transcript/{task_id}",
+        "/api/bg/summary/{task_id}",
+        "/api/bg/action-items/{task_id}",
+    ):
+        assert _json_schema_ref(paths, artifact_path, "get", 202) == (
+            "#/components/schemas/ResultPendingResponse"
+        )
+        assert _json_schema_ref(paths, artifact_path, "get", 404) == (
+            "#/components/schemas/ErrorResponse"
+        )
     assert _json_schema_ref(paths, "/api/admin/buckets", "get", 200) == (
         "#/components/schemas/AdminBucketListResponse"
     )
@@ -444,6 +456,19 @@ def test_background_artifact_routes_return_404_for_unknown_task(monkeypatch, pat
 
     assert response.status_code == 404
     assert response.json() == {"error": "unknown task"}
+
+
+def test_background_artifact_routes_return_202_when_pending(monkeypatch):
+    monkeypatch.setattr(
+        background_task_artifacts,
+        "get_task",
+        lambda _task_id: {"status": "transcribing", "error": None},
+    )
+
+    response = TestClient(app).get("/api/bg/minutes/task-1")
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "transcribing", "error": None}
 
 
 def test_background_history_rejects_invalid_task_id():

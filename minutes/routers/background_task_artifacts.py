@@ -9,22 +9,58 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import get_task
+from minutes.http_errors import error_json
 from minutes.minio_client import MinioService
+from minutes.schemas import JSON_ERROR_RESPONSES, ResultPendingResponse
 from minutes.summary import summarize_local
 
 router = APIRouter()
 
+_ARTIFACT_ERROR_RESPONSES = {
+    202: {
+        "model": ResultPendingResponse,
+        "description": "Task has not completed successfully",
+    },
+    404: JSON_ERROR_RESPONSES[404],
+    500: JSON_ERROR_RESPONSES[500],
+}
+_ARTIFACT_DOWNLOAD_RESPONSES = {
+    **_ARTIFACT_ERROR_RESPONSES,
+    502: JSON_ERROR_RESPONSES[502],
+}
+_ARTIFACT_FORMAT_RESPONSES = {
+    **_ARTIFACT_ERROR_RESPONSES,
+    400: JSON_ERROR_RESPONSES[400],
+}
 
-def _resolve_output_file_from_task(task_id: str):
+
+def _pending_response(task: dict[str, object]) -> JSONResponse:
+    return JSONResponse(
+        ResultPendingResponse(
+            status=str(task.get("status") or "pending"),
+            error=task.get("error") if isinstance(task.get("error"), str) else None,
+        ).model_dump(),
+        status_code=202,
+    )
+
+
+def _successful_task_or_response(task_id: str):
     try:
         task = get_task(task_id)
     except SQLAlchemyError:
         logging.getLogger(__name__).exception("get_task failed for %s", task_id)
         task = None
     if not task:
-        return None, JSONResponse({"error": "unknown task"}, status_code=404)
+        return None, error_json("unknown task", 404)
     if task.get("status") != "success":
-        return None, JSONResponse({"status": task.get("status")}, status_code=202)
+        return None, _pending_response(task)
+    return task, None
+
+
+def _resolve_output_file_from_task(task_id: str):
+    task, error = _successful_task_or_response(task_id)
+    if error:
+        return None, error
     result = task.get("result") or {}
     output_file = None
     if isinstance(result, dict):
@@ -33,9 +69,7 @@ def _resolve_output_file_from_task(task_id: str):
         if not output_file and isinstance(nested, dict):
             output_file = nested.get("output_file")
     if not output_file:
-        return None, JSONResponse(
-            {"error": "no output file available"}, status_code=404
-        )
+        return None, error_json("no output file available", 404)
     outputs_dir = os.environ.get("OUTPUTS_DIR", "outputs")
     return os.path.join(outputs_dir, os.path.basename(output_file)), None
 
@@ -54,9 +88,7 @@ def _stream_minio_object(
     try:
         obj = service.client.get_object(bucket, object_name)
     except (S3Error, OSError) as exc:
-        return JSONResponse(
-            {"error": f"failed to fetch object from MinIO: {exc!s}"}, status_code=502
-        )
+        return error_json(f"failed to fetch object from MinIO: {exc!s}", 502)
 
     def iterfile(chunk_size: int = 32 * 1024):
         try:
@@ -119,19 +151,11 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
                 )
 
 
-@router.get("/minutes/{task_id}")
+@router.get("/minutes/{task_id}", responses=_ARTIFACT_DOWNLOAD_RESPONSES)
 def bg_minutes_file(task_id: str):
-    try:
-        task = get_task(task_id)
-    except SQLAlchemyError:
-        logging.getLogger(__name__).debug(
-            "get_task failed for %s", task_id, exc_info=True
-        )
-        task = None
-    if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    if task.get("status") != "success":
-        return JSONResponse({"status": task.get("status")}, status_code=202)
+    task, error = _successful_task_or_response(task_id)
+    if error:
+        return error
     result = task.get("result") or {}
     output_file = None
     if isinstance(result, dict):
@@ -140,7 +164,7 @@ def bg_minutes_file(task_id: str):
         if not output_file and isinstance(nested, dict):
             output_file = nested.get("output_file")
     if not output_file:
-        return JSONResponse({"error": "no output file available"}, status_code=404)
+        return error_json("no output file available", 404)
 
     filename = os.path.basename(output_file)
     candidate = os.path.join(os.environ.get("OUTPUTS_DIR", "outputs"), filename)
@@ -159,18 +183,16 @@ def bg_minutes_file(task_id: str):
             )
         return FileResponse(path=candidate, media_type="text/plain", filename=filename)
     except FileNotFoundError:
-        return JSONResponse({"error": "output file not found"}, status_code=404)
+        return error_json("output file not found", 404)
     except OSError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return error_json(str(exc), 500)
 
 
-@router.get("/transcript/{task_id}")
+@router.get("/transcript/{task_id}", responses=_ARTIFACT_FORMAT_RESPONSES)
 def bg_transcript(task_id: str, format: str = "txt"):
-    task = get_task(task_id)
-    if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    if task.get("status") != "success":
-        return JSONResponse({"status": task.get("status")}, status_code=202)
+    task, error = _successful_task_or_response(task_id)
+    if error:
+        return error
     result = task.get("result") or {}
     if isinstance(result, dict) and result.get("transcript"):
         text = result["transcript"]
@@ -182,9 +204,9 @@ def bg_transcript(task_id: str, format: str = "txt"):
             with open(candidate, "r", encoding="utf-8") as input_file:
                 text = input_file.read()
         except FileNotFoundError:
-            return JSONResponse({"error": "output file not found"}, status_code=404)
+            return error_json("output file not found", 404)
         except (OSError, UnicodeDecodeError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return error_json(str(exc), 500)
     if (
         isinstance(result, dict)
         and isinstance(result.get("minio"), dict)
@@ -203,19 +225,17 @@ def bg_transcript(task_id: str, format: str = "txt"):
                 exc_info=True,
             )
     if format not in ("txt", "md"):
-        return JSONResponse({"error": "unsupported format"}, status_code=400)
+        return error_json("unsupported format", 400)
     return Response(
         content=text, media_type="text/markdown" if format == "md" else "text/plain"
     )
 
 
-@router.get("/summary/{task_id}")
+@router.get("/summary/{task_id}", responses=_ARTIFACT_FORMAT_RESPONSES)
 def bg_summary(task_id: str, format: str = "txt"):
-    task = get_task(task_id)
-    if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    if task.get("status") != "success":
-        return JSONResponse({"status": task.get("status")}, status_code=202)
+    task, error = _successful_task_or_response(task_id)
+    if error:
+        return error
     result = task.get("result") or {}
     if isinstance(result, dict) and result.get("summary"):
         summary_text = result["summary"]
@@ -227,9 +247,9 @@ def bg_summary(task_id: str, format: str = "txt"):
             with open(candidate, "r", encoding="utf-8") as input_file:
                 text = input_file.read()
         except FileNotFoundError:
-            return JSONResponse({"error": "output file not found"}, status_code=404)
+            return error_json("output file not found", 404)
         except (OSError, UnicodeDecodeError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return error_json(str(exc), 500)
         match = re.search(
             r"(?ims)^\s*summary\s*$\n(.*?)\n\s*(?:action items|transcript|$)", text
         )
@@ -247,20 +267,18 @@ def bg_summary(task_id: str, format: str = "txt"):
                 )
                 summary_text = ""
     if format not in ("txt", "md"):
-        return JSONResponse({"error": "unsupported format"}, status_code=400)
+        return error_json("unsupported format", 400)
     return Response(
         content=summary_text,
         media_type="text/markdown" if format == "md" else "text/plain",
     )
 
 
-@router.get("/action-items/{task_id}")
+@router.get("/action-items/{task_id}", responses=_ARTIFACT_FORMAT_RESPONSES)
 def bg_action_items(task_id: str, format: str = "json"):
-    task = get_task(task_id)
-    if not task:
-        return JSONResponse({"error": "unknown task"}, status_code=404)
-    if task.get("status") != "success":
-        return JSONResponse({"status": task.get("status")}, status_code=202)
+    task, error = _successful_task_or_response(task_id)
+    if error:
+        return error
     result = task.get("result") or {}
     if isinstance(result, dict) and isinstance(result.get("action_items"), list):
         items = result["action_items"]
@@ -272,9 +290,9 @@ def bg_action_items(task_id: str, format: str = "json"):
             with open(candidate, "r", encoding="utf-8") as input_file:
                 text = input_file.read()
         except FileNotFoundError:
-            return JSONResponse({"error": "output file not found"}, status_code=404)
+            return error_json("output file not found", 404)
         except (OSError, UnicodeDecodeError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            return error_json(str(exc), 500)
         items = []
         match = re.search(r"(?ims)^\s*action items\s*$\n(.*)$", text)
         section = match.group(1) if match else None
@@ -301,4 +319,4 @@ def bg_action_items(task_id: str, format: str = "json"):
     if format == "txt":
         text = "\n".join([f"- {item.get('text')}" for item in items])
         return Response(content=text, media_type="text/plain")
-    return JSONResponse({"error": "unsupported format"}, status_code=400)
+    return error_json("unsupported format", 400)
