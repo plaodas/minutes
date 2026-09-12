@@ -27,7 +27,37 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   const [running, setRunning] = useState(false);
   const [transcribeProgress, setTranscribeProgress] = useState<number | null>(null);
 
-  useTaskEvents(
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = 0;
+    }
+  }, []);
+
+  const completeTask = useCallback(
+    async (id: string, eventResult?: unknown) => {
+      const response = eventResult === undefined ? await getBgResult(id) : eventResult;
+      const result =
+        eventResult === undefined &&
+        response &&
+        typeof response === 'object' &&
+        'result' in response
+          ? response.result
+          : response;
+      const structured =
+        result && typeof result === 'object' && !Array.isArray(result)
+          ? { ...result, task_id: 'task_id' in result ? result.task_id : id }
+          : result;
+      stopPolling();
+      setResult(structured);
+      setActiveIndex(4);
+      setTranscribeProgress(null);
+      setRunning(false);
+    },
+    [setActiveIndex, setResult, stopPolling]
+  );
+
+  const eventConnectionState = useTaskEvents(
     (event) => {
       if (event.event_type === 'progress') {
         setTranscribeProgress(Math.round(event.payload.progress));
@@ -39,13 +69,16 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         if (idx >= 3) {
           setTranscribeProgress(null);
         }
+        if (idx >= 4 && taskId) {
+          void completeTask(taskId);
+        }
+      }
+      if (event.event_type === 'success' && taskId) {
+        void completeTask(taskId, event.payload.result);
       }
       if (event.event_type === 'failure') {
         const message = event.payload.error || 'Task failed';
-        if (pollRef.current) {
-          clearTimeout(pollRef.current);
-          pollRef.current = 0;
-        }
+        stopPolling();
         setError(message);
         setLastErrorDetails(sanitizeError(message));
         setActiveIndex(-1);
@@ -54,10 +87,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message } }));
       }
       if (event.event_type === 'cancelled') {
-        if (pollRef.current) {
-          clearTimeout(pollRef.current);
-          pollRef.current = 0;
-        }
+        stopPolling();
         setActiveIndex(-1);
         setTranscribeProgress(null);
         setRunning(false);
@@ -65,6 +95,68 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     },
     running ? taskId : null
   );
+
+  const pollTaskStatus = useCallback(
+    async (id: string): Promise<boolean> => {
+      try {
+        const statusResponse = await getBgStatus(id);
+        const status = statusResponse.status || '';
+        const backendError = statusResponse.error || statusResponse.message;
+
+        if (backendError || statusResponse.stage === 'failed') {
+          const message = backendError ? String(backendError) : 'Task failed';
+          setError(message);
+          setLastErrorDetails(sanitizeError(backendError || message));
+          setActiveIndex(-1);
+          window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message } }));
+          setRunning(false);
+          return true;
+        }
+
+        const index = taskStageToIndex(statusResponse.stage ?? taskStageFromStatus(status));
+        setActiveIndex(index);
+        if (index >= 4) {
+          await completeTask(id);
+          return true;
+        }
+        return false;
+      } catch (pollError) {
+        console.warn('poll error', pollError);
+        const detail = pollError instanceof Error ? pollError.message : String(pollError);
+        setError(detail);
+        setLastErrorDetails(sanitizeError(pollError));
+        setRunning(false);
+        return true;
+      }
+    },
+    [completeTask, setActiveIndex]
+  );
+
+  useEffect(() => {
+    stopPolling();
+    if (
+      !running ||
+      !taskId ||
+      eventConnectionState === 'open' ||
+      eventConnectionState === 'connecting'
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      const terminal = await pollTaskStatus(taskId);
+      if (!cancelled && !terminal) {
+        pollRef.current = window.setTimeout(poll, 10000);
+      }
+    };
+    pollRef.current = window.setTimeout(poll, 1500);
+
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, [eventConnectionState, pollTaskStatus, running, stopPolling, taskId]);
 
   const onDrop = useCallback(
     async (files: FileList | null) => {
@@ -82,10 +174,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         } catch {}
         xhrRef.current = null;
       }
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = 0;
-      }
+      stopPolling();
 
       try {
         // ensure a user id exists in localStorage so uploads include X-User-Id
@@ -148,64 +237,6 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         // clear upload UI
         setUploadProgress(null);
         setRunning(true);
-
-        // polling function
-        const poll = async () => {
-          try {
-            const st = await getBgStatus(id);
-            const status = (st && st.status) || '';
-            const backendError = st && (st.error || st.detail || st.message);
-
-            if (backendError || status.toLowerCase().includes('fail')) {
-              const msg = (backendError && String(backendError)) || 'Task failed';
-              setError(msg);
-              try {
-                setLastErrorDetails(sanitizeError(backendError));
-              } catch {
-                setLastErrorDetails(String(backendError));
-              }
-              setActiveIndex(-1);
-              window.dispatchEvent(
-                new CustomEvent('appToast', { detail: { type: 'error', message: msg } })
-              );
-              setRunning(false);
-              return;
-            }
-
-            const idx = taskStageToIndex(st.stage ?? taskStageFromStatus(status));
-            setActiveIndex(idx);
-            if (status && idx >= 4) {
-              const res = await getBgResult(id);
-              // normalize: prefer direct structured result, but include task id
-              const structured = res && res.result ? res.result : res;
-              try {
-                structured.task_id = structured.task_id || id;
-              } catch {}
-              setResult(structured);
-              setActiveIndex(4);
-              setRunning(false);
-              return;
-            }
-          } catch (err: any) {
-            console.warn('poll error', err);
-            const detail =
-              err && (err.message || err.toString ? err.message || err.toString() : String(err));
-            setError(String(detail));
-            try {
-              setLastErrorDetails(sanitizeError(err));
-            } catch {
-              setLastErrorDetails(String(err));
-            }
-            setRunning(false);
-            return;
-          }
-          // schedule next poll
-          // 10 seconds between polls
-          pollRef.current = window.setTimeout(poll, 10000);
-        };
-
-        // start first poll shortly after upload completes
-        pollRef.current = window.setTimeout(poll, 1500);
       } catch (e: any) {
         console.error(e);
         const msg = String(e?.message || e);
@@ -220,7 +251,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         setRunning(false);
       }
     },
-    [setActiveIndex, setResult]
+    [setActiveIndex, stopPolling]
   );
 
   const handleDrop: React.DragEventHandler = (e) => {
@@ -247,10 +278,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       } catch {}
       xhrRef.current = null;
     }
-    if (pollRef.current) {
-      clearTimeout(pollRef.current);
-      pollRef.current = 0;
-    }
+    stopPolling();
     setRunning(false);
     setUploadProgress(null);
     setTaskId(null);
@@ -258,7 +286,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     window.dispatchEvent(
       new CustomEvent('appToast', { detail: { type: 'info', message: 'Upload cancelled' } })
     );
-  }, [setActiveIndex]);
+  }, [setActiveIndex, stopPolling]);
 
   return (
     <div>

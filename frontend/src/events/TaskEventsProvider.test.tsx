@@ -12,6 +12,7 @@ describe('TaskEventsProvider', () => {
 
     class MockEventSource {
       onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
       onerror: (() => void) | null = null;
       close = vi.fn();
 
@@ -23,9 +24,10 @@ describe('TaskEventsProvider', () => {
     vi.stubGlobal('EventSource', MockEventSource);
     const allEvents: TaskEvent[] = [];
     const taskEvents: TaskEvent[] = [];
+    const connectionStates: string[] = [];
 
     function Consumer() {
-      useTaskEvents((event) => allEvents.push(event));
+      connectionStates.push(useTaskEvents((event) => allEvents.push(event)));
       useTaskEvents((event) => taskEvents.push(event), 'task-1');
       return null;
     }
@@ -37,6 +39,9 @@ describe('TaskEventsProvider', () => {
     );
 
     expect(instances).toHaveLength(1);
+    expect(connectionStates.at(-1)).toBe('connecting');
+    act(() => instances[0].onopen?.());
+    expect(connectionStates.at(-1)).toBe('open');
     act(() => {
       instances[0].onmessage?.({
         data: JSON.stringify({
@@ -65,6 +70,8 @@ describe('TaskEventsProvider', () => {
     expect(allEvents).toHaveLength(2);
     expect(taskEvents).toHaveLength(1);
     expect(taskEvents[0].event_type).toBe('status');
+    act(() => instances[0].onerror?.());
+    expect(connectionStates.at(-1)).toBe('error');
     view.unmount();
     expect(instances[0].close).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();

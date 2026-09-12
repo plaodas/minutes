@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { parseTaskEventData } from '../lib/taskEvents';
 import type { TaskEvent } from '../lib/taskEvents';
@@ -9,11 +9,19 @@ type Subscription = {
   taskId?: string;
 };
 type Subscribe = (listener: TaskEventListener, taskId?: string) => () => void;
+export type TaskEventsConnectionState = 'connecting' | 'open' | 'error' | 'unavailable';
+type TaskEventsContextValue = {
+  subscribe: Subscribe;
+  connectionState: TaskEventsConnectionState;
+};
 
-const TaskEventsContext = createContext<Subscribe | null>(null);
+const TaskEventsContext = createContext<TaskEventsContextValue | null>(null);
 
 export function TaskEventsProvider({ children }: { children: React.ReactNode }) {
   const subscriptionsRef = useRef(new Set<Subscription>());
+  const [connectionState, setConnectionState] = useState<TaskEventsConnectionState>(
+    typeof EventSource === 'undefined' ? 'unavailable' : 'connecting'
+  );
 
   const subscribe = useCallback<Subscribe>((listener, taskId) => {
     const subscription = { listener, taskId };
@@ -22,11 +30,17 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   useEffect(() => {
-    if (typeof EventSource === 'undefined') return;
+    if (typeof EventSource === 'undefined') {
+      setConnectionState('unavailable');
+      return;
+    }
     const base = import.meta.env.VITE_API_BASE || '/api';
     let eventSource: EventSource | null = null;
     try {
+      setConnectionState('connecting');
       eventSource = new EventSource(`${base}/bg/events`);
+      eventSource.onopen = () => setConnectionState('open');
+      eventSource.onerror = () => setConnectionState('error');
       eventSource.onmessage = (message) => {
         const event = parseTaskEventData(message.data);
         if (!event) return;
@@ -37,19 +51,25 @@ export function TaskEventsProvider({ children }: { children: React.ReactNode }) 
         }
       };
     } catch {
+      setConnectionState('unavailable');
       return;
     }
     return () => eventSource?.close();
   }, []);
 
-  return <TaskEventsContext.Provider value={subscribe}>{children}</TaskEventsContext.Provider>;
+  return (
+    <TaskEventsContext.Provider value={{ subscribe, connectionState }}>
+      {children}
+    </TaskEventsContext.Provider>
+  );
 }
 
 export function useTaskEvents(listener: TaskEventListener, taskId?: string | null) {
-  const subscribe = useContext(TaskEventsContext);
-  if (!subscribe) {
+  const context = useContext(TaskEventsContext);
+  if (!context) {
     throw new Error('useTaskEvents must be used within TaskEventsProvider');
   }
+  const { subscribe, connectionState } = context;
   const listenerRef = useRef(listener);
   listenerRef.current = listener;
 
@@ -57,4 +77,6 @@ export function useTaskEvents(listener: TaskEventListener, taskId?: string | nul
     if (taskId === null) return;
     return subscribe((event) => listenerRef.current(event), taskId);
   }, [subscribe, taskId]);
+
+  return connectionState;
 }
