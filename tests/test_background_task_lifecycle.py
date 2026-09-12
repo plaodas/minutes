@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes import bg_store, task_deletion, task_lifecycle
+from minutes import task_deletion, task_events, task_lifecycle
 from minutes import tasks as task_workers
 from minutes.api import app
 from minutes.bg_store import create_task, get_task
@@ -36,7 +36,7 @@ def test_undelete_restores_soft_deleted_task(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
     published = []
-    monkeypatch.setattr(bg_store, "publish_event", published.append)
+    monkeypatch.setattr(task_events, "publish_event", published.append)
     client = TestClient(app)
 
     delete_response = client.post(f"/api/bg/delete/{task_id}")
@@ -81,7 +81,7 @@ def test_soft_delete_db_failure_does_not_mark_task_success(monkeypatch):
         lambda *args: success_updates.append(args),
         raising=False,
     )
-    monkeypatch.setattr(bg_store, "publish_event", published.append)
+    monkeypatch.setattr(task_events, "publish_event", published.append)
 
     response = TestClient(app).post(f"/api/bg/delete/{task_id}")
 
@@ -95,7 +95,7 @@ def test_hard_delete_removes_task_and_publishes_event(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
     published = []
-    monkeypatch.setattr(bg_store, "publish_event", published.append)
+    monkeypatch.setattr(task_events, "publish_event", published.append)
 
     result = task_workers.hard_delete_task.run(str(task_id), None)
 
@@ -122,7 +122,7 @@ def test_hard_delete_removes_minio_artifact(monkeypatch):
             deleted_objects.append((bucket, object_name, ignore_missing))
 
     monkeypatch.setattr(task_deletion, "MinioService", FakeMinioService)
-    monkeypatch.setattr(bg_store, "publish_event", lambda _event: None)
+    monkeypatch.setattr(task_events, "publish_event", lambda _event: None)
 
     result = task_deletion.delete_task_permanently(str(task_id))
 
@@ -140,7 +140,7 @@ def test_force_delete_publishes_hard_delete_event(monkeypatch):
         "revoke",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(bg_store, "publish_event", published.append)
+    monkeypatch.setattr(task_events, "publish_event", published.append)
 
     response = TestClient(app).post(f"/api/bg/force-delete/{task_id}")
 

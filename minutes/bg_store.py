@@ -12,8 +12,9 @@ logger = logging.getLogger("minutes.bg_store")
 from sqlalchemy.exc import SQLAlchemyError
 
 from .models import Task, TaskHistory
-from .schemas import TaskEventType, TaskStage, build_task_event
+from .schemas import TaskEventType, TaskStage
 from .task_creation import create_task as create_task_record
+from .task_events import emit_task_event as publish_task_event
 from .task_state import parse_task_key as _parse_key
 from .task_state import (
     update_cancelled,
@@ -81,10 +82,7 @@ def emit_task_event(
     payload: dict[str, Any] | None = None,
 ) -> None:
     """Publish a typed task event without requiring a history row."""
-    try:
-        publish_event(build_task_event(str(task_id), event_type, payload))
-    except (RuntimeError, OSError):
-        logger.exception("publish_event failed for %s", task_id)
+    publish_task_event(task_id, event_type, payload, publisher=publish_event)
 
 
 def create_task(

@@ -6,10 +6,11 @@ from minio.error import S3Error
 from requests.exceptions import RequestException
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.bg_store import _parse_key, emit_task_event
 from minutes.db import session_scope
 from minutes.minio_client import MinioService
 from minutes.models import Bucket, Task, TaskHistory
+from minutes.task_events import emit_task_event
+from minutes.task_state import parse_task_key
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def delete_task_permanently(
     *,
     artifact_errors_fatal: bool = True,
 ) -> dict[str, object]:
-    key = _parse_key(task_id)
+    key = parse_task_key(task_id)
 
     with session_scope() as db:
         task = db.get(Task, key)

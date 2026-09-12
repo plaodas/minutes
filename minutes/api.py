@@ -30,7 +30,6 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from minutes import tasks
 from minutes.audio import preprocess
 from minutes.bg_store import (
-    _parse_key,
     create_task,
     update_task_failure,
     update_task_status,
@@ -51,6 +50,7 @@ from minutes.schemas import (
     FormatRawResponse,
     TaskStage,
 )
+from minutes.task_state import parse_task_key
 from minutes.transcribe import transcribe
 
 # Allowed upload file types
@@ -134,7 +134,7 @@ def _parse_header_user_id(x_user_id: str | None, authorization: str | None = Non
     logger = logging.getLogger("minutes.api")
     if x_user_id:
         try:
-            parsed = _parse_key(x_user_id)
+            parsed = parse_task_key(x_user_id)
             return parsed if isinstance(parsed, uuid.UUID) else None
         except (ValueError, TypeError, AttributeError):
             return None

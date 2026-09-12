@@ -1,13 +1,14 @@
 from datetime import datetime, timezone
 
-from minutes.bg_store import _parse_key, emit_task_event
 from minutes.db import session_scope
 from minutes.models import Task, TaskHistory
+from minutes.task_events import emit_task_event
+from minutes.task_state import parse_task_key
 
 
 def mark_task_deleted(task_id: str) -> bool:
     with session_scope() as db:
-        key = _parse_key(task_id)
+        key = parse_task_key(task_id)
         task = db.get(Task, key)
         if not task:
             return False
@@ -24,7 +25,7 @@ def mark_task_deleted(task_id: str) -> bool:
 
 def restore_task(task_id: str) -> bool:
     with session_scope() as db:
-        key = _parse_key(task_id)
+        key = parse_task_key(task_id)
         task = db.get(Task, key)
         if not task:
             return False
