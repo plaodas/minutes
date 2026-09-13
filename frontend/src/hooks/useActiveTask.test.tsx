@@ -207,4 +207,104 @@ describe('useActiveTask', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('follows only the latest task after the active id changes', async () => {
+    const instances: MockEventSource[] = [];
+
+    class MockEventSource {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+
+      constructor() {
+        instances.push(this);
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource);
+    const onStageIndex = vi.fn();
+    const onResult = vi.fn();
+    const onFailure = vi.fn();
+    let latest: HookState | null = null;
+
+    function Consumer({ taskId }: { taskId: string }) {
+      latest = useActiveTask(taskId, { onStageIndex, onResult, onFailure });
+      return <div data-testid="stage">{latest.task?.stage || ''}</div>;
+    }
+
+    function Harness({ taskId }: { taskId: string }) {
+      return (
+        <TaskEventsProvider>
+          <Consumer taskId={taskId} />
+        </TaskEventsProvider>
+      );
+    }
+
+    const view = render(<Harness taskId="task-1" />);
+
+    await waitFor(() => expect(instances).toHaveLength(1));
+    act(() => instances[0].onopen?.());
+    act(() => {
+      instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: 'task.event',
+          task_id: 'task-1',
+          event_type: 'status',
+          stage: 'transcribing',
+          payload: { status: 'transcribing' },
+        }),
+      } as MessageEvent);
+    });
+    expect(latest?.task).toMatchObject({ id: 'task-1', stage: 'transcribing' });
+
+    view.rerender(<Harness taskId="task-2" />);
+    await waitFor(() => expect(latest?.task).toMatchObject({ id: 'task-2', stage: 'pending' }));
+
+    act(() => {
+      instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: 'task.event',
+          task_id: 'task-1',
+          event_type: 'success',
+          stage: 'success',
+          payload: { result: { summary: 'old file' } },
+        }),
+      } as MessageEvent);
+    });
+    expect(onResult).not.toHaveBeenCalled();
+    expect(latest?.task?.id).toBe('task-2');
+
+    act(() => {
+      instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: 'task.event',
+          task_id: 'task-2',
+          event_type: 'status',
+          stage: 'formatting',
+          payload: { status: 'formatting' },
+        }),
+      } as MessageEvent);
+    });
+    expect(latest?.task).toMatchObject({ id: 'task-2', stage: 'formatting' });
+    expect(onStageIndex).toHaveBeenCalledWith(3);
+
+    act(() => {
+      instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: 'task.event',
+          task_id: 'task-2',
+          event_type: 'success',
+          stage: 'success',
+          payload: { result: { summary: 'new file' } },
+        }),
+      } as MessageEvent);
+    });
+    await waitFor(() =>
+      expect(onResult).toHaveBeenCalledWith({ summary: 'new file', task_id: 'task-2' })
+    );
+    expect(onFailure).not.toHaveBeenCalled();
+    view.unmount();
+    vi.unstubAllGlobals();
+  });
 });

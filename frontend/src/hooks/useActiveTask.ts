@@ -34,7 +34,11 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
   const pollRef = useRef<number | null>(0);
   const consecutivePollErrorsRef = useRef(0);
   const optionsRef = useRef(options);
+  const taskIdRef = useRef(taskId);
   optionsRef.current = options;
+  taskIdRef.current = taskId;
+
+  const isCurrentTask = useCallback((id: string) => taskIdRef.current === id, []);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -55,7 +59,8 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
   }, [taskId]);
 
   const failTask = useCallback(
-    (message: string, details?: unknown) => {
+    (message: string, details?: unknown, id?: string) => {
+      if (id && !isCurrentTask(id)) return;
       stopPolling();
       setError(message);
       setLastErrorDetails(sanitizeError(details ?? message));
@@ -63,12 +68,14 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
       optionsRef.current.onFailure?.(message);
       window.dispatchEvent(new CustomEvent('appToast', { detail: { type: 'error', message } }));
     },
-    [stopPolling]
+    [isCurrentTask, stopPolling]
   );
 
   const completeTask = useCallback(
     async (id: string, eventResult?: unknown) => {
+      if (!isCurrentTask(id)) return;
       const response = eventResult === undefined ? await getBgResult(id) : eventResult;
+      if (!isCurrentTask(id)) return;
       const result =
         eventResult === undefined && isRecord(response) && 'result' in response
           ? response.result
@@ -78,11 +85,15 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
       optionsRef.current.onStageIndex?.(4);
       optionsRef.current.onResult?.(structured);
     },
-    [stopPolling]
+    [isCurrentTask, stopPolling]
   );
 
   const applyEvent = useCallback(
     (event: TaskEvent) => {
+      if (event.task_id && taskIdRef.current && event.task_id !== taskIdRef.current) {
+        return;
+      }
+
       setTask((prev) => {
         const current = prev ?? createPendingTask(event.task_id);
         return applyActiveTaskEvent(current, event) ?? current;
@@ -95,26 +106,27 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
         const stage = event.stage ?? taskStageFromStatus(event.payload.status);
         const index = taskStageToIndex(stage);
         optionsRef.current.onStageIndex?.(index);
-        if (index >= 4 && taskId) {
-          void completeTask(taskId);
+        if (index >= 4 && isCurrentTask(event.task_id)) {
+          void completeTask(event.task_id);
         }
         return;
       }
-      if (event.event_type === 'success' && taskId) {
-        void completeTask(taskId, event.payload.result);
+      if (event.event_type === 'success' && isCurrentTask(event.task_id)) {
+        void completeTask(event.task_id, event.payload.result);
         return;
       }
       if (event.event_type === 'failure') {
-        failTask(event.payload.error || 'Task failed');
+        failTask(event.payload.error || 'Task failed', event.payload.error, event.task_id);
         return;
       }
       if (event.event_type === 'cancelled') {
+        if (event.task_id && !isCurrentTask(event.task_id)) return;
         stopPolling();
         optionsRef.current.onStageIndex?.(-1);
         optionsRef.current.onCancelled?.();
       }
     },
-    [completeTask, failTask, stopPolling, taskId]
+    [completeTask, failTask, isCurrentTask, stopPolling]
   );
 
   const eventConnectionState = useTaskEvents(applyEvent, taskId);
@@ -128,12 +140,13 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
     async (id: string): Promise<boolean> => {
       try {
         const statusResponse = await getBgStatus(id);
+        if (!isCurrentTask(id)) return true;
         consecutivePollErrorsRef.current = 0;
         const status = statusResponse.status || '';
         const backendError = statusResponse.error;
 
         if (backendError || statusResponse.stage === 'failed') {
-          failTask(backendError ? String(backendError) : 'Task failed', backendError || status);
+          failTask(backendError ? String(backendError) : 'Task failed', backendError || status, id);
           return true;
         }
 
@@ -153,17 +166,18 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
         }
         return false;
       } catch (pollError) {
+        if (!isCurrentTask(id)) return true;
         console.warn('poll error', pollError);
         consecutivePollErrorsRef.current += 1;
         if (consecutivePollErrorsRef.current < MAX_CONSECUTIVE_POLL_ERRORS) {
           return false;
         }
         const detail = pollError instanceof Error ? pollError.message : String(pollError);
-        failTask(detail, pollError);
+        failTask(detail, pollError, id);
         return true;
       }
     },
-    [completeTask, failTask]
+    [completeTask, failTask, isCurrentTask]
   );
 
   useEffect(() => {

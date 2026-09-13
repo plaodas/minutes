@@ -25,6 +25,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const uploadGenerationRef = useRef(0);
   const [running, setRunning] = useState(false);
 
   const {
@@ -65,12 +66,15 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
       setUploadErrorDetails(null);
       if (!files || files.length === 0) return;
       const f = files[0];
+      const generation = ++uploadGenerationRef.current;
       setLastFile(f);
       setFileName(f.name);
 
       abortUpload();
       stopPolling();
       setRunning(false);
+      setTaskId(null);
+      setResult(null);
 
       try {
         const { created } = ensureUserId();
@@ -83,9 +87,14 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
 
         setActiveIndex(0);
         setUploadProgress(0);
-        const { xhr, promise } = uploadAudioBgWithProgress(f, (p) => setUploadProgress(p));
+        const { xhr, promise } = uploadAudioBgWithProgress(f, (p) => {
+          if (generation !== uploadGenerationRef.current) return;
+          setUploadProgress(p);
+        });
         xhrRef.current = xhr;
         const resp = await promise;
+        if (generation !== uploadGenerationRef.current) return;
+        xhrRef.current = null;
         const id = resp.task_id || resp.taskId || resp.id;
         if (!id) throw new Error('no task id returned');
         setTaskId(id);
@@ -102,6 +111,8 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         setUploadProgress(null);
         setRunning(true);
       } catch (e: unknown) {
+        if (generation !== uploadGenerationRef.current) return;
+        xhrRef.current = null;
         console.error(e);
         const msg = e instanceof Error ? e.message : String(e);
         setUploadError(msg);
@@ -116,7 +127,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         setRunning(false);
       }
     },
-    [abortUpload, setActiveIndex, stopPolling]
+    [abortUpload, setActiveIndex, setResult, stopPolling]
   );
 
   const handleDrop: React.DragEventHandler = (e) => {
@@ -127,6 +138,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     onDrop(e.target.files);
+    e.target.value = '';
   };
 
   const handleRetry = () => {
@@ -140,6 +152,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     const activeTaskId = taskId;
     abortUpload();
     stopPolling();
+    uploadGenerationRef.current += 1;
     setRunning(false);
     setUploadProgress(null);
     setTaskId(null);
