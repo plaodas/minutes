@@ -2,22 +2,23 @@
 
 会議の録音をアップロードすると、文字起こし・要約・アクションアイテム付きの議事録まで進むローカル Web アプリです。Celery worker が処理し、ブラウザは SSE（切断時は polling）で進捗を見ます。
 
-Upload a short recording and get a transcript, summary, and action items. The default Docker Compose stack is the demo: FastAPI, a CPU Whisper worker, PostgreSQL, Redis, and an nginx frontend.
+短い録音をアップロードすると、文字起こし・要約・アクションアイテムが得られます。標準の Docker Compose 構成がデモです。FastAPI、CPU 版 Whisper worker、PostgreSQL、Redis、nginx フロントエンドが入ります。
 
-![Sign in](docs/screenshots/login.png)
-![Upload workspace](docs/screenshots/upload.png)
-![History](docs/screenshots/history.png)
+![ログイン](docs/screenshots/login.png)
+![アップロード画面](docs/screenshots/upload.png)
+![履歴](docs/screenshots/history.png)
 
 ```text
-browser  →  nginx (/ and /api)
+ブラウザ  →  nginx (/ と /api)
                 →  FastAPI
                       →  Redis / Celery
-                            →  worker (faster-whisper, optional Ollama)
+                            →  worker（faster-whisper、任意で Ollama）
 ```
 
-## Quick start
+## クイックスタート
 
-- Ollamaが既に入っている場合（Ollamaも一緒にセットアップしたい場合は下の Optional Ollama を参照 ）
+ホストに Ollama がすでにある場合はこのままで構いません。Compose に Ollama も載せる場合は、下の「任意: Ollama」を参照してください。
+
 ```bash
 git clone https://github.com/plaodas/minutes.git
 cd minutes
@@ -25,76 +26,76 @@ docker compose up --build -d
 python3 scripts/smoke_compose.py
 ```
 
-Open <http://localhost> or <http://localhost:8080> and sign in:
+<http://localhost> または <http://localhost:8080> を開いてログインします。
 
 ```text
 username: demo
 password: demo
 ```
 
-Upload [`docs/sample/demo-meeting.wav`](docs/sample/demo-meeting.wav). It is a short synthetic Japanese clip for the demo, not a real meeting.
+[`docs/sample/demo-meeting.wav`](docs/sample/demo-meeting.wav) をアップロードしてください。デモ用の短い合成日本語音声で、実会議の録音ではありません。
 
-The first task downloads the Whisper model and can take several minutes. Watch `docker compose logs -f worker`. Without the `llm` profile, formatting finishes with a `[FALLBACK]` local summary. That is expected.
+初回タスクは Whisper モデルのダウンロードがあり、数分かかることがあります。進捗は `docker compose logs -f worker` で確認できます。`llm` プロファイルなしでは整形が `[FALLBACK]` のローカル要約で終わります。
 
-## What the demo covers
+## デモでできること
 
-- MP3 / WAV upload
-- Background pipeline: preprocess → transcribe → format
-- Live progress over SSE, with status polling if the event stream is blocked
-- Transcript, summary, and action items, plus downloads
-- History, rename, delete, and cancel
-- Cookie session login (`demo` / `demo`)
+- MP3 / WAV のアップロード
+- バックグラウンド処理: 前処理 → 文字起こし → 整形
+- SSE での進捗表示（イベントストリームが遮断された場合は status polling）
+- 文字起こし・要約・アクションアイテムとダウンロード
+- 履歴、名前変更、削除、キャンセル
+- Cookie セッションログイン（`demo` / `demo`）
 
-Admin / bucket / service-token screens are out of the portfolio demo. Rebuild with `VITE_SHOW_ADMIN_CONTROLS=true` only if you need them.
+管理画面、バケット画面、サービストークン画面はポートフォリオデモの対象外です。必要なときだけ `VITE_SHOW_ADMIN_CONTROLS=true` で再ビルドしてください。
 
-## Compose services
+## Compose サービス
 
-- `frontend`: React SPA and reverse proxy to FastAPI
-- `minutes`: FastAPI (not published on the host)
-- `worker`: Celery and CPU faster-whisper
+- `frontend`: React SPA と FastAPI へのリバースプロキシ
+- `minutes`: FastAPI（ホストには公開しない）
+- `worker`: Celery と CPU 版 faster-whisper
 - `db`, `redis`
-- `migrate`, `bootstrap`: Alembic and the demo user
+- `migrate`, `bootstrap`: Alembic とデモユーザー作成
 
-Artifacts land in `data/outputs/`, uploads in `data/uploads/`. MinIO, GPU, and a separate inference service are not in the default stack.
+成果物は `data/outputs/`、アップロードは `data/uploads/` に置きます。MinIO、GPU、別立ての推論サービスは標準構成には含まれません。
 
-Needs Docker Engine 24+, Compose v2, network for the first Whisper download, and about 8 GB RAM for CPU transcription.
+必要環境は Docker Engine 24 以降、Compose v2、初回 Whisper ダウンロード用のネットワーク、CPU 文字起こしでおおよそ 8 GB RAM です。
 
-If login posts to `http://localhost/api/auth/login` and fails with `ERR_CONNECTION_REFUSED`, an old Service Worker may still be serving a cached SPA. Unregister it in DevTools → Application and reload.
+ログインが `http://localhost/api/auth/login` に POST して `ERR_CONNECTION_REFUSED` になる場合、古い Service Worker がキャッシュ済み SPA を返していることがあります。DevTools → Application で登録を解除して再読み込みしてください。
 
 ### `.env`
 
-`docker compose` reads `.env` for `${VAR}` interpolation in `docker-compose.yml` only. There is no `env_file:`. Copy `.env.example` if you want to change values.
+`docker compose` は `.env` を `docker-compose.yml` の `${VAR}` 展開にだけ使います。`env_file:` はありません。値を変えたいときは `.env.example` をコピーしてください。
 
-| Key | Use |
+| キー | 用途 |
 | --- | --- |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL and the container `DATABASE_URL` |
-| `JWT_SECRET` | Session signing |
-| `ADMIN_USER`, `ADMIN_PASS` | Demo user created by bootstrap |
-| `FRONTEND_PORT` | Extra host port (default `8080`; port 80 is always published) |
-| `TRANSCRIBE_MODEL_SIZE` | Whisper model on the worker |
-| `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS`, `OLLAMA_TIMEOUT` | `--profile llm` only |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL とコンテナ内 `DATABASE_URL` |
+| `JWT_SECRET` | セッション署名 |
+| `ADMIN_USER`, `ADMIN_PASS` | bootstrap が作るデモユーザー |
+| `FRONTEND_PORT` | 追加のホストポート（既定 `8080`。80 番は常に公開） |
+| `TRANSCRIBE_MODEL_SIZE` | worker の Whisper モデル |
+| `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS`, `OLLAMA_TIMEOUT` | `--profile llm` のときだけ |
 
-`MINIO_*`, `ADMIN_API_TOKEN`, and `DATABASE_URL` in an older `.env` are ignored by this Compose file. Do not use the example secrets outside localhost.
+`.env` にある `MINIO_*`、`ADMIN_API_TOKEN`、`DATABASE_URL` はこの Compose では無視されます。ホスト側の Python から DB に繋ぐときは `localhost`、コンテナ同士は `db` です。サンプルの秘密情報は localhost 以外で使わないでください。
 
-### Optional Ollama
+### 任意: Ollama
 
 ```bash
 docker compose --profile llm up --build -d
 docker compose logs -f ollama-pull
 ```
 
-Default model is `qwen2.5:3b`. Models persist in the `ollama_data` volume.
+既定モデルは `qwen2.5:3b` です。モデルは `ollama_data` ボリュームに残ります。
 
-### Stop
+### 停止
 
 ```bash
 docker compose down
-docker compose --profile llm down -v   # also drop named volumes
+docker compose --profile llm down -v   # 名前付きボリュームも削除
 ```
 
-## Smoke test
+## スモークテスト
 
-`scripts/smoke_compose.py` checks required containers, Alembic, Redis, `/api/health`, and demo login through the frontend URL (default `http://localhost:8080`).
+`scripts/smoke_compose.py` は必須コンテナ、Alembic、Redis、`/api/health`、フロントエンド URL（既定 `http://localhost:8080`）経由のデモログインを確認します。
 
 ```bash
 MINUTES_DEMO_URL=http://localhost:8081 \
@@ -103,7 +104,7 @@ ADMIN_PASS=my-password \
 python3 scripts/smoke_compose.py
 ```
 
-## Local development
+## ローカル開発
 
 ```bash
 python -m venv .venv
@@ -122,9 +123,9 @@ npm ci
 npm run dev
 ```
 
-Vite proxies `/api` to `localhost:8000`, so the browser stays same-origin. CORS in `minutes/api.py` is only for talking to FastAPI directly (for example `http://localhost:5173` without the proxy). Compose nginx does not need extra CORS for `:8080`.
+Vite は `/api` を `localhost:8000` にプロキシするので、ブラウザは同一オリジンのままです。`minutes/api.py` の CORS は FastAPI に直接つなぐ場合（プロキシなしの `http://localhost:5173` など）向けです。Compose の nginx では `:8080` 用の追加 CORS は不要です。
 
-## Tests
+## テスト
 
 ```bash
 export DATABASE_URL=sqlite:///./.pytest_sqlite.db
@@ -137,16 +138,16 @@ npm run lint
 npm run build
 ```
 
-## Layout
+## 構成
 
 ```text
-minutes/          FastAPI composition root, routers, pipeline, task domain
-frontend/src/     API client, SSE provider, hooks, UI
-alembic/          PostgreSQL migrations
-docs/openapi.json Generated OpenAPI schema
-docs/sample/      Demo audio
-scripts/          bootstrap, schema export, smoke
-tests/            backend tests
+minutes/          FastAPI の構成ルート、ルーター、パイプライン、タスク領域
+frontend/src/     API クライアント、SSE プロバイダ、hooks、UI
+alembic/          PostgreSQL マイグレーション
+docs/openapi.json 生成した OpenAPI スキーマ
+docs/sample/      デモ音声
+scripts/          bootstrap、スキーマ出力、スモークテスト
+tests/            バックエンドテスト
 ```
 
 ```bash
@@ -154,13 +155,14 @@ cd frontend
 npm run generate:api-types
 ```
 
-This MVP targets a single Docker host. Redis outbox, GPU, OAuth, TLS, MinIO production, and strict multi-worker event delivery are out of scope.
+この MVP は単一 Docker ホスト向けです。Redis outbox、GPU、OAuth、TLS、本番 MinIO、厳密なマルチ worker イベント配送は対象外です。
 
-## License
+## ライセンス
 
-See `LICENSE`.
+`LICENSE` を参照してください。
 
 ### 音声サンプルのクレジット
+
 docs/sample/demo-meeting.wav  
 VOICEVOX:波音リツ  
 VOICEVOX:剣崎雌雄
