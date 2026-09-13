@@ -1,7 +1,7 @@
 """add minutes_text column and search indexes
 
 Revision ID: 20260829_add_minutes_text
-Revises:
+Revises: 0001_initial
 Create Date: 2026-08-29 00:00:00.000000
 """
 
@@ -9,7 +9,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "20260829_add_minutes_text"
-down_revision = None
+down_revision = "0001_initial"
 branch_labels = None
 depends_on = None
 

@@ -5,8 +5,6 @@ Revises: 20260906_merge_heads
 Create Date: 2026-09-06 00:00:00.000000
 """
 
-import sqlalchemy as sa
-
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -17,14 +15,11 @@ depends_on = None
 
 
 def upgrade():
-    # Add soft-delete columns to tasks
-    op.add_column(
-        "tasks",
-        sa.Column(
-            "deleted", sa.Boolean(), nullable=False, server_default=sa.text("false")
-        ),
+    # 20260901_add_timestamps already adds deleted_at on a linear history.
+    op.execute(
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false"
     )
-    op.add_column("tasks", sa.Column("deleted_at", sa.DateTime(), nullable=True))
+    op.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL")
 
 
 def downgrade():
