@@ -17,6 +17,7 @@ browser  →  nginx (/ and /api)
 
 ## Quick start
 
+- Ollamaが既に入っている場合（Ollamaも一緒にセットアップしたい場合は下の Optional Ollama を参照 ）
 ```bash
 git clone https://github.com/plaodas/minutes.git
 cd minutes
@@ -160,5 +161,6 @@ This MVP targets a single Docker host. Redis outbox, GPU, OAuth, TLS, MinIO prod
 See `LICENSE`.
 
 ### 音声サンプルのクレジット
-VOICEVOX:波音リツ
+docs/sample/demo-meeting.wav  
+VOICEVOX:波音リツ  
 VOICEVOX:剣崎雌雄
