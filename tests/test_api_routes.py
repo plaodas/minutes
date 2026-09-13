@@ -503,6 +503,31 @@ def test_action_items_json_matches_schema(monkeypatch):
     }
 
 
+def test_action_items_reparse_empty_list_from_japanese_minutes(monkeypatch):
+    minutes = """
+【STEP3：アクション抽出】
+- **誰が**：かたやまひろこ
+- **何を**：医師の助けを頼む
+- **いつまでに**：期限未設定
+"""
+    monkeypatch.setattr(
+        background_task_artifacts,
+        "get_task",
+        lambda _task_id: {
+            "status": "success",
+            "result": {"action_items": [], "minutes": minutes},
+        },
+    )
+
+    response = TestClient(app).get("/api/bg/action-items/task-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["task_id"] == "task-1"
+    assert payload["items"][0]["who"] == "かたやまひろこ"
+    assert payload["items"][0]["what"] == "医師の助けを頼む"
+
+
 def test_background_history_rejects_invalid_task_id():
     response = TestClient(app).get("/api/bg/history/not-a-uuid")
 

@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from minutes.bg_store import get_task
 from minutes.http_errors import error_json
 from minutes.minio_client import MinioService, S3Error
+from minutes.pipeline.formatting import extract_action_items
 from minutes.schemas import ActionItemsResponse, JSON_ERROR_RESPONSES, ResultPendingResponse
 from minutes.summary import summarize_local
 from minutes.task_result import (
@@ -221,6 +222,14 @@ def bg_summary(task_id: str, format: str = "txt"):
     return _formatted_text_response(summary_text, format)
 
 
+def _minutes_text_for_actions(result: object):
+    if isinstance(result, dict):
+        minutes = result.get("minutes")
+        if isinstance(minutes, str) and minutes.strip():
+            return minutes, None
+    return _local_output_text_or_response(result)
+
+
 @router.get(
     "/action-items/{task_id}",
     response_model=ActionItemsResponse,
@@ -240,24 +249,14 @@ def bg_action_items(task_id: str, format: str = "json"):
     if error:
         return error
     result = task.get("result") or {}
+    items = []
     if isinstance(result, dict) and isinstance(result.get("action_items"), list):
-        items = result["action_items"]
-    else:
-        text, error = _local_output_text_or_response(result)
+        items = [item for item in result["action_items"] if item]
+    if not items:
+        text, error = _minutes_text_for_actions(result)
         if error:
             return error
-        items = []
-        match = re.search(r"(?ims)^\s*action items\s*$\n(.*)$", text)
-        section = match.group(1) if match else None
-        if not section:
-            for line in (line.strip() for line in text.splitlines() if line.strip()):
-                if re.search(r"\b(Action|TODO|Action Item)[:\-]", line, re.IGNORECASE):
-                    items.append({"text": line})
-        else:
-            for line in section.splitlines():
-                item = line.strip().lstrip("-•* ")
-                if item and not re.match(r"^[A-Z][a-z]+:$", item):
-                    items.append({"text": item})
+        items = extract_action_items(text)
     if not items:
         items = []
     if format == "json":
@@ -265,11 +264,25 @@ def bg_action_items(task_id: str, format: str = "json"):
     if format == "csv":
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(["id", "text"])
+        writer.writerow(["id", "who", "what", "due", "text"])
         for index, item in enumerate(items, start=1):
-            writer.writerow([index, item.get("text")])
+            row = item if isinstance(item, dict) else {"text": str(item)}
+            writer.writerow(
+                [
+                    index,
+                    row.get("who", ""),
+                    row.get("what", ""),
+                    row.get("due", ""),
+                    row.get("text", ""),
+                ]
+            )
         return Response(content=buffer.getvalue(), media_type="text/csv")
     if format == "txt":
-        text = "\n".join([f"- {item.get('text')}" for item in items])
-        return Response(content=text, media_type="text/plain")
+        lines = []
+        for item in items:
+            if isinstance(item, dict):
+                lines.append(f"- {item.get('text') or ''}")
+            else:
+                lines.append(f"- {item}")
+        return Response(content="\n".join(lines), media_type="text/plain")
     return error_json("unsupported format", 400)

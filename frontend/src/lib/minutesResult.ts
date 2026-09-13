@@ -39,7 +39,14 @@ export function formatActionItems(data: Record<string, unknown>): string {
     return items
       .map((item) => {
         if (typeof item === 'string') return item;
-        if (isRecord(item) && typeof item.text === 'string') return item.text;
+        if (isRecord(item)) {
+          if (typeof item.text === 'string' && item.text) return item.text;
+          const who = typeof item.who === 'string' ? item.who : '';
+          const what = typeof item.what === 'string' ? item.what : '';
+          const due = typeof item.due === 'string' ? item.due : '';
+          const parts = [who, what, due].filter(Boolean);
+          if (parts.length) return parts.join(' / ');
+        }
         return String(item);
       })
       .join('\n');
