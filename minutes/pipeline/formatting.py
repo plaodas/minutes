@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 from minutes.ollama import DEFAULT_SYSTEM_PROMPT
+from minutes.transcribe import jsonable_segments
 
 Formatter = Callable[..., str]
 Summarizer = Callable[..., str]
@@ -83,7 +84,7 @@ def build_pipeline_result(
         action_items = []
     return {
         "transcript": transcript,
-        "segments": segments,
+        "segments": jsonable_segments(segments),
         "minutes": minutes,
         "summary": _summarize(minutes, summarizer),
         "action_items": action_items,

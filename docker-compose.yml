@@ -109,7 +109,8 @@ services:
       OLLAMA_HOST: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       OLLAMA_FALLBACK_MODELS: ${OLLAMA_FALLBACK_MODELS:-}
-      OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-5}
+      # Seconds per /api/chat attempt (retries at 1x, 2x, 4x). CPU inference needs more than 5s.
+      OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-120}
       TRANSCRIBE_MODEL_SIZE: ${TRANSCRIBE_MODEL_SIZE:-small}
     volumes: *app-volumes
     command:
@@ -144,7 +145,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE: /api
-        VITE_SHOW_ADMIN_CONTROLS: "false"
+        VITE_SHOW_ADMIN_CONTROLS: "true"
     ports:
       # Port 80 so http://localhost works; 8080 stays as the documented demo URL.
       - "80:80"
