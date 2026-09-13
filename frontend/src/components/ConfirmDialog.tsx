@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 export default function ConfirmDialog({
   open,
@@ -61,11 +62,12 @@ export default function ConfirmDialog({
   }, [open, onCancel]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-70 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40"
       role="dialog"
       aria-modal="true"
+      data-testid="confirm-dialog"
     >
       <div ref={dialogRef} tabIndex={-1} className="w-full max-w-lg bg-white rounded p-4 shadow-lg">
         {title && <h3 className="text-lg font-semibold mb-2">{title}</h3>}
@@ -83,6 +85,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

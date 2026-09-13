@@ -219,7 +219,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
   };
 
   if (!taskId) return null;
-  const overlayClass = `fixed inset-0 z-60 flex p-6 transition-colors duration-200 ${isVisible ? 'bg-black/40 pointer-events-auto' : 'bg-black/0 pointer-events-none'}`;
+  const overlayClass = `fixed inset-0 z-40 flex p-6 transition-colors duration-200 ${isVisible ? 'bg-black/40 pointer-events-auto' : 'bg-black/0 pointer-events-none'}`;
 
   // The drawer behaves as a right-side panel on md+ and a bottom sheet on small screens.
   const drawerBase =
