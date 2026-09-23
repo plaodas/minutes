@@ -2,13 +2,14 @@ import asyncio
 import json
 import uuid
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from minutes.auth import require_current_user
 from minutes.bg_store import get_task
 from minutes.db import session_scope
 from minutes.http_errors import error_json
-from minutes.models import TaskHistory
+from minutes.models import TaskHistory, User
 from minutes.routers.background_task_artifacts import router as artifacts_router
 from minutes.routers.background_task_catalog import router as catalog_router
 from minutes.routers.background_task_lifecycle import router as lifecycle_router
@@ -24,8 +25,13 @@ from minutes.schemas import (
     task_stage_from_status,
 )
 from minutes.sse import register_queue, unregister_queue
+from minutes.task_access import event_visible_to, snapshot_owned_by, user_owns_task
 
-router = APIRouter(prefix="/api/bg", tags=["background-tasks"])
+router = APIRouter(
+    prefix="/api/bg",
+    tags=["background-tasks"],
+    dependencies=[Depends(require_current_user)],
+)
 
 
 class EventStreamResponse(JSONResponse):
@@ -39,9 +45,9 @@ class EventStreamResponse(JSONResponse):
     response_model=StatusResponse,
     responses={404: JSON_ERROR_RESPONSES[404]},
 )
-def bg_status(task_id: str):
+def bg_status(task_id: str, user: User = Depends(require_current_user)):  # noqa: B008
     task = get_task(task_id)
-    if not task:
+    if not snapshot_owned_by(task, user):
         return error_json("unknown task", 404)
     stage = task_stage_from_status(task["status"])
     status = task["status"]
@@ -68,9 +74,9 @@ def bg_status(task_id: str):
         404: JSON_ERROR_RESPONSES[404],
     },
 )
-def bg_result(task_id: str):
+def bg_result(task_id: str, user: User = Depends(require_current_user)):  # noqa: B008
     task = get_task(task_id)
-    if not task:
+    if not snapshot_owned_by(task, user):
         return error_json("unknown task", 404)
     if task["status"] != "success":
         return JSONResponse(
@@ -99,9 +105,13 @@ def bg_result(task_id: str):
         }
     },
 )
-async def bg_events(request: Request):
+async def bg_events(
+    request: Request,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
     """Stream task events to clients using server-sent events."""
     queue = register_queue()
+    visible: dict[str, bool] = {}
 
     async def event_generator():
         try:
@@ -115,6 +125,8 @@ async def bg_events(request: Request):
                     continue
                 except asyncio.CancelledError:
                     break
+                if not event_visible_to(event, user.id, visible):
+                    continue
                 try:
                     payload = json.dumps(event, default=str)
                 except (TypeError, ValueError):
@@ -142,12 +154,17 @@ async def bg_events(request: Request):
     response_model_exclude_none=True,
     responses={400: JSON_ERROR_RESPONSES[400]},
 )
-def bg_task_events(task_id: str):
+def bg_task_events(
+    task_id: str,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
     """Return all stored events for a task, newest first."""
     try:
         key = uuid.UUID(task_id)
     except (ValueError, TypeError):
         return error_json("invalid task id", 400)
+    if not user_owns_task(task_id, user.id):
+        return error_json("unknown task", 404)
 
     with session_scope() as session:
         rows = (

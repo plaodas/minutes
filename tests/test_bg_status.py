@@ -1,10 +1,10 @@
-from fastapi.testclient import TestClient
-
 from minutes import api
 from minutes.routers import background_tasks
+from tests.auth_helpers import logged_in_client
 
 
 def test_bg_status_uses_persisted_task_state(monkeypatch):
+    client, user_id = logged_in_client(api.app)
     task_id = "dd3a1d68-07f0-413a-b337-9f39c2d3ce76"
     monkeypatch.setattr(
         background_tasks,
@@ -14,10 +14,11 @@ def test_bg_status_uses_persisted_task_state(monkeypatch):
             "status": "formatting",
             "progress": 100.0,
             "error": None,
+            "user_id": str(user_id),
         },
     )
 
-    response = TestClient(api.app).get(f"/api/bg/status/{task_id}")
+    response = client.get(f"/api/bg/status/{task_id}")
 
     assert response.status_code == 200
     assert response.json()["task_id"] == task_id
@@ -27,6 +28,7 @@ def test_bg_status_uses_persisted_task_state(monkeypatch):
 
 
 def test_bg_status_splits_legacy_status_detail(monkeypatch):
+    client, user_id = logged_in_client(api.app)
     task_id = "dd3a1d68-07f0-413a-b337-9f39c2d3ce76"
     monkeypatch.setattr(
         background_tasks,
@@ -36,10 +38,11 @@ def test_bg_status_splits_legacy_status_detail(monkeypatch):
             "status": "transcribing:48.3s",
             "progress": 50.0,
             "error": None,
+            "user_id": str(user_id),
         },
     )
 
-    response = TestClient(api.app).get(f"/api/bg/status/{task_id}")
+    response = client.get(f"/api/bg/status/{task_id}")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -53,6 +56,7 @@ def test_bg_status_splits_legacy_status_detail(monkeypatch):
 
 
 def test_bg_result_uses_persisted_task_state(monkeypatch):
+    client, user_id = logged_in_client(api.app)
     task_id = "dd3a1d68-07f0-413a-b337-9f39c2d3ce76"
     monkeypatch.setattr(
         background_tasks,
@@ -61,10 +65,11 @@ def test_bg_result_uses_persisted_task_state(monkeypatch):
             "id": requested_id,
             "status": "success",
             "result": {"output_file": "minutes.txt"},
+            "user_id": str(user_id),
         },
     )
 
-    response = TestClient(api.app).get(f"/api/bg/result/{task_id}")
+    response = client.get(f"/api/bg/result/{task_id}")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -74,7 +79,8 @@ def test_bg_result_uses_persisted_task_state(monkeypatch):
 
 
 def test_bg_task_events_rejects_invalid_task_id():
-    response = TestClient(api.app).get("/api/bg/tasks/not-a-uuid/events")
+    client, _user_id = logged_in_client(api.app)
+    response = client.get("/api/bg/tasks/not-a-uuid/events")
 
     assert response.status_code == 400
     assert response.json() == {"error": "invalid task id"}

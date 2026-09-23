@@ -1,10 +1,9 @@
 import io
 import wave
 
-from fastapi.testclient import TestClient
-
 from backend.app import app
 from minutes import tasks
+from tests.auth_helpers import logged_in_client
 
 
 def make_wav_bytes(duration_seconds: float = 0.02) -> bytes:
@@ -22,7 +21,7 @@ def make_wav_bytes(duration_seconds: float = 0.02) -> bytes:
 
 
 def test_upload_passes_language_and_include_actions(monkeypatch):
-    client = TestClient(app)
+    client, user_id = logged_in_client(app)
 
     # make process_audio.delay return a DummyTask
     class Dummy:
@@ -56,3 +55,4 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
     assert called["metadata"].get("language") == "Japanese"
     assert called["metadata"].get("include_actions") is False
     assert called["metadata"]["upload_path"].endswith(".wav")
+    assert called["user_id"] == str(user_id)

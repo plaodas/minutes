@@ -1,13 +1,13 @@
 import io
 import uuid
 
-from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app import app
 from minutes import tasks
 from minutes.db import session_scope
 from minutes.models import Task
+from tests.auth_helpers import logged_in_client
 
 
 def make_wav_bytes(duration_seconds: float = 0.02) -> bytes:
@@ -26,7 +26,8 @@ def make_wav_bytes(duration_seconds: float = 0.02) -> bytes:
 
 
 def test_upload_and_worker_prompt_flow(monkeypatch):
-    client = TestClient(app, raise_server_exceptions=True)
+    client, _user_id = logged_in_client(app)
+    client.raise_server_exceptions = True
 
     fake_id = uuid.uuid4()
 

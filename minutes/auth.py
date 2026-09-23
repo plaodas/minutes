@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from fastapi import Cookie, HTTPException, status
+from fastapi import Cookie, Header, HTTPException, status
 from passlib.hash import pbkdf2_sha256
 
 from minutes.db import session_scope
@@ -69,17 +69,39 @@ def get_current_user_from_cookie(token: str | None) -> User | None:
     return get_user_by_id(sub)
 
 
-def require_current_user(minutes_session: str | None = Cookie(None)) -> User:
-    """FastAPI dependency to require a logged-in user via the `minutes_session` cookie.
+def require_current_user(
+    minutes_session: str | None = Cookie(None),
+    authorization: str | None = Header(None),
+) -> User:
+    """Require the session cookie or a service token bound to a user.
 
-    Raises HTTP 401 if not authenticated.
+    Client-supplied user ids are ignored. Raises HTTP 401 if neither
+    credential identifies a user.
     """
-    user = get_current_user_from_cookie(minutes_session)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
-        )
-    return user
+    user = None
+    try:
+        user = get_current_user_from_cookie(minutes_session)
+    except HTTPException:
+        user = None
+    if user:
+        return user
+
+    token = authorization
+    if token and token.lower().startswith("bearer "):
+        token = token.split(" ", 1)[1]
+    if token:
+        try:
+            owner_id = verify_service_token(token)
+        except (ValueError, TypeError):
+            owner_id = None
+        if owner_id:
+            user = get_user_by_id(str(owner_id))
+            if user:
+                return user
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+    )
 
 
 def _hash_token(token: str) -> str:
@@ -91,7 +113,7 @@ def create_service_token(name: str | None = None, user_id: str | None = None):
     token = uuid.uuid4().hex + uuid.uuid4().hex
     token_hash = _hash_token(token)
     with session_scope() as db:
-        st = ServiceToken(name=name, token_hash=token_hash)
+        st = ServiceToken(name=name, token_hash=token_hash, revoked=False)
         if user_id:
             try:
                 st.user_id = uuid.UUID(user_id)

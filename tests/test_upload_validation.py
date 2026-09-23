@@ -1,9 +1,8 @@
 import io
 import wave
 
-from fastapi.testclient import TestClient
-
 from backend.app import app
+from tests.auth_helpers import logged_in_client
 
 
 def make_wav_bytes(duration_seconds: float = 0.1) -> bytes:
@@ -24,7 +23,7 @@ class DummyTask:
 
 
 def test_reject_non_audio(monkeypatch):
-    client = TestClient(app)
+    client, _user_id = logged_in_client(app)
     # ensure background enqueue is mocked so test is fast and doesn't hit workers
     from minutes import tasks
 
@@ -36,7 +35,7 @@ def test_reject_non_audio(monkeypatch):
 
 
 def test_accept_wav_bg(monkeypatch):
-    client = TestClient(app)
+    client, _user_id = logged_in_client(app)
     from minutes import tasks
 
     # mock process_audio.delay or process_audio depending on implementation
@@ -80,7 +79,7 @@ def _mp3_with_large_id3() -> bytes:
 
 
 def test_accept_mp3_with_id3_larger_than_sniff_window(monkeypatch):
-    client = TestClient(app)
+    client, _user_id = logged_in_client(app)
     from minutes import tasks
 
     monkeypatch.setattr(tasks, "process_audio", lambda path: DummyTask("mp3-id"))
@@ -92,7 +91,7 @@ def test_accept_mp3_with_id3_larger_than_sniff_window(monkeypatch):
 
 
 def test_reject_mp3_extension_with_non_audio_bytes(monkeypatch):
-    client = TestClient(app)
+    client, _user_id = logged_in_client(app)
     from minutes import tasks
 
     monkeypatch.setattr(tasks, "process_audio", lambda path: DummyTask("unused"))
@@ -103,7 +102,7 @@ def test_reject_mp3_extension_with_non_audio_bytes(monkeypatch):
 
 
 def test_accept_wav_sync(monkeypatch):
-    client = TestClient(app)
+    client, _user_id = logged_in_client(app)
     from minutes import tasks
 
     monkeypatch.setattr(tasks, "process_audio", lambda path: DummyTask("sync-fake-id"))

@@ -7,9 +7,16 @@ from minutes.db import engine, session_scope
 from minutes.models import Task, TaskHistory
 from minutes.routers.background_task_catalog import bg_histories, bg_tasks
 from minutes.schemas import IdList
+from tests.auth_helpers import create_user
+
+
+class _Owner:
+    def __init__(self, user_id: uuid.UUID):
+        self.id = user_id
 
 
 def test_bg_tasks_loads_history_previews_in_one_bulk_query():
+    owner = _Owner(create_user())
     task_ids = [uuid.uuid4(), uuid.uuid4()]
     event_types = ["created", "transcribing", "formatting", "success"]
     with session_scope() as session:
@@ -17,6 +24,7 @@ def test_bg_tasks_loads_history_previews_in_one_bulk_query():
             session.add(
                 Task(
                     id=task_id,
+                    user_id=owner.id,
                     status="success",
                     progress=100,
                     deleted=False,
@@ -47,7 +55,7 @@ def test_bg_tasks_loads_history_previews_in_one_bulk_query():
 
     event.listen(engine, "before_cursor_execute", record_select)
     try:
-        response = bg_tasks(limit=10_000)
+        response = bg_tasks(limit=10_000, user=owner)
     finally:
         event.remove(engine, "before_cursor_execute", record_select)
 
@@ -73,14 +81,31 @@ def test_bg_tasks_loads_history_previews_in_one_bulk_query():
 
 
 def test_bg_tasks_excludes_soft_deleted_tasks():
+    owner = _Owner(create_user())
     visible_id = uuid.uuid4()
     deleted_id = uuid.uuid4()
     with session_scope() as session:
-        session.add(Task(id=visible_id, status="success", progress=100, deleted=False))
-        session.add(Task(id=deleted_id, status="deleted", progress=100, deleted=True))
+        session.add(
+            Task(
+                id=visible_id,
+                user_id=owner.id,
+                status="success",
+                progress=100,
+                deleted=False,
+            )
+        )
+        session.add(
+            Task(
+                id=deleted_id,
+                user_id=owner.id,
+                status="deleted",
+                progress=100,
+                deleted=True,
+            )
+        )
 
     try:
-        response = bg_tasks(limit=100)
+        response = bg_tasks(limit=100, user=owner)
         returned_ids = {task["id"] for task in response["tasks"]}
         assert str(visible_id) in returned_ids
         assert str(deleted_id) not in returned_ids
@@ -92,11 +117,14 @@ def test_bg_tasks_excludes_soft_deleted_tasks():
 
 
 def test_bg_histories_batches_ids_in_one_query_with_individual_offsets():
+    owner = _Owner(create_user())
     task_ids = [uuid.uuid4(), uuid.uuid4()]
     event_types = ["created", "transcribing", "formatting", "success"]
     with session_scope() as session:
         for task_id in task_ids:
-            session.add(Task(id=task_id, status="success", progress=100))
+            session.add(
+                Task(id=task_id, user_id=owner.id, status="success", progress=100)
+            )
             for index, event_type in enumerate(event_types):
                 session.add(
                     TaskHistory(
@@ -127,7 +155,8 @@ def test_bg_histories_batches_ids_in_one_query_with_individual_offsets():
                 ids=[first_id, second_id],
                 limit=2,
                 offsets={first_id: 0, second_id: 1},
-            )
+            ),
+            user=owner,
         )
     finally:
         event.remove(engine, "before_cursor_execute", record_select)

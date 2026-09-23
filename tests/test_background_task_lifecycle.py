@@ -2,7 +2,6 @@ import uuid
 from contextlib import contextmanager
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError, StatementError
 
@@ -15,6 +14,13 @@ from minutes.models import Task, TaskHistory
 from minutes.routers import background_task_lifecycle
 from minutes.schemas import TaskStage
 from minutes.task_state import set_task_stage
+from tests.auth_helpers import assign_task_owner, logged_in_client
+
+
+def _client_for(task_id):
+    client, user_id = logged_in_client(app)
+    assign_task_owner(task_id, user_id)
+    return client
 
 
 def test_cancel_marks_task_cancelled_when_celery_revoke_fails(monkeypatch):
@@ -28,8 +34,10 @@ def test_cancel_marks_task_cancelled_when_celery_revoke_fails(monkeypatch):
     monkeypatch.setattr(
         background_task_lifecycle, "update_task_cancelled", cancelled.append
     )
+    create_task(task_id)
+    client = _client_for(task_id)
 
-    response = TestClient(app).post(f"/api/bg/cancel/{task_id}")
+    response = client.post(f"/api/bg/cancel/{task_id}")
 
     assert response.status_code == 200
     assert response.json() == {"task_id": task_id, "cancelled": True}
@@ -50,7 +58,7 @@ def test_undelete_restores_soft_deleted_task(monkeypatch):
         operations.append("publish")
 
     monkeypatch.setattr(task_events, "publish_event", track_publish)
-    client = TestClient(app)
+    client = _client_for(task_id)
 
     event.listen(SessionLocal.class_, "after_commit", track_commit)
     try:
@@ -61,7 +69,16 @@ def test_undelete_restores_soft_deleted_task(monkeypatch):
 
     assert delete_response.status_code == 200
     assert undelete_response.status_code == 200
-    assert operations == ["commit", "publish", "commit", "publish"]
+    assert operations == [
+        "commit",
+        "commit",
+        "commit",
+        "publish",
+        "commit",
+        "commit",
+        "commit",
+        "publish",
+    ]
     with session_scope() as session:
         task = session.get(Task, task_id)
         assert task is not None
@@ -86,7 +103,7 @@ def test_undelete_restores_successful_task_to_success(monkeypatch):
     create_task(str(task_id))
     monkeypatch.setattr(task_events, "publish_event", lambda _event: None)
     update_task_success(str(task_id), {"summary": "done"})
-    client = TestClient(app)
+    client = _client_for(task_id)
 
     assert client.post(f"/api/bg/delete/{task_id}").status_code == 200
     response = client.post(f"/api/bg/undelete/{task_id}")
@@ -145,7 +162,7 @@ def test_soft_delete_maps_invalid_stage_to_409(monkeypatch):
         reject_stage,
     )
 
-    response = TestClient(app).post(f"/api/bg/delete/{task_id}")
+    response = _client_for(task_id).post(f"/api/bg/delete/{task_id}")
 
     assert response.status_code == 409
     assert response.json() == {"error": "unknown current task stage: 'not-a-stage'"}
@@ -177,7 +194,7 @@ def test_soft_delete_db_failure_does_not_mark_task_success(monkeypatch):
     )
     monkeypatch.setattr(task_events, "publish_event", published.append)
 
-    response = TestClient(app).post(f"/api/bg/delete/{task_id}")
+    response = _client_for(task_id).post(f"/api/bg/delete/{task_id}")
 
     assert response.status_code == 500
     assert success_updates == []
@@ -273,7 +290,7 @@ def test_force_delete_publishes_hard_delete_event(monkeypatch):
     )
     monkeypatch.setattr(task_events, "publish_event", published.append)
 
-    response = TestClient(app).post(f"/api/bg/force-delete/{task_id}")
+    response = _client_for(task_id).post(f"/api/bg/force-delete/{task_id}")
 
     assert response.status_code == 200
     assert get_task(str(task_id)) is None
@@ -283,6 +300,7 @@ def test_force_delete_publishes_hard_delete_event(monkeypatch):
 
 def test_hard_delete_falls_back_when_broker_is_unavailable(monkeypatch):
     task_id = str(uuid.uuid4())
+    create_task(task_id)
 
     def fail_enqueue(*_args, **_kwargs):
         raise background_task_lifecycle.KombuError("broker unavailable")
@@ -291,13 +309,13 @@ def test_hard_delete_falls_back_when_broker_is_unavailable(monkeypatch):
     monkeypatch.setattr(
         background_task_lifecycle,
         "bg_force_delete",
-        lambda fallback_task_id: {
+        lambda fallback_task_id, _user: {
             "task_id": fallback_task_id,
             "deleted": True,
         },
     )
 
-    response = TestClient(app).post(f"/api/bg/hard-delete/{task_id}")
+    response = _client_for(task_id).post(f"/api/bg/hard-delete/{task_id}")
 
     assert response.status_code == 200
     assert response.json() == {"task_id": task_id, "deleted": True}

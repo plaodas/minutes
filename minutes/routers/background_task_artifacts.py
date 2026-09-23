@@ -4,16 +4,23 @@ import logging
 import os
 import re
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.auth import require_current_user
 from minutes.bg_store import get_task
 from minutes.http_errors import error_json
 from minutes.minio_client import MinioService, S3Error
+from minutes.models import User
 from minutes.pipeline.formatting import extract_action_items
-from minutes.schemas import ActionItemsResponse, JSON_ERROR_RESPONSES, ResultPendingResponse
+from minutes.schemas import (
+    JSON_ERROR_RESPONSES,
+    ActionItemsResponse,
+    ResultPendingResponse,
+)
 from minutes.summary import summarize_local
+from minutes.task_access import snapshot_owned_by
 from minutes.task_result import (
     MissingOutputFileError,
     local_output_path,
@@ -22,7 +29,7 @@ from minutes.task_result import (
     result_output_file,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 _TEXT_SCHEMA = {"schema": {"type": "string"}}
 _ARTIFACT_ERROR_RESPONSES = {
@@ -63,13 +70,13 @@ def _pending_response(task: dict[str, object]) -> JSONResponse:
     )
 
 
-def _successful_task_or_response(task_id: str):
+def _successful_task_or_response(task_id: str, user: User):
     try:
         task = get_task(task_id)
     except SQLAlchemyError:
         logging.getLogger(__name__).exception("get_task failed for %s", task_id)
         task = None
-    if not task:
+    if not snapshot_owned_by(task, user):
         return None, error_json("unknown task", 404)
     if task.get("status") != "success":
         return None, _pending_response(task)
@@ -130,8 +137,11 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
         **_ARTIFACT_DOWNLOAD_RESPONSES,
     },
 )
-def bg_minutes_file(task_id: str):
-    task, error = _successful_task_or_response(task_id)
+def bg_minutes_file(
+    task_id: str,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
+    task, error = _successful_task_or_response(task_id, user)
     if error:
         return error
     result = task.get("result") or {}
@@ -162,8 +172,12 @@ def bg_minutes_file(task_id: str):
     response_class=Response,
     responses=_ARTIFACT_TEXT_RESPONSES,
 )
-def bg_transcript(task_id: str, format: str = "txt"):
-    task, error = _successful_task_or_response(task_id)
+def bg_transcript(
+    task_id: str,
+    format: str = "txt",
+    user: User = Depends(require_current_user),  # noqa: B008
+):
+    task, error = _successful_task_or_response(task_id, user)
     if error:
         return error
     result = task.get("result") or {}
@@ -192,8 +206,12 @@ def bg_transcript(task_id: str, format: str = "txt"):
     response_class=Response,
     responses=_ARTIFACT_TEXT_RESPONSES,
 )
-def bg_summary(task_id: str, format: str = "txt"):
-    task, error = _successful_task_or_response(task_id)
+def bg_summary(
+    task_id: str,
+    format: str = "txt",
+    user: User = Depends(require_current_user),  # noqa: B008
+):
+    task, error = _successful_task_or_response(task_id, user)
     if error:
         return error
     result = task.get("result") or {}
@@ -244,8 +262,12 @@ def _minutes_text_for_actions(result: object):
         **_ARTIFACT_FORMAT_RESPONSES,
     },
 )
-def bg_action_items(task_id: str, format: str = "json"):
-    task, error = _successful_task_or_response(task_id)
+def bg_action_items(
+    task_id: str,
+    format: str = "json",
+    user: User = Depends(require_current_user),  # noqa: B008
+):
+    task, error = _successful_task_or_response(task_id, user)
     if error:
         return error
     result = task.get("result") or {}

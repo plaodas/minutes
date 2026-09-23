@@ -3,14 +3,15 @@ import os
 import uuid
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.auth import require_current_user
 from minutes.bg_store import record_and_publish
 from minutes.db import session_scope
 from minutes.http_errors import error_json
-from minutes.models import Task, TaskHistory
+from minutes.models import Task, TaskHistory, User
 from minutes.schemas import (
     JSON_ERROR_RESPONSES,
     BulkTaskHistoriesResponse,
@@ -24,9 +25,10 @@ from minutes.schemas import (
     task_status_value,
 )
 from minutes.summary import summarize_local
+from minutes.task_access import user_owns_task
 from minutes.task_result import MissingOutputFileError, read_local_output_text
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 MAX_IDS_PER_REQUEST = int(os.environ.get("MAX_BG_HISTORIES_IDS", "500"))
 HARD_IDS_LIMIT = int(os.environ.get("MAX_BG_HISTORIES_HARD_LIMIT", "5000"))
@@ -47,13 +49,20 @@ class _TaskOutputUnavailableError(Exception):
     response_model_exclude_none=True,
     responses={400: JSON_ERROR_RESPONSES[400]},
 )
-def bg_history(task_id: str, limit: int = 100, offset: int = 0):
+def bg_history(
+    task_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
     """Return paginated history events for a task."""
+    try:
+        key = uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        return error_json("invalid task id", 400)
+    if not user_owns_task(task_id, user.id):
+        return error_json("unknown task", 404)
     with session_scope() as session:
-        try:
-            key = uuid.UUID(task_id)
-        except (ValueError, TypeError):
-            return error_json("invalid task id", 400)
         rows = (
             session.query(TaskHistory)
             .filter(TaskHistory.task_id == key)
@@ -74,7 +83,11 @@ def bg_history(task_id: str, limit: int = 100, offset: int = 0):
         404: JSON_ERROR_RESPONSES[404],
     },
 )
-def bg_task_rename(task_id: str, payload: RenameTaskRequest):
+def bg_task_rename(
+    task_id: str,
+    payload: RenameTaskRequest,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
     name = payload.name.strip()
     if not name:
         return error_json("missing name", 400)
@@ -83,6 +96,8 @@ def bg_task_rename(task_id: str, payload: RenameTaskRequest):
         uuid.UUID(task_id)
     except (ValueError, TypeError):
         return error_json("invalid task id", 400)
+    if not user_owns_task(task_id, user.id):
+        return error_json("unknown task", 404)
 
     def rename_task(session, key):
         task = session.get(Task, key)
@@ -113,11 +128,16 @@ def bg_task_rename(task_id: str, payload: RenameTaskRequest):
         500: JSON_ERROR_RESPONSES[500],
     },
 )
-def bg_task_regenerate_name(task_id: str):
+def bg_task_regenerate_name(
+    task_id: str,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
     try:
         uuid.UUID(task_id)
     except (ValueError, TypeError):
         return error_json("invalid task id", 400)
+    if not user_owns_task(task_id, user.id):
+        return error_json("unknown task", 404)
 
     def regenerate_name(session, key):
         task = session.get(Task, key)
@@ -159,12 +179,16 @@ def bg_task_regenerate_name(task_id: str):
     response_model=TaskListResponse,
     response_model_exclude_none=True,
 )
-def bg_tasks(limit: int = 50, offset: int = 0):
+def bg_tasks(
+    limit: int = 50,
+    offset: int = 0,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
     """Return a paginated task list with recent history previews."""
     with session_scope() as session:
         task_rows = (
             session.query(Task)
-            .filter(Task.deleted.is_(False))
+            .filter(Task.deleted.is_(False), Task.user_id == user.id)
             .order_by(Task.created_at.desc(), Task.id.desc())
             .offset(int(offset))
             .limit(int(limit))
@@ -251,7 +275,10 @@ def bg_tasks(limit: int = 50, offset: int = 0):
     response_model_exclude_none=True,
     responses={413: JSON_ERROR_RESPONSES[413]},
 )
-def bg_histories(payload: IdList):
+def bg_histories(
+    payload: IdList,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
     ids = payload.ids or []
     limit = int(payload.limit or 1)
     if payload.offsets:
@@ -311,7 +338,9 @@ def bg_histories(payload: IdList):
                     TaskHistory.payload,
                     row_number,
                 )
+                .join(Task, Task.id == TaskHistory.task_id)
                 .where(TaskHistory.task_id.in_(list(valid_ids)))
+                .where(Task.user_id == user.id)
                 .subquery()
             )
             offset_by_task = {

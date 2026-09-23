@@ -11,7 +11,6 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from . import tasks
 from .http_errors import error_json
-from .request_auth import parse_header_user_id
 
 CreateTask = Callable[..., None]
 
@@ -111,8 +110,7 @@ def _metadata(
 def handle_audio_upload(
     file: UploadFile,
     *,
-    x_user_id: str | None,
-    authorization: str | None,
+    owner_id: uuid.UUID,
     language: str | None,
     include_actions: str | None,
     create_task_record: CreateTask,
@@ -140,11 +138,10 @@ def handle_audio_upload(
             if hasattr(processor, "delay")
             else processor(destination)
         )
-        owner = parse_header_user_id(x_user_id, authorization)
         create_task_record(
             task.id,
             metadata=_metadata(filename, language, include_actions, destination),
-            user_id=str(owner) if owner else None,
+            user_id=str(owner_id),
         )
     except (OSError, AttributeError, RuntimeError, ValueError, SQLAlchemyError) as exc:
         return error_json(str(exc), 500)

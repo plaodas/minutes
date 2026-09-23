@@ -17,6 +17,7 @@ from minutes.routers import (
     user_buckets,
 )
 from minutes.schemas import AdminCreateBucketRequest
+from tests.auth_helpers import assign_task_owner, logged_in_client
 
 
 def test_http_method_and_path_pairs_are_unique():
@@ -464,37 +465,45 @@ def test_service_token_revocation_commits_once():
 )
 def test_background_artifact_routes_return_404_for_unknown_task(monkeypatch, path):
     monkeypatch.setattr(background_task_artifacts, "get_task", lambda _task_id: None)
+    client, _user_id = logged_in_client(app)
 
-    response = TestClient(app).get(path)
+    response = client.get(path)
 
     assert response.status_code == 404
     assert response.json() == {"error": "unknown task"}
 
 
 def test_background_artifact_routes_return_202_when_pending(monkeypatch):
+    client, user_id = logged_in_client(app)
     monkeypatch.setattr(
         background_task_artifacts,
         "get_task",
-        lambda _task_id: {"status": "transcribing", "error": None},
+        lambda _task_id: {
+            "status": "transcribing",
+            "error": None,
+            "user_id": str(user_id),
+        },
     )
 
-    response = TestClient(app).get("/api/bg/minutes/task-1")
+    response = client.get("/api/bg/minutes/task-1")
 
     assert response.status_code == 202
     assert response.json() == {"status": "transcribing", "error": None}
 
 
 def test_action_items_json_matches_schema(monkeypatch):
+    client, user_id = logged_in_client(app)
     monkeypatch.setattr(
         background_task_artifacts,
         "get_task",
         lambda _task_id: {
             "status": "success",
             "result": {"action_items": [{"text": "Send report"}]},
+            "user_id": str(user_id),
         },
     )
 
-    response = TestClient(app).get("/api/bg/action-items/task-1")
+    response = client.get("/api/bg/action-items/task-1")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -510,16 +519,18 @@ def test_action_items_reparse_empty_list_from_japanese_minutes(monkeypatch):
 - **何を**：医師の助けを頼む
 - **いつまでに**：期限未設定
 """
+    client, user_id = logged_in_client(app)
     monkeypatch.setattr(
         background_task_artifacts,
         "get_task",
         lambda _task_id: {
             "status": "success",
             "result": {"action_items": [], "minutes": minutes},
+            "user_id": str(user_id),
         },
     )
 
-    response = TestClient(app).get("/api/bg/action-items/task-1")
+    response = client.get("/api/bg/action-items/task-1")
 
     assert response.status_code == 200
     payload = response.json()
@@ -529,14 +540,16 @@ def test_action_items_reparse_empty_list_from_japanese_minutes(monkeypatch):
 
 
 def test_background_history_rejects_invalid_task_id():
-    response = TestClient(app).get("/api/bg/history/not-a-uuid")
+    client, _user_id = logged_in_client(app)
+    response = client.get("/api/bg/history/not-a-uuid")
 
     assert response.status_code == 400
     assert response.json() == {"error": "invalid task id"}
 
 
 def test_background_rename_requires_name():
-    response = TestClient(app).post("/api/bg/task/not-a-uuid/rename", json={"name": ""})
+    client, _user_id = logged_in_client(app)
+    response = client.post("/api/bg/task/not-a-uuid/rename", json={"name": ""})
 
     assert response.status_code == 400
     assert response.json() == {"error": "missing name"}
@@ -545,6 +558,8 @@ def test_background_rename_requires_name():
 def test_background_rename_persists_history_and_event(monkeypatch):
     task_id = uuid.uuid4()
     create_task(str(task_id))
+    client, user_id = logged_in_client(app)
+    assign_task_owner(task_id, user_id)
     published = []
     operations = []
 
@@ -558,7 +573,7 @@ def test_background_rename_persists_history_and_event(monkeypatch):
     monkeypatch.setattr(bg_store, "publish_event", track_publish)
     event.listen(SessionLocal.class_, "after_commit", track_commit)
     try:
-        response = TestClient(app).post(
+        response = client.post(
             f"/api/bg/task/{task_id}/rename",
             json={"name": "Planning notes"},
         )
@@ -566,7 +581,7 @@ def test_background_rename_persists_history_and_event(monkeypatch):
         event.remove(SessionLocal.class_, "after_commit", track_commit)
 
     assert response.status_code == 200
-    assert operations == ["commit", "publish"]
+    assert operations == ["commit", "commit", "commit", "publish"]
     with session_scope() as session:
         task = session.get(Task, task_id)
         history = (
@@ -594,6 +609,8 @@ def test_background_regenerate_name_commits_before_event(
         encoding="utf-8",
     )
     create_task(str(task_id), metadata={"output_file": source.name})
+    client, user_id = logged_in_client(app)
+    assign_task_owner(task_id, user_id)
     monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path))
     published = []
     operations = []
@@ -608,14 +625,14 @@ def test_background_regenerate_name_commits_before_event(
     monkeypatch.setattr(bg_store, "publish_event", track_publish)
     event.listen(SessionLocal.class_, "after_commit", track_commit)
     try:
-        response = TestClient(app).post(
+        response = client.post(
             f"/api/bg/task/{task_id}/regenerate-name"
         )
     finally:
         event.remove(SessionLocal.class_, "after_commit", track_commit)
 
     assert response.status_code == 200
-    assert operations == ["commit", "publish"]
+    assert operations == ["commit", "commit", "commit", "publish"]
     generated_name = response.json()["name"]
     with session_scope() as session:
         task = session.get(Task, task_id)
@@ -638,11 +655,13 @@ def test_background_regenerate_name_does_not_publish_when_file_is_missing(
 ):
     task_id = uuid.uuid4()
     create_task(str(task_id), metadata={"output_file": "missing.txt"})
+    client, user_id = logged_in_client(app)
+    assign_task_owner(task_id, user_id)
     monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path))
     published = []
     monkeypatch.setattr(bg_store, "publish_event", published.append)
 
-    response = TestClient(app).post(f"/api/bg/task/{task_id}/regenerate-name")
+    response = client.post(f"/api/bg/task/{task_id}/regenerate-name")
 
     assert response.status_code == 404
     assert response.json() == {"error": "output file not found"}

@@ -2,13 +2,15 @@ import logging
 import os
 
 from celery.exceptions import CeleryError
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from kombu.exceptions import KombuError
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.auth import require_current_user
 from minutes.bg_store import update_task_cancelled
 from minutes.celery_app import celery
 from minutes.http_errors import error_json
+from minutes.models import User
 from minutes.schemas import (
     JSON_ERROR_RESPONSES,
     TaskCancelledResponse,
@@ -16,10 +18,19 @@ from minutes.schemas import (
     TaskHardDeleteResponse,
     TaskUndeletedResponse,
 )
+from minutes.task_access import user_owns_task
 from minutes.task_deletion import delete_task_permanently
 from minutes.task_lifecycle import mark_task_deleted, restore_task
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
+
+
+def _unknown_unless_owned(task_id: str, user: User):
+    if not user_owns_task(task_id, user.id):
+        return error_json("unknown task", 404)
+    return None
+
+
 ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN")
 
 
@@ -33,7 +44,10 @@ def _get_admin_token(request: Request | None) -> str | None:
 
 
 @router.post("/cancel/{task_id}", response_model=TaskCancelledResponse)
-def bg_cancel(task_id: str):
+def bg_cancel(task_id: str, user: User = Depends(require_current_user)):  # noqa: B008
+    missing = _unknown_unless_owned(task_id, user)
+    if missing:
+        return missing
     try:
         celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
     except (CeleryError, KombuError):
@@ -58,7 +72,10 @@ def bg_cancel(task_id: str):
         500: JSON_ERROR_RESPONSES[500],
     },
 )
-def bg_delete(task_id: str):
+def bg_delete(task_id: str, user: User = Depends(require_current_user)):  # noqa: B008
+    missing = _unknown_unless_owned(task_id, user)
+    if missing:
+        return missing
     try:
         if not mark_task_deleted(task_id):
             return error_json("unknown task", 404)
@@ -76,7 +93,13 @@ def bg_delete(task_id: str):
     response_model=TaskDeletedResponse,
     responses={404: JSON_ERROR_RESPONSES[404], 500: JSON_ERROR_RESPONSES[500]},
 )
-def bg_force_delete(task_id: str):
+def bg_force_delete(
+    task_id: str,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
+    missing = _unknown_unless_owned(task_id, user)
+    if missing:
+        return missing
     try:
         celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
     except (CeleryError, KombuError):
@@ -103,7 +126,10 @@ def bg_force_delete(task_id: str):
         500: JSON_ERROR_RESPONSES[500],
     },
 )
-def bg_undelete(task_id: str):
+def bg_undelete(task_id: str, user: User = Depends(require_current_user)):  # noqa: B008
+    missing = _unknown_unless_owned(task_id, user)
+    if missing:
+        return missing
     try:
         if not restore_task(task_id):
             return error_json("unknown task", 404)
@@ -126,7 +152,14 @@ def bg_undelete(task_id: str):
         500: JSON_ERROR_RESPONSES[500],
     },
 )
-def bg_hard_delete(task_id: str, request: Request = None):
+def bg_hard_delete(
+    task_id: str,
+    request: Request = None,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
+    missing = _unknown_unless_owned(task_id, user)
+    if missing:
+        return missing
     if ADMIN_API_TOKEN and _get_admin_token(request) != ADMIN_API_TOKEN:
         return error_json("forbidden", 403)
     try:
@@ -136,6 +169,6 @@ def bg_hard_delete(task_id: str, request: Request = None):
             job = hard_delete_task.delay(task_id, None)
             return {"task_id": task_id, "enqueued": True, "job_id": str(job)}
         except (ImportError, AttributeError, CeleryError, KombuError):
-            return bg_force_delete(task_id)
+            return bg_force_delete(task_id, user)
     except (SQLAlchemyError, OSError, RuntimeError, CeleryError) as exc:
         return error_json(str(exc), 500)

@@ -24,6 +24,7 @@ class TaskSnapshot(TypedDict):
     last_success_ts: str | None
     created_at: str | None
     name: str | None
+    user_id: str | None
 
 
 def record_task_history(
@@ -109,4 +110,5 @@ def get_task_snapshot(task_id: str) -> TaskSnapshot | None:
                 else None
             ),
             "name": task.name,
+            "user_id": str(task.user_id) if task.user_id else None,
         }
