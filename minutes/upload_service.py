@@ -93,8 +93,11 @@ def _metadata(
     filename: str,
     language: str | None,
     include_actions: str | None,
+    upload_path: str | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {"upload_filename": filename}
+    if upload_path:
+        metadata["upload_path"] = upload_path
     if language:
         metadata["language"] = language
     if include_actions is not None:
@@ -140,7 +143,7 @@ def handle_audio_upload(
         owner = parse_header_user_id(x_user_id, authorization)
         create_task_record(
             task.id,
-            metadata=_metadata(filename, language, include_actions),
+            metadata=_metadata(filename, language, include_actions, destination),
             user_id=str(owner) if owner else None,
         )
     except (OSError, AttributeError, RuntimeError, ValueError, SQLAlchemyError) as exc:

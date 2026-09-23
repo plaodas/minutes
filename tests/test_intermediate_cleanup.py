@@ -51,10 +51,11 @@ def test_cleanup_intermediates_enabled(monkeypatch, tmp_path):
     # call the task run method; Celery Task will be used as `self`
     tasks.process_audio.run(input_path)
 
-    # Assert: intermediate files removed
+    # Assert: intermediate files removed; source outside UPLOADS_DIR stays
     assert not os.path.exists(mono)
     assert not os.path.exists(norm)
     assert not os.path.exists(clean)
+    assert os.path.exists(input_path)
 
 
 def test_no_cleanup_when_disabled(monkeypatch, tmp_path):
@@ -77,3 +78,26 @@ def test_no_cleanup_when_disabled(monkeypatch, tmp_path):
     assert os.path.exists(mono)
     assert os.path.exists(norm)
     assert os.path.exists(clean)
+    assert os.path.exists(input_path)
+
+
+def test_cleanup_removes_upload_inside_uploads_dir(monkeypatch, tmp_path):
+    input_path, mono, norm, clean = _make_files(tmp_path)
+    monkeypatch.setattr(task_runner, "preprocess", lambda p: (mono, norm, clean))
+    monkeypatch.setattr(task_runner, "transcribe", lambda c, **kw: ("raw", []))
+    monkeypatch.setattr(task_runner, "format_minutes_from_raw", lambda r: "minutes")
+    monkeypatch.setattr(
+        task_runner, "update_task_success", lambda tid, structured, db=None: None
+    )
+    monkeypatch.setattr(task_runner, "update_task_status", lambda *a, **k: None)
+    monkeypatch.setattr(task_runner, "update_task_progress", lambda *a, **k: None)
+    monkeypatch.setenv("DELETE_INTERMEDIATE", "true")
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
+    monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path / "outputs"))
+
+    tasks.process_audio.run(input_path)
+
+    assert not os.path.exists(input_path)
+    assert not os.path.exists(mono)
+    assert not os.path.exists(norm)
+    assert not os.path.exists(clean)

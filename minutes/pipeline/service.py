@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from minutes.schemas import TaskStage
+from minutes.upload_retention import remove_upload_family
 
 from .artifacts import write_text_atomic
 from .audio import prepare_audio
@@ -116,6 +117,7 @@ class PipelineService:
                 (prepared.mono, prepared.normalized, prepared.clean),
                 task_id,
             )
+            remove_upload_family(input_path)
         return result
 
     @staticmethod

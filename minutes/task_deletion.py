@@ -11,6 +11,7 @@ from minutes.models import Bucket, Task, TaskHistory
 from minutes.task_event_service import TaskEventService
 from minutes.task_events import emit_task_event
 from minutes.task_result import local_output_path, result_minio_info, result_output_file
+from minutes.upload_retention import remove_upload_family
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,10 @@ def delete_task_permanently(
                     os.remove(candidate)
         except OSError:
             logger.exception("Local output deletion failed for task %s", task_id)
+
+        upload_path = result.get("upload_path") if isinstance(result, dict) else None
+        if isinstance(upload_path, str):
+            remove_upload_family(upload_path)
 
         db.query(TaskHistory).filter(TaskHistory.task_id == key).delete()
         db.delete(task)

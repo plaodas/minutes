@@ -8,15 +8,21 @@ from fastapi import FastAPI
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.reconcile_bg_tasks import reconcile_once
+from minutes.upload_retention import sweep_expired_uploads
 
 logger = logging.getLogger("minutes.app_lifecycle")
+
+
+def _maintain_background_tasks() -> None:
+    reconcile_once()
+    sweep_expired_uploads()
 
 
 async def _reconcile_loop(interval: int) -> None:
     while True:
         try:
             await asyncio.sleep(interval)
-            await asyncio.to_thread(reconcile_once)
+            await asyncio.to_thread(_maintain_background_tasks)
             logger.info("Periodic bg task reconciliation completed")
         except asyncio.CancelledError:
             logger.info("Reconcile loop cancelled")
@@ -27,7 +33,7 @@ async def _reconcile_loop(interval: int) -> None:
 
 async def _start_services(app: FastAPI) -> None:
     try:
-        await asyncio.to_thread(reconcile_once)
+        await asyncio.to_thread(_maintain_background_tasks)
         logger.info("Initial bg task reconciliation completed")
     except (SQLAlchemyError, RuntimeError, OSError):
         logger.exception("Initial reconciliation failed")

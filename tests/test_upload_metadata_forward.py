@@ -55,3 +55,4 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
     assert called.get("metadata")
     assert called["metadata"].get("language") == "Japanese"
     assert called["metadata"].get("include_actions") is False
+    assert called["metadata"]["upload_path"].endswith(".wav")

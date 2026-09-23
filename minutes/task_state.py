@@ -19,7 +19,12 @@ from .schemas import (
 from .summary import summarize_local
 from .task_event_service import TaskEventService
 from .task_ids import parse_task_key
-from .task_result import MissingOutputFileError, read_local_output_text, result_minio_info
+from .task_result import (
+    MissingOutputFileError,
+    read_local_output_text,
+    result_minio_info,
+)
+from .upload_retention import retained_upload_result
 
 logger = logging.getLogger("minutes.task_state")
 _lock = threading.Lock()
@@ -176,7 +181,7 @@ def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> No
             return
         _, task = resolved
         set_task_stage(task, TaskStage.FAILED)
-        task.result = None
+        task.result = retained_upload_result(task.result)
         task.fail_count = (task.fail_count or 0) + 1
         task.last_failure_ts = _now_utc()
 
@@ -199,7 +204,7 @@ def update_cancelled(task_id: str, emit_event: EventEmitter) -> None:
             return
         _, task = resolved
         set_task_stage(task, TaskStage.CANCELLED)
-        task.result = None
+        task.result = retained_upload_result(task.result)
 
     with _lock:
         try:
