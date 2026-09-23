@@ -17,6 +17,7 @@ _ACTIVE_STAGES = {
     TaskStage.FORMATTING.value,
 }
 _RETAINED_STAGES = {TaskStage.FAILED.value, TaskStage.CANCELLED.value}
+_SCAN_STAGES = _ACTIVE_STAGES | _RETAINED_STAGES
 _DERIVED_SUFFIXES = ("_mono", "_norm", "_clean")
 
 
@@ -84,12 +85,19 @@ def _classified_uploads(
     expired: list[str] = []
     try:
         with session_scope() as session:
-            rows = session.query(
-                Task.status,
-                Task.result,
-                Task.last_failure_ts,
-                Task.updated_at,
-            ).all()
+            upload_path = Task.result["upload_path"].as_string()
+            rows = (
+                session.query(
+                    Task.status,
+                    Task.result,
+                    Task.last_failure_ts,
+                    Task.updated_at,
+                )
+                .filter(Task.status.in_(tuple(_SCAN_STAGES)))
+                .filter(upload_path.isnot(None))
+                .filter(upload_path != "")
+                .all()
+            )
     except (SQLAlchemyError, LookupError, ValueError):
         logger.exception("Failed to read tasks for upload retention")
         return None

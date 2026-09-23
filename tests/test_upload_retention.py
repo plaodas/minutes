@@ -1,10 +1,11 @@
 import os
 import uuid
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import event, update
+
 from minutes.bg_store import create_task, update_task_cancelled, update_task_failure
-from minutes.db import session_scope
+from minutes.db import engine, session_scope
 from minutes.models import Task
 from minutes.schemas import TaskStage
 from minutes.task_deletion import delete_task_permanently
@@ -50,6 +51,16 @@ def test_hard_delete_removes_managed_upload(monkeypatch, tmp_path):
     assert not os.path.exists(derived)
 
 
+def _param_values(parameters: object) -> list[str]:
+    if isinstance(parameters, dict):
+        values = parameters.values()
+    elif isinstance(parameters, (list, tuple)):
+        values = parameters
+    else:
+        return []
+    return [str(getattr(value, "value", value)) for value in values]
+
+
 def test_sweep_drops_expired_failures_and_orphans(monkeypatch, tmp_path):
     monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     monkeypatch.setenv("UPLOAD_RETENTION_SECONDS", "86400")
@@ -76,31 +87,57 @@ def test_sweep_drops_expired_failures_and_orphans(monkeypatch, tmp_path):
     for path in aged:
         _age(path, 3)
 
-    rows = [
-        (TaskStage.PENDING, {"upload_path": active}, None, now),
-        (TaskStage.FAILED, {"upload_path": fresh_failure}, now, now),
-        (TaskStage.FAILED, {"upload_path": stale_failure}, old, old),
-        (TaskStage.CANCELLED, {"upload_path": stale_cancel}, None, old),
-    ]
+    active_id = uuid.uuid4()
+    fresh_id = uuid.uuid4()
+    stale_id = uuid.uuid4()
+    cancel_id = uuid.uuid4()
+    success_id = uuid.uuid4()
+    create_task(str(active_id), metadata={"upload_path": active})
+    create_task(str(fresh_id), metadata={"upload_path": fresh_failure})
+    create_task(str(stale_id), metadata={"upload_path": stale_failure})
+    create_task(str(cancel_id), metadata={"upload_path": stale_cancel})
+    create_task(str(success_id), metadata={"minutes": "done"})
 
-    @contextmanager
-    def session_scope():
-        class _Session:
-            def query(self, *_columns):
-                class _Query:
-                    def all(self):
-                        return rows
+    with session_scope() as session:
+        session.execute(
+            update(Task)
+            .where(Task.id == fresh_id)
+            .values(status=TaskStage.FAILED.value, last_failure_ts=now)
+        )
+        session.execute(
+            update(Task)
+            .where(Task.id == stale_id)
+            .values(status=TaskStage.FAILED.value, last_failure_ts=old)
+        )
+        session.execute(
+            update(Task)
+            .where(Task.id == cancel_id)
+            .values(status=TaskStage.CANCELLED.value, updated_at=old)
+        )
+        session.execute(
+            update(Task)
+            .where(Task.id == success_id)
+            .values(status=TaskStage.SUCCESS.value)
+        )
 
-                return _Query()
+    captured: list[list[str]] = []
 
-        yield _Session()
+    def capture(_conn, _cursor, statement, parameters, _context, _executemany):
+        if "JSON_EXTRACT" not in statement and "->>" not in statement:
+            return
+        captured.append(_param_values(parameters))
 
-    monkeypatch.setattr(
-        "minutes.upload_retention.session_scope",
-        session_scope,
-    )
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        sweep_expired_uploads(now)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
 
-    sweep_expired_uploads(now)
+    assert captured
+    statuses = set(captured[0])
+    assert TaskStage.SUCCESS.value not in statuses
+    assert TaskStage.PENDING.value in statuses
+    assert TaskStage.FAILED.value in statuses
 
     assert os.path.exists(active)
     assert os.path.exists(active_wav)
