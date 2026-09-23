@@ -25,6 +25,15 @@ Preprocessor = Callable[[str], Any]
 Formatter = Callable[..., str]
 
 
+def _upload_language(metadata: object) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    language = metadata.get("language")
+    if isinstance(language, str) and language.strip():
+        return language.strip()
+    return None
+
+
 @dataclass
 class PipelineService:
     preprocess: Preprocessor
@@ -55,6 +64,7 @@ class PipelineService:
             raise RuntimeError(f"preprocess failed: {exc}") from exc
 
         update_status(TaskStage.TRANSCRIBING, None)
+        language = _upload_language(metadata)
         if inference_url:
             transcription = transcribe_remotely(
                 prepared.clean,
@@ -63,6 +73,7 @@ class PipelineService:
                 post=self.post,
                 update_status=update_status,
                 update_progress=update_progress,
+                language=language,
             )
         else:
             transcription = transcribe_locally(
@@ -71,6 +82,7 @@ class PipelineService:
                 transcriber=self.transcriber,
                 update_status=update_status,
                 update_progress=update_progress,
+                language=language,
             )
 
         update_status(TaskStage.FORMATTING, None)

@@ -85,6 +85,7 @@ def transcribe_locally(
     transcriber: Transcriber,
     update_status: StatusUpdater,
     update_progress: ProgressUpdater,
+    language: str | None = None,
 ) -> TranscriptionResult:
     def report_progress(segment: object) -> None:
         _report_progress(
@@ -99,12 +100,19 @@ def transcribe_locally(
         model_size=os.environ.get("TRANSCRIBE_MODEL_SIZE", "small"),
         prompt=None,
         progress_callback=report_progress,
+        language=language,
     )
     update_progress(100.0)
     return TranscriptionResult(
         raw_text=raw_text,
         segments=segments if isinstance(segments, list) else list(segments),
     )
+
+
+def _language_form(language: str | None) -> dict[str, str] | None:
+    if not language:
+        return None
+    return {"language": language}
 
 
 def transcribe_remotely(
@@ -117,6 +125,7 @@ def transcribe_remotely(
     update_progress: ProgressUpdater,
     sleep: Sleeper = time.sleep,
     max_attempts: int = 3,
+    language: str | None = None,
 ) -> TranscriptionResult:
     backoff = 1.0
     last_error: Exception | None = None
@@ -126,6 +135,7 @@ def transcribe_remotely(
                 response = post(
                     inference_url,
                     files={"file": (os.path.basename(audio_path), audio, "audio/wav")},
+                    data=_language_form(language),
                     stream=True,
                     timeout=(5, 360),
                     headers={"Connection": "keep-alive"},
@@ -146,6 +156,7 @@ def transcribe_remotely(
                 response = post(
                     inference_url,
                     files={"file": (os.path.basename(audio_path), audio, "audio/wav")},
+                    data=_language_form(language),
                     timeout=(5, 300),
                     headers={"Connection": "keep-alive"},
                 )

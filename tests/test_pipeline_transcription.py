@@ -53,6 +53,26 @@ def test_transcribe_locally_uses_model_size_env(monkeypatch):
     )
 
     assert seen["model_size"] == "tiny"
+    assert seen["language"] is None
+
+
+def test_transcribe_locally_forwards_upload_language():
+    seen = {}
+
+    def transcriber(_path, **kwargs):
+        seen.update(kwargs)
+        return "raw", []
+
+    transcribe_locally(
+        "clean.wav",
+        duration_seconds=None,
+        transcriber=transcriber,
+        update_status=lambda _stage, _detail: None,
+        update_progress=lambda _progress: None,
+        language="English",
+    )
+
+    assert seen["language"] == "English"
 
 
 def test_transcribe_locally_skips_percentage_without_duration():
@@ -100,18 +120,26 @@ def test_transcribe_remotely_parses_streamed_segments(tmp_path):
         ]
     )
 
+    posts = []
+
+    def post(*_args, **kwargs):
+        posts.append(kwargs)
+        return response
+
     result = transcribe_remotely(
         str(audio),
         inference_url="http://inference/transcribe",
         duration_seconds=5.0,
-        post=lambda *_args, **_kwargs: response,
+        post=post,
         update_status=lambda stage, detail: statuses.append((stage, detail)),
         update_progress=progress.append,
+        language="English",
     )
 
     assert result == TranscriptionResult("hello", [{"end": 2.5}])
     assert statuses == [(TaskStage.TRANSCRIBING, "2.5s")]
     assert progress == [50.0, 100.0]
+    assert posts[0]["data"] == {"language": "English"}
 
 
 def test_transcribe_remotely_falls_back_after_chunk_error(tmp_path):

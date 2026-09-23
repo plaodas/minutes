@@ -4,7 +4,7 @@ import os
 import queue
 import threading
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -15,12 +15,16 @@ logger = logging.getLogger("minutes.inference")
 
 app = FastAPI(title="Minutes Inference Service")
 
-# module-level default for FastAPI `File()` to satisfy linter
+# module-level defaults for FastAPI params to satisfy the linter
 _UPLOAD_FILE = File(...)
+_LANGUAGE_FORM = Form(None)
 
 
 @app.post("/transcribe")
-async def transcribe_endpoint(file: UploadFile = _UPLOAD_FILE):
+async def transcribe_endpoint(
+    file: UploadFile = _UPLOAD_FILE,
+    language: str | None = _LANGUAGE_FORM,
+):
     uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
     dest_path = os.path.join(uploads_dir, file.filename)
@@ -102,7 +106,11 @@ async def transcribe_endpoint(file: UploadFile = _UPLOAD_FILE):
     def worker():
         try:
             raw_text, _ = transcribe(
-                dest_path, model_size="small", prompt=None, progress_callback=_progress
+                dest_path,
+                model_size="small",
+                prompt=None,
+                progress_callback=_progress,
+                language=language,
             )
             final = {"type": "final", "raw_text": raw_text, "segments": segs}
             q.put(json.dumps(final, ensure_ascii=False) + "\n")

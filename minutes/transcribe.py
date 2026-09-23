@@ -21,6 +21,26 @@ def jsonable_segment(segment: object) -> object:
     return payload
 
 
+_AUTO_LANGUAGES = {"auto", "auto-detect", "auto detect"}
+
+
+def whisper_language(language: object) -> str | None:
+    """Map an upload language label to a faster-whisper language code.
+
+    Japanese stays ``ja`` and English becomes ``en``. Auto-detect returns
+    ``None`` so Whisper chooses the spoken language. A missing label keeps
+    the historical Japanese default.
+    """
+    if not isinstance(language, str) or not language.strip():
+        return "ja"
+    normalized = language.strip().lower()
+    if normalized in _AUTO_LANGUAGES:
+        return None
+    if normalized in {"en", "eng", "english"}:
+        return "en"
+    return "ja"
+
+
 def jsonable_segments(segments: Iterable[object] | object) -> list[Any]:
     if isinstance(segments, list):
         items = segments
@@ -38,6 +58,7 @@ def transcribe(
     device: str = "cpu",
     raw_out: str | None = None,
     progress_callback: Callable[[Any], None] | None = None,
+    language: str | None = None,
 ) -> tuple[str, object]:
     """Transcribe audio using faster-whisper and optionally save raw transcript.
 
@@ -58,7 +79,7 @@ def transcribe(
 
     segments, _info = model.transcribe(
         audio_path,
-        language="ja",
+        language=whisper_language(language),
         initial_prompt=prompt,
         beam_size=5,
         vad_filter=True,
