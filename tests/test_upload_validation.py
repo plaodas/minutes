@@ -58,6 +58,50 @@ def test_accept_wav_bg(monkeypatch):
     assert "task_id" in r.json()
 
 
+def _mp3_with_large_id3() -> bytes:
+    """ID3v2 tag larger than the 4096-byte sniff window, then an MPEG frame."""
+    payload = b"\xff\xd8\xff\xe0" + b"JFIF" + b"\x00" * 20000
+    size = len(payload)
+    syncsafe = bytes(
+        (
+            (size >> 21) & 0x7F,
+            (size >> 14) & 0x7F,
+            (size >> 7) & 0x7F,
+            size & 0x7F,
+        )
+    )
+    return (
+        b"ID3\x03\x00\x00"
+        + syncsafe
+        + payload
+        + bytes((0xFF, 0xFB, 0x90, 0x64))
+        + b"\x00" * 128
+    )
+
+
+def test_accept_mp3_with_id3_larger_than_sniff_window(monkeypatch):
+    client = TestClient(app)
+    from minutes import tasks
+
+    monkeypatch.setattr(tasks, "process_audio", lambda path: DummyTask("mp3-id"))
+
+    files = {"file": ("meeting.mp3", io.BytesIO(_mp3_with_large_id3()), "audio/mpeg")}
+    response = client.post("/api/transcribe-upload-bg", files=files)
+    assert response.status_code == 200
+    assert "task_id" in response.json()
+
+
+def test_reject_mp3_extension_with_non_audio_bytes(monkeypatch):
+    client = TestClient(app)
+    from minutes import tasks
+
+    monkeypatch.setattr(tasks, "process_audio", lambda path: DummyTask("unused"))
+
+    files = {"file": ("notes.mp3", io.BytesIO(b"this is text"), "audio/mpeg")}
+    response = client.post("/api/transcribe-upload-bg", files=files)
+    assert response.status_code == 400
+
+
 def test_accept_wav_sync(monkeypatch):
     client = TestClient(app)
     from minutes import tasks

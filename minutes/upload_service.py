@@ -18,6 +18,25 @@ CreateTask = Callable[..., None]
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus"}
 
 
+def _header_matches_audio(header: object) -> bool:
+    """Recognize audio signatures libmagic misses in a short buffer.
+
+    A large ID3v2 tag, such as embedded cover art, can fill the first 4096
+    bytes. libmagic then reports ``application/octet-stream`` even though the
+    file is a valid MP3.
+    """
+    if isinstance(header, (bytes, bytearray)):
+        value = bytes(header)
+    else:
+        value = str(header).encode("latin1", errors="ignore")
+    return (
+        (value.startswith(b"RIFF") and value[8:12] == b"WAVE")
+        or value.startswith((b"OggS", b"fLaC", b"ID3"))
+        or (len(value) >= 2 and value[0] == 0xFF and (value[1] & 0xE0) == 0xE0)
+        or (len(value) >= 12 and value[4:8] == b"ftyp")
+    )
+
+
 def _is_allowed_upload(file: UploadFile) -> tuple[bool, str]:
     filename = file.filename or ""
     extension = os.path.splitext(filename)[1].lower()
@@ -38,43 +57,36 @@ def _is_allowed_upload(file: UploadFile) -> tuple[bool, str]:
     except (OSError, ValueError):
         pass
 
+    detected_mime = None
     try:
         import magic
 
         try:
-            mime = magic.Magic(mime=True).from_buffer(header)
+            detected_mime = magic.Magic(mime=True).from_buffer(header)
         except (AttributeError, TypeError):
-            mime = magic.from_buffer(header)
-        if isinstance(mime, str) and mime.startswith("audio/"):
+            detected_mime = magic.from_buffer(header)
+        if isinstance(detected_mime, str) and detected_mime.startswith("audio/"):
             return True, ""
+    except ImportError:
+        detected_mime = None
+
+    if _header_matches_audio(header):
+        return True, ""
+    if isinstance(detected_mime, str):
         return (
             False,
             (
-                f"invalid mime detected: {mime!r} ext={extension!r} "
+                f"invalid mime detected: {detected_mime!r} ext={extension!r} "
                 f"orig_mime={content_type!r}"
             ),
         )
-    except ImportError:
-        value = (
-            header
-            if isinstance(header, (bytes, bytearray))
-            else str(header).encode("latin1", errors="ignore")
-        )
-        is_audio = (
-            (value.startswith(b"RIFF") and value[8:12] == b"WAVE")
-            or value.startswith((b"OggS", b"fLaC", b"ID3"))
-            or (len(value) >= 2 and value[0] == 0xFF and (value[1] & 0xE0) == 0xE0)
-            or (len(value) >= 12 and value[4:8] == b"ftyp")
-        )
-        if is_audio:
-            return True, ""
-        return (
-            False,
-            (
-                "file signature did not match audio formats: "
-                f"ext={extension!r} mime={content_type!r}"
-            ),
-        )
+    return (
+        False,
+        (
+            "file signature did not match audio formats: "
+            f"ext={extension!r} mime={content_type!r}"
+        ),
+    )
 
 
 def _metadata(
