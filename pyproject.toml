@@ -12,3 +12,6 @@ dependencies = []
 
 [project.scripts]
 minutes-cli = "minutes_cli.cli_wrappers:_main_from_argv"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
