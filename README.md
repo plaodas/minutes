@@ -84,7 +84,7 @@ docker compose --profile llm up --build -d
 docker compose logs -f ollama-pull
 ```
 
-既定モデルは `qwen2.5:3b` です。モデルは `ollama_data` ボリュームに残ります。
+既定モデルは `qwen3.5:4b` です。モデルは `ollama_data` ボリュームに残ります。
 
 ### 停止
 
