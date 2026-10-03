@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Copy, Download, ExternalLink } from 'lucide-react';
 
 import {
+  fetchMinutesDocx,
   fetchTranscriptDownload,
   fetchSummaryDownload,
   fetchActionItemsDownload,
@@ -15,17 +16,29 @@ import {
 } from '../lib/minutesResult';
 import type { PresignedInfo } from '../lib/minutesResult';
 
+import MarkdownBody from './MarkdownBody';
+import SpeakerEditor from './SpeakerEditor';
 import { useToast } from './ToastProvider';
 
 const Card: React.FC<{
   title: string;
   children: React.ReactNode;
+  markdown?: boolean;
   onDownload?: () => void;
   onFocus?: () => void;
   onBlur?: () => void;
   onDelete?: () => void;
   presignedInfo?: PresignedInfo | null;
-}> = ({ title, children, onDownload, onFocus, onBlur, onDelete, presignedInfo }) => {
+}> = ({
+  title,
+  children,
+  markdown = false,
+  onDownload,
+  onFocus,
+  onBlur,
+  onDelete,
+  presignedInfo,
+}) => {
   const [translateX, setTranslateX] = useState(0);
   const [swiped, setSwiped] = useState(false);
   const startX = useRef<number | null>(null);
@@ -76,14 +89,22 @@ const Card: React.FC<{
             {title}
           </h3>
           <div className="flex gap-2">
-            <CopyButton text={String(children)} />
+            <CopyButton text={typeof children === 'string' ? children : ''} />
             <button className="p-1 rounded hover:bg-[var(--bg-default)]" onClick={onDownload}>
               <Download size={16} />
             </button>
             {presignedInfo?.url ? <PresignedButton info={presignedInfo} /> : null}
           </div>
         </div>
-        <div className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">{children}</div>
+        <div
+          className={
+            markdown
+              ? 'mt-3 text-sm text-[var(--muted)]'
+              : 'mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]'
+          }
+        >
+          {markdown && typeof children === 'string' ? <MarkdownBody text={children} /> : children}
+        </div>
       </div>
       {/* Mobile-only delete revealed when swiped */}
       <button
@@ -169,7 +190,13 @@ const PresignedButton: React.FC<{ info: PresignedInfo }> = ({ info }) => {
   );
 };
 
-export default function ResultCards({ result }: { result: unknown | null }) {
+export default function ResultCards({
+  result,
+  onResultChange,
+}: {
+  result: unknown | null;
+  onResultChange?: (result: unknown) => void;
+}) {
   const { addToast } = useToast();
   const [focusedTitle, setFocusedTitle] = useState<string | null>(null);
   const [focusedContent, setFocusedContent] = useState<string>('');
@@ -221,6 +248,24 @@ export default function ResultCards({ result }: { result: unknown | null }) {
 
   return (
     <div>
+      {taskId ? (
+        <SpeakerEditor
+          taskId={taskId}
+          segments={data.segments}
+          onSaved={(transcript, segments) => {
+            onResultChange?.({ ...data, transcript, segments });
+          }}
+          onError={(message) => addToast(message, { level: 'error' })}
+        />
+      ) : null}
+      <button
+        type="button"
+        onClick={() => downloadBlob(fetchMinutesDocx, `minutes_${taskId || 'unknown'}.docx`)}
+        className="mb-3 rounded border px-3 py-2 text-sm"
+      >
+        Word minutes
+      </button>
+
       <Card
         title="Transcript"
         onDownload={() =>
@@ -241,6 +286,7 @@ export default function ResultCards({ result }: { result: unknown | null }) {
 
       <Card
         title="Summary"
+        markdown
         onDownload={() =>
           downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)
         }

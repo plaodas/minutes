@@ -83,7 +83,7 @@ export default function App() {
                   <ProcessingSteps activeIndex={activeIndex} />
                 </div>
                 <div className="mt-6">
-                  <ResultCards result={result} />
+                  <ResultCards result={result} onResultChange={setResult} />
                 </div>
               </>
             )}

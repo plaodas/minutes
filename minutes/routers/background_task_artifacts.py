@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import re
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -12,6 +13,7 @@ from minutes.auth import require_current_user
 from minutes.bg_store import get_task
 from minutes.http_errors import error_json
 from minutes.minio_client import MinioService, S3Error
+from minutes.minutes_docx import DOCX_MEDIA_TYPE, build_minutes_docx, safe_docx_filename
 from minutes.models import User
 from minutes.pipeline.formatting import extract_action_items
 from minutes.schemas import (
@@ -139,12 +141,35 @@ def _read_minio_object_text(bucket: str, object_name: str) -> str:
 )
 def bg_minutes_file(
     task_id: str,
+    format: str = "txt",
     user: User = Depends(require_current_user),  # noqa: B008
 ):
     task, error = _successful_task_or_response(task_id, user)
     if error:
         return error
     result = task.get("result") or {}
+    if format == "docx":
+        if not isinstance(result, dict):
+            result = {}
+        filename = safe_docx_filename(task.get("name"), task_id)
+        content = build_minutes_docx(
+            task_id=task_id,
+            name=task.get("name"),
+            created_at=task.get("created_at"),
+            result=result,
+        )
+        encoded = quote(filename)
+        return Response(
+            content=content,
+            media_type=DOCX_MEDIA_TYPE,
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename=\"minutes.docx\"; filename*=UTF-8''{encoded}"
+                )
+            },
+        )
+    if format != "txt":
+        return error_json("unsupported format", 400)
     output_file = result_output_file(result)
     if not output_file:
         return error_json("no output file available", 404)

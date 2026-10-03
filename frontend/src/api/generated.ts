@@ -843,7 +843,7 @@ export interface components {
          * TaskEventType
          * @enum {string}
          */
-        TaskEventType: "created" | "status" | "progress" | "success" | "failure" | "cancelled" | "rename" | "deleted" | "undeleted" | "deleted_hard";
+        TaskEventType: "created" | "status" | "progress" | "success" | "failure" | "cancelled" | "rename" | "speakers" | "deleted" | "undeleted" | "deleted_hard";
         /** TaskEventsResponse */
         TaskEventsResponse: {
             /** Events */
@@ -2056,6 +2056,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                q?: string;
             };
             header?: never;
             path?: never;

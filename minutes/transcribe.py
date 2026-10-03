@@ -18,6 +18,9 @@ def jsonable_segment(segment: object) -> object:
         payload["end"] = end
     if text is not None:
         payload["text"] = text
+    speaker = getattr(segment, "speaker", None)
+    if isinstance(speaker, str) and speaker.strip():
+        payload["speaker"] = speaker.strip()
     return payload
 
 

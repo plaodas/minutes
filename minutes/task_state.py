@@ -16,6 +16,7 @@ from .schemas import (
     normalize_task_status,
     task_stage_from_status,
 )
+from .search_text import build_search_text
 from .summary import summarize_local
 from .task_event_service import TaskEventService
 from .task_ids import parse_task_key
@@ -160,6 +161,7 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
                     exc,
                 )
 
+        task.search_text = build_search_text(task.name, task.result)
         _ensure_result_bucket(session, task, result, task_id)
 
     with _lock:
@@ -173,6 +175,7 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_success failed for %s", task_id)
             return
+
 
 def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> None:
     def mark_failure(session, _key):
@@ -197,6 +200,7 @@ def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> No
             logger.exception("update_failure failed for %s", task_id)
             return
 
+
 def update_cancelled(task_id: str, emit_event: EventEmitter) -> None:
     def mark_cancelled(session, _key):
         resolved = _get_or_create_task(session, task_id)
@@ -216,6 +220,7 @@ def update_cancelled(task_id: str, emit_event: EventEmitter) -> None:
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_cancelled failed for %s", task_id)
             return
+
 
 def update_status(
     task_id: str,

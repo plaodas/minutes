@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 
 import {
+  fetchMinutesDocx,
   fetchTranscriptDownload,
   fetchSummaryDownload,
   fetchActionItemsDownload,
   deleteTask,
   undeleteTask,
   forceDeleteTask,
+  getBgResult,
   getBgTasks,
   renameBgTask,
 } from '../api/client';
@@ -15,6 +17,8 @@ import { dispatchTaskChanged } from '../lib/appEvents';
 import startDownload from '../lib/download';
 import { errorMessage } from '../lib/errorMessage';
 
+import MarkdownBody from './MarkdownBody';
+import SpeakerEditor from './SpeakerEditor';
 import Toast from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './ToastProvider';
@@ -27,6 +31,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
   const [liveMessage, setLiveMessage] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [taskName, setTaskName] = useState<string | null>(null);
+  const [segments, setSegments] = useState<unknown[]>([]);
   const toast = useToast();
   const adminUiEnabled = showAdminControls();
   const [isAdmin, setIsAdmin] = useState(false);
@@ -63,7 +68,18 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
       try {
         const tasks = await getBgTasks({ retries: 1, timeoutMs: 8000 });
         const found = tasks.find((task) => task.id === taskId);
-        if (found) setTaskName(found.name || null);
+        if (found) {
+          setTaskName(found.name || null);
+          const result = found.result;
+          if (result && typeof result === 'object' && 'segments' in result) {
+            setSegments(Array.isArray(result.segments) ? result.segments : []);
+          }
+        }
+        const full = await getBgResult(taskId);
+        const nested = full.result;
+        if (nested && typeof nested === 'object' && Array.isArray(nested.segments)) {
+          setSegments(nested.segments);
+        }
       } catch {
         // task name is optional for the drawer header
       }
@@ -299,16 +315,39 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
           {text && (
             <div>
               <div className="mb-3 text-sm text-[var(--muted)]">Summary</div>
-              <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">
-                {summary && summary.length > 0 ? summary : text.slice(0, 1000)}
-              </div>
+              <MarkdownBody
+                className="mb-4 rounded bg-slate-50 p-3 text-sm"
+                text={summary && summary.length > 0 ? summary : text.slice(0, 1000)}
+              />
+              <SpeakerEditor
+                taskId={taskId}
+                segments={segments}
+                onSaved={(_transcript, nextSegments) => {
+                  setSegments(nextSegments);
+                  toast.addToast('Speaker names saved', { level: 'success' });
+                }}
+                onError={(message) => toast.addToast(message, { level: 'error' })}
+              />
               <div className="mb-3 text-sm text-[var(--muted)]">Full text</div>
-              <div className="mb-4 rounded bg-slate-50 p-3 text-sm whitespace-pre-wrap">{text}</div>
+              <MarkdownBody className="mb-4 rounded bg-slate-50 p-3 text-sm" text={text} />
               <div className="mt-4">
                 <div
                   className="drawer-footer flex flex-wrap gap-2 justify-center border-t pt-3 mt-4 md:mt-6 md:border-t-0 md:pt-0"
                   style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}
                 >
+                  <button
+                    onClick={() =>
+                      startDownload(
+                        () => fetchMinutesDocx(taskId),
+                        `${taskId}_minutes.docx`,
+                        toast.addToast
+                      )
+                    }
+                    className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm"
+                  >
+                    Word minutes
+                  </button>
+
                   <button
                     onClick={() =>
                       startDownload(
