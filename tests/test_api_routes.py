@@ -117,6 +117,7 @@ def test_background_task_routes_are_owned_by_router_modules():
         ("GET", "/api/bg/tasks/{task_id}/events"),
         ("GET", "/api/bg/history/{task_id}"),
         ("POST", "/api/bg/task/{task_id}/rename"),
+        ("POST", "/api/bg/task/{task_id}/speakers"),
         ("POST", "/api/bg/task/{task_id}/regenerate-name"),
         ("GET", "/api/bg/tasks"),
         ("POST", "/api/bg/histories"),
@@ -625,9 +626,7 @@ def test_background_regenerate_name_commits_before_event(
     monkeypatch.setattr(bg_store, "publish_event", track_publish)
     event.listen(SessionLocal.class_, "after_commit", track_commit)
     try:
-        response = client.post(
-            f"/api/bg/task/{task_id}/regenerate-name"
-        )
+        response = client.post(f"/api/bg/task/{task_id}/regenerate-name")
     finally:
         event.remove(SessionLocal.class_, "after_commit", track_commit)
 

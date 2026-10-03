@@ -91,6 +91,7 @@ class TaskEventType(str, Enum):
     FAILURE = "failure"
     CANCELLED = "cancelled"
     RENAME = "rename"
+    SPEAKERS = "speakers"
     DELETED = "deleted"
     UNDELETED = "undeleted"
     DELETED_HARD = "deleted_hard"
@@ -371,6 +372,21 @@ class TaskHardDeleteResponse(BaseModel):
 
 class RenameTaskRequest(BaseModel):
     name: str
+
+
+class SpeakerUpdate(BaseModel):
+    index: int
+    speaker: str
+
+
+class UpdateSpeakersRequest(BaseModel):
+    updates: list[SpeakerUpdate]
+
+
+class UpdateSpeakersResponse(BaseModel):
+    task_id: str
+    transcript: str
+    segments: list[dict[str, Any]]
 
 
 class TaskNameResponse(BaseModel):

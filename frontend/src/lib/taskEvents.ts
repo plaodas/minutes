@@ -21,6 +21,7 @@ export const taskEventTypes = [
   'failure',
   'cancelled',
   'rename',
+  'speakers',
   'deleted',
   'undeleted',
   'deleted_hard',

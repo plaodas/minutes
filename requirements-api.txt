@@ -14,3 +14,4 @@ minio
 pyjwt
 passlib[bcrypt]
 bcrypt<4.1
+python-docx==1.2.0

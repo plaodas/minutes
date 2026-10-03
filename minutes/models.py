@@ -9,6 +9,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     false,
     func,
 )
@@ -42,6 +43,7 @@ class Task(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     # short display name for the task (e.g. "Meeting: Engineering sync")
     name = Column(String, nullable=True, index=True)
+    search_text = Column(Text, nullable=True)
     status = Column(
         SAEnum(
             TaskStage,

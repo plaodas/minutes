@@ -19,6 +19,8 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [isMinutesVisible, setIsMinutesVisible] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const { tasks, loading: tasksLoading, error: tasksError, reload } = useTasks();
@@ -28,12 +30,40 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   }, [tasksLoading]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (searchQuery.length >= 2) return;
     if (tasks && Array.isArray(tasks)) {
       const arr = tasks.map(toHistoryItem);
       setItems(arr);
       setHasMore(arr.length >= getTasksPageLimit());
     }
-  }, [tasks]);
+  }, [tasks, searchQuery]);
+
+  useEffect(() => {
+    if (searchQuery.length < 2) return;
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      try {
+        const limit = getTasksPageLimit();
+        const nextTasks = await getBgTasks({ q: searchQuery, limit, offset: 0 });
+        if (cancelled) return;
+        setItems(nextTasks.map(toHistoryItem));
+        setHasMore(nextTasks.length >= limit);
+      } catch {
+        if (!cancelled) setHasMore(false);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchQuery]);
 
   useEffect(() => {
     if (modalTask) {
@@ -81,7 +111,11 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
               const limit = getTasksPageLimit();
               const offset = items.length;
               if (offset === 0) return;
-              const nextTasks = await getBgTasks({ limit, offset });
+              const nextTasks = await getBgTasks({
+                limit,
+                offset,
+                q: searchQuery.length >= 2 ? searchQuery : undefined,
+              });
               const arr = nextTasks.map(toHistoryItem);
               setItems((prev) => [...prev, ...arr]);
               setHasMore(arr.length >= limit);
@@ -97,7 +131,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
     );
     obs.observe(sentinel);
     return () => obs.disconnect();
-  }, [hasMore, items, loadingMore]);
+  }, [hasMore, items, loadingMore, searchQuery]);
 
   return (
     <>
@@ -115,6 +149,16 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
             <Plus size={17} /> New upload
           </button>
         </div>
+        <label className="mb-4 block">
+          <span className="sr-only">Search minutes</span>
+          <input
+            aria-label="Search minutes"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search by name, summary, or text"
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </label>
 
         {tasksError && (
           <div

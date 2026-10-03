@@ -25,6 +25,13 @@ try:
                         "NOT NULL DEFAULT 0"
                     )
                 )
+    if inspector.has_table("tasks"):
+        task_columns = {column["name"] for column in inspector.get_columns("tasks")}
+        if "search_text" not in task_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE tasks ADD COLUMN search_text TEXT")
+                )
 except (ImportError, OSError):
     # If anything fails (missing deps), tests that require DB will skip at runtime.
     pass

@@ -116,3 +116,4 @@ def test_default_prompt_asks_for_machine_readable_actions():
     assert "誰が:" in DEFAULT_SYSTEM_PROMPT
     assert "何を:" in DEFAULT_SYSTEM_PROMPT
     assert "いつまでに:" in DEFAULT_SYSTEM_PROMPT
+    assert "発言は1つずつ空行で区切る" in DEFAULT_SYSTEM_PROMPT

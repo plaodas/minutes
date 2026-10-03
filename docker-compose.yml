@@ -1,6 +1,6 @@
 x-app-environment: &app-environment
   PYTHONUNBUFFERED: "1"
-  DATABASE_URL: postgresql://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
+  DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-minutes}:${POSTGRES_PASSWORD:-minutes_password}@db:5432/${POSTGRES_DB:-minutes}
   REDIS_URL: redis://redis:6379/0
   OUTPUTS_DIR: /app/outputs
   UPLOADS_DIR: /app/uploads

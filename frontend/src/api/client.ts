@@ -115,6 +115,7 @@ export async function getBgTasks(
   options: {
     limit?: number;
     offset?: number;
+    q?: string;
     retries?: number;
     timeoutMs?: number;
   } = {}
@@ -122,6 +123,7 @@ export async function getBgTasks(
   const params = new URLSearchParams();
   if (options.limit !== undefined) params.set('limit', String(options.limit));
   if (options.offset !== undefined) params.set('offset', String(options.offset));
+  if (options.q) params.set('q', options.q);
   const query = params.toString();
   const res = await fetchWithRetry(
     `${API_BASE}/bg/tasks${query ? `?${query}` : ''}`,
@@ -166,6 +168,35 @@ export async function renameBgTask(taskId: string, name: string): Promise<void> 
   throw new Error(message);
 }
 
+export async function updateTaskSpeakers(
+  taskId: string,
+  updates: { index: number; speaker: string }[]
+): Promise<{ transcript: string; segments: unknown[] }> {
+  const res = await fetchWithRetry(
+    `${API_BASE}/bg/task/${encodeURIComponent(taskId)}/speakers`,
+    {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    },
+    { retries: 0, timeoutMs: 10000 }
+  );
+  const body: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message =
+      typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : 'Failed to save speaker names';
+    throw new Error(message);
+  }
+  const record = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+  return {
+    transcript: typeof record.transcript === 'string' ? record.transcript : '',
+    segments: Array.isArray(record.segments) ? record.segments : [],
+  };
+}
+
 async function _downloadBlob(url: string): Promise<{ blob: Blob; headers: Headers }> {
   const res = await fetchWithRetry(
     url,
@@ -175,6 +206,11 @@ async function _downloadBlob(url: string): Promise<{ blob: Blob; headers: Header
   if (!res.ok) throw new Error(`download failed: ${res.status}`);
   const blob = await res.blob();
   return { blob, headers: res.headers };
+}
+
+export async function fetchMinutesDocx(taskId: string) {
+  const url = `${API_BASE}/bg/minutes/${taskId}?format=docx`;
+  return _downloadBlob(url);
 }
 
 export async function fetchTranscriptDownload(taskId: string, format: string = 'txt') {

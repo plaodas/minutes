@@ -20,10 +20,14 @@ from minutes.schemas import (
     TaskHistoryResponse,
     TaskListResponse,
     TaskNameResponse,
+    UpdateSpeakersRequest,
+    UpdateSpeakersResponse,
     task_history_record_dict,
     task_stage_from_status,
     task_status_value,
 )
+from minutes.search_text import build_search_text, escape_like
+from minutes.speakers import apply_speaker_updates
 from minutes.summary import summarize_local
 from minutes.task_access import user_owns_task
 from minutes.task_result import MissingOutputFileError, read_local_output_text
@@ -40,6 +44,10 @@ class _TaskNotFoundError(Exception):
 
 
 class _TaskOutputUnavailableError(Exception):
+    pass
+
+
+class _SpeakerUpdateError(Exception):
     pass
 
 
@@ -104,6 +112,7 @@ def bg_task_rename(
         if not task:
             raise _TaskNotFoundError
         task.name = name
+        task.search_text = build_search_text(name, task.result)
         session.add(task)
 
     try:
@@ -152,6 +161,7 @@ def bg_task_regenerate_name(
         if short and len(short) > 120:
             short = short[:117].rstrip() + "..."
         task.name = short
+        task.search_text = build_search_text(short, task.result)
         session.add(task)
         return short
 
@@ -174,6 +184,68 @@ def bg_task_regenerate_name(
     return {"task_id": task_id, "name": short}
 
 
+@router.post(
+    "/task/{task_id}/speakers",
+    response_model=UpdateSpeakersResponse,
+    responses={
+        400: JSON_ERROR_RESPONSES[400],
+        404: JSON_ERROR_RESPONSES[404],
+    },
+)
+def bg_task_speakers(
+    task_id: str,
+    payload: UpdateSpeakersRequest,
+    user: User = Depends(require_current_user),  # noqa: B008
+):
+    try:
+        uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        return error_json("invalid task id", 400)
+    if not user_owns_task(task_id, user.id):
+        return error_json("unknown task", 404)
+
+    assignments = [(item.index, item.speaker) for item in payload.updates]
+    updated: dict[str, Any] = {}
+
+    def assign_speakers(session, key):
+        task = session.get(Task, key)
+        if not task:
+            raise _TaskNotFoundError
+        result = task.result if isinstance(task.result, dict) else {}
+        try:
+            next_result = apply_speaker_updates(result, assignments)
+        except ValueError as exc:
+            raise _SpeakerUpdateError(str(exc)) from exc
+        task.result = next_result
+        task.search_text = build_search_text(task.name, next_result)
+        session.add(task)
+        updated["transcript"] = next_result["transcript"]
+        updated["segments"] = next_result["segments"]
+
+    try:
+        record_and_publish(
+            task_id,
+            "speakers",
+            {
+                "updates": [
+                    {"index": index, "speaker": speaker.strip()}
+                    for index, speaker in assignments
+                ]
+            },
+            mutate=assign_speakers,
+        )
+    except _TaskNotFoundError:
+        return error_json("unknown task", 404)
+    except _SpeakerUpdateError as exc:
+        return error_json(str(exc), 400)
+
+    return {
+        "task_id": task_id,
+        "transcript": updated.get("transcript", ""),
+        "segments": updated.get("segments", []),
+    }
+
+
 @router.get(
     "/tasks",
     response_model=TaskListResponse,
@@ -182,14 +254,24 @@ def bg_task_regenerate_name(
 def bg_tasks(
     limit: int = 50,
     offset: int = 0,
+    q: str | None = None,
     user: User = Depends(require_current_user),  # noqa: B008
 ):
     """Return a paginated task list with recent history previews."""
+    query_text = (q or "").strip()
+    if query_text and (len(query_text) < 2 or len(query_text) > 200):
+        return error_json("invalid search query", 400)
     with session_scope() as session:
+        task_query = session.query(Task).filter(
+            Task.deleted.is_(False), Task.user_id == user.id
+        )
+        if query_text:
+            pattern = f"%{escape_like(query_text.casefold())}%"
+            task_query = task_query.filter(
+                func.lower(Task.search_text).like(pattern, escape="\\")
+            )
         task_rows = (
-            session.query(Task)
-            .filter(Task.deleted.is_(False), Task.user_id == user.id)
-            .order_by(Task.created_at.desc(), Task.id.desc())
+            task_query.order_by(Task.created_at.desc(), Task.id.desc())
             .offset(int(offset))
             .limit(int(limit))
             .all()
