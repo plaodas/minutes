@@ -1,8 +1,8 @@
 # Minutes
 
-会議の録音をアップロードすると、文字起こし・要約・アクションアイテム付きの議事録まで進むローカル Web アプリです。Celery worker が処理し、ブラウザは SSE（切断時は polling）で進捗を見ます。
+会議の録音をアップロードすると、文字起こし・要約・アクションアイテム付きの議事録まで進むローカル Web アプリです。話者名の手動設定、Word 形式のダウンロード、自分の議事録の本文検索にも対応しています。Celery worker が処理し、ブラウザは SSE（切断時は polling）で進捗を見ます。
 
-短い録音をアップロードすると、文字起こし・要約・アクションアイテムが得られます。標準の Docker Compose 構成がデモです。FastAPI、CPU 版 Whisper worker、PostgreSQL、Redis、nginx フロントエンドが入ります。
+標準の Docker Compose 構成がデモです。FastAPI、CPU 版 Whisper worker、PostgreSQL、Redis、nginx フロントエンドが入ります。文字起こしと議事録データはログインユーザーごとに分離されます。
 
 ![ログイン](docs/screenshots/login.png)
 ![アップロード画面](docs/screenshots/upload.png)
@@ -42,7 +42,10 @@ password: demo
 - MP3 / WAV のアップロード
 - バックグラウンド処理: 前処理 → 文字起こし → 整形
 - SSE での進捗表示（イベントストリームが遮断された場合は status polling）
-- 文字起こし・要約・アクションアイテムとダウンロード
+- Markdown 表示の議事録、要約、アクションアイテム
+- 複数の文字起こし区間を選択した話者名の手動設定
+- テキスト成果物と、見出し・アクションアイテム表・話者時刻を含む Word 議事録のダウンロード
+- タスク名・文字起こし・要約・議事録本文を対象にした自分の履歴検索
 - 履歴、名前変更、削除、キャンセル
 - Cookie セッションログイン（`demo` / `demo`）
 
@@ -75,7 +78,18 @@ password: demo
 | `TRANSCRIBE_MODEL_SIZE` | worker の Whisper モデル |
 | `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS`, `OLLAMA_TIMEOUT` | `--profile llm` のときだけ |
 
-`.env` にある `MINIO_*`、`ADMIN_API_TOKEN`、`DATABASE_URL` はこの Compose では無視されます。ホスト側の Python から DB に繋ぐときは `localhost`、コンテナ同士は `db` です。サンプルの秘密情報は localhost 以外で使わないでください。
+`.env` にある `MINIO_*`、`ADMIN_API_TOKEN`、`DATABASE_URL` はこの Compose では無視されます。Compose は `POSTGRES_*` から `postgresql+psycopg2://...@db:5432/...` を組み立てます。ホスト側の Python から DB に繋ぐときは `localhost`、コンテナ同士は `db` です。サンプルの秘密情報は localhost 以外で使わないでください。
+
+### 既存環境の更新
+
+`docker compose up --build -d` は `migrate` サービスで Alembic を自動実行します。既存のタスクを履歴検索の対象にする場合は、起動後に検索文字列を再生成してください。
+
+```bash
+export DATABASE_URL=postgresql+psycopg2://minutes:minutes_password@localhost:5432/minutes
+PYTHONPATH=. python scripts/backfill_search_text.py
+```
+
+`.env` で PostgreSQL のユーザー名、パスワード、DB 名を変更している場合は、上の URL も同じ値にします。ホストから Alembic だけを手動実行する場合も、この `DATABASE_URL` を設定して `alembic upgrade head` を実行します。
 
 ### 任意: Ollama
 
