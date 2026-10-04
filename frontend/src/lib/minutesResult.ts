@@ -33,17 +33,21 @@ export function asPresignedInfo(value: unknown): PresignedInfo | null {
   };
 }
 
+function withoutBold(value: string): string {
+  return value.replace(/\*\*/g, '');
+}
+
 export function formatActionItems(data: Record<string, unknown>): string {
   const items = data.action_items;
   if (Array.isArray(items)) {
     return items
       .map((item) => {
-        if (typeof item === 'string') return item;
+        if (typeof item === 'string') return withoutBold(item);
         if (isRecord(item)) {
-          if (typeof item.text === 'string' && item.text) return item.text;
-          const who = typeof item.who === 'string' ? item.who : '';
-          const what = typeof item.what === 'string' ? item.what : '';
-          const due = typeof item.due === 'string' ? item.due : '';
+          if (typeof item.text === 'string' && item.text) return withoutBold(item.text);
+          const who = typeof item.who === 'string' ? withoutBold(item.who) : '';
+          const what = typeof item.what === 'string' ? withoutBold(item.what) : '';
+          const due = typeof item.due === 'string' ? withoutBold(item.due) : '';
           const parts = [who, what, due].filter(Boolean);
           if (parts.length) return parts.join(' / ');
         }

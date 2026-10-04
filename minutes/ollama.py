@@ -94,6 +94,8 @@ def format_minutes_from_raw(
             ],
             "stream": False,
         }
+        if "qwen3" in model_name.lower():
+            payload["think"] = False
 
         base_timeout = int(os.environ.get("OLLAMA_TIMEOUT", "120"))
         last_exc = None
