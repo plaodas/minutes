@@ -153,10 +153,24 @@ def _action_section(minutes: str) -> str | None:
     return "\n".join(lines[start:end])
 
 
+def normalize_action_item(item: object) -> object:
+    """Drop leftover Markdown bold from an action item without changing stored rows."""
+    if isinstance(item, str):
+        return _strip_markup(item)
+    if isinstance(item, dict):
+        cleaned = dict(item)
+        for key in ("text", "who", "what", "due", "when"):
+            value = cleaned.get(key)
+            if isinstance(value, str):
+                cleaned[key] = _strip_markup(value)
+        return cleaned
+    return item
+
+
 def _bullet_items(section: str) -> list[dict[str, str]]:
     items = []
     for line in section.splitlines():
-        item = line.strip().lstrip("-•* ")
+        item = _strip_markup(line)
         if item and not re.match(r"^[A-Z][a-z]+:$", item):
             items.append({"text": item})
     return items

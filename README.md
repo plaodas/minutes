@@ -141,9 +141,10 @@ Vite は `/api` を `localhost:8000` にプロキシするので、ブラウザ�
 
 ## テスト
 
+実行手順の正本は [docs/test.md](docs/test.md) です。
+
 ```bash
-export DATABASE_URL=sqlite:///./.pytest_sqlite.db
-pytest -q
+DATABASE_URL=sqlite:///./.pytest_fresh.db .venv/bin/python -m pytest -q
 
 cd frontend
 npm ci
@@ -151,6 +152,12 @@ npm run test:unit
 npm run lint
 npm run build
 ```
+
+## 開発者向け文書
+
+- [AGENTS.md](AGENTS.md): 開発支援AIが守る作業範囲
+- [docs/ops.md](docs/ops.md): 変更の反映先、タスクの中身、切り分け
+- [docs/test.md](docs/test.md): テストの実行方法
 
 ## 構成
 

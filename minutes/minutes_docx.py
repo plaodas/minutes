@@ -6,6 +6,8 @@ from typing import Any
 from docx import Document
 from docx.shared import Pt
 
+from minutes.pipeline.formatting import normalize_action_item
+
 DOCX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
@@ -95,7 +97,8 @@ def build_minutes_docx(
     ):
         cell.text = label
     wrote_row = False
-    for item in rows:
+    for raw_item in rows:
+        item = normalize_action_item(raw_item)
         if isinstance(item, str):
             values = ("", "", "", item)
         elif isinstance(item, dict):

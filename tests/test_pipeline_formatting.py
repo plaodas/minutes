@@ -111,6 +111,21 @@ def test_extract_action_items_parses_inline_prompt_format():
     assert items[0]["due"] == "金曜"
 
 
+def test_extract_action_items_strips_bold_speaker_labels():
+    minutes = """
+### アクションアイテム
+
+- **B（提案者）が**: 来週までに: 社内検討の完了と返答を提出する
+- **A（検討担当者）が**: 今月中に: システムの導入判断を行う
+"""
+    items = extract_action_items(minutes)
+    assert items == [
+        {"text": "B（提案者）が: 来週までに: 社内検討の完了と返答を提出する"},
+        {"text": "A（検討担当者）が: 今月中に: システムの導入判断を行う"},
+    ]
+    assert all("**" not in item["text"] for item in items)
+
+
 def test_default_prompt_asks_for_machine_readable_actions():
     assert "### アクションアイテム" in DEFAULT_SYSTEM_PROMPT
     assert "誰が:" in DEFAULT_SYSTEM_PROMPT

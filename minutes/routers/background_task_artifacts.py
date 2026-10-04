@@ -15,7 +15,7 @@ from minutes.http_errors import error_json
 from minutes.minio_client import MinioService, S3Error
 from minutes.minutes_docx import DOCX_MEDIA_TYPE, build_minutes_docx, safe_docx_filename
 from minutes.models import User
-from minutes.pipeline.formatting import extract_action_items
+from minutes.pipeline.formatting import extract_action_items, normalize_action_item
 from minutes.schemas import (
     JSON_ERROR_RESPONSES,
     ActionItemsResponse,
@@ -298,7 +298,7 @@ def bg_action_items(
     result = task.get("result") or {}
     items = []
     if isinstance(result, dict) and isinstance(result.get("action_items"), list):
-        items = [item for item in result["action_items"] if item]
+        items = [normalize_action_item(item) for item in result["action_items"] if item]
     if not items:
         text, error = _minutes_text_for_actions(result)
         if error:
