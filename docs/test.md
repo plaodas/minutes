@@ -2,16 +2,25 @@
 
 ## Automated checks
 
-```bash
-export DATABASE_URL=sqlite:///./.pytest_sqlite.db
-pytest -q
+From the repository root, with the project virtualenv:
 
+```bash
+DATABASE_URL=sqlite:///./.pytest_fresh.db .venv/bin/python -m pytest -q
+```
+
+`tests/conftest.py` falls back to `sqlite:///./.pytest_sqlite.db` when `DATABASE_URL` is unset. That shared file keeps rows from earlier runs, so a full run should use a fresh file, as above. `python` may be absent; `.venv/bin/python` is the interpreter that has the test dependencies.
+
+Frontend:
+
+```bash
 cd frontend
 npm ci
 npm run test:unit
 npm run lint
 npm run build
 ```
+
+Run the checks that cover the files you changed. A UI change also needs the affected flow exercised in a browser, not only a unit test. A Compose or image change needs the smoke test below.
 
 ## Compose smoke test
 
