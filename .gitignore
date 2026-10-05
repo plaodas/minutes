@@ -112,4 +112,5 @@ data/bg_tasks.json
 deploy/frontend_html/
 frontend/dist/
 .pytest_sqlite.db
+.pytest_fresh.db
 frontend/node_modules/
