@@ -10,6 +10,7 @@ from minutes.audio import preprocess
 from minutes.bg_store import (
     get_task,
     update_task_failure,
+    update_task_interrupted,
     update_task_progress,
     update_task_status,
     update_task_success,
@@ -20,6 +21,10 @@ from minutes.transcribe import transcribe
 
 logger = logging.getLogger("minutes.pipeline.task_runner")
 
+_RESTART_STAGES = {"preprocess", "transcribing", "formatting"}
+_FINISHED_STAGES = {"success", "cancelled", "deleted"}
+INTERRUPTED_TASK_ERROR = "restarting interrupted task"
+
 
 def run_audio_pipeline(input_path: str, task_id: str | None = None) -> dict[str, Any]:
     """Run the shared pipeline and persist success or failure for a task."""
@@ -29,10 +34,21 @@ def run_audio_pipeline(input_path: str, task_id: str | None = None) -> dict[str,
         if task_id:
             try:
                 task = get_task(task_id)
-                if task:
-                    metadata = task.get("result") or {}
             except SQLAlchemyError:
                 logger.exception("Failed to load metadata for task %s", task_id)
+                task = None
+            if task:
+                status = str(task.get("status") or "")
+                if status in _FINISHED_STAGES:
+                    logger.info(
+                        "audio pipeline skipped: task_id=%s status=%s",
+                        task_id,
+                        status,
+                    )
+                    return {"status": status, "result": task.get("result")}
+                metadata = task.get("result") or {}
+                if status in _RESTART_STAGES:
+                    update_task_interrupted(task_id, INTERRUPTED_TASK_ERROR)
 
         service = PipelineService(
             preprocess=preprocess,

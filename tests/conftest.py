@@ -4,6 +4,8 @@ import os
 # Use an in-memory SQLite DB for test-time imports. Tests that need a real DB
 # should override this in their environment or skip accordingly.
 os.environ.setdefault("DATABASE_URL", "sqlite:///./.pytest_sqlite.db")
+# Keep the suite from re-enqueueing rows into a developer's Compose Redis.
+os.environ.setdefault("RECLAIM_ON_START", "0")
 
 # Create tables for the in-memory SQLite so DB-backed code paths can run in tests.
 try:

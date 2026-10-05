@@ -34,6 +34,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -185,4 +188,5 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   ollama_data:
