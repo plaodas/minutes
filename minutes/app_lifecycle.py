@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.exc import SQLAlchemyError
 
-from minutes.reconcile_bg_tasks import reconcile_once
+from minutes.reconcile_bg_tasks import quarantine_unreferenced_outputs, reconcile_once
 from minutes.upload_retention import sweep_expired_uploads
 
 logger = logging.getLogger("minutes.app_lifecycle")
@@ -15,6 +15,7 @@ logger = logging.getLogger("minutes.app_lifecycle")
 
 def _maintain_background_tasks() -> None:
     reconcile_once()
+    quarantine_unreferenced_outputs()
     sweep_expired_uploads()
 
 
