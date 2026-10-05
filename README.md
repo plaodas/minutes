@@ -15,6 +15,20 @@
                             →  worker（faster-whisper、任意で Ollama）
 ```
 
+## どこまでローカルか
+
+処理中の録音と議事録は、このマシンの外へ出ません。
+
+- 録音、文字起こし、要約、議事録、アカウントは、Compose 内の PostgreSQL、Redis、`data/uploads/`、`data/outputs/` に残ります。
+- 文字起こしは worker 内の faster-whisper です。整形は同じマシンの Ollama か、Ollama が無いときのローカル要約です。
+- ログインはローカルの Cookie セッションです。利用状況の送信はありません。
+
+外へ出るのは、初回の取得だけです。
+
+- Docker イメージ、Whisper モデル、`docker compose --profile llm` で取る Ollama モデルを、それぞれ最初の一度だけ取得します。取得が終わったあとの音声本文は送りません。
+- `OLLAMA_HOST` を別のマシンに向けた場合、整形リクエストの先はローカルではなくなります。
+- MinIO は標準構成に含まれません。設定した場合の保管先は、そのエンドポイントです。
+
 ## クイックスタート
 
 ホストに Ollama がすでにある場合はこのままで構いません。Compose に Ollama も載せる場合は、下の「任意: Ollama」を参照してください。
@@ -34,6 +48,10 @@ password: demo
 ```
 
 [`docs/sample/demo-meeting.wav`](docs/sample/demo-meeting.wav) をアップロードしてください。デモ用の短い合成日本語音声で、実会議の録音ではありません。
+
+このファイル（2分28秒、24kHz、モノラル、合成日本語）を、WSL2上の Intel Core Ultra 5 228V（4コア、メモリ約16GB、GPUなし）で処理した参考時間は約9分30秒です。Whisper は `medium`、整形は `qwen3.5:4b` で、どちらも取得済みの状態です。初回のモデル取得時間は含みません。
+
+![処理後の議事録](docs/screenshots/minutes-drawer.png)
 
 初回タスクは Whisper モデルのダウンロードがあり、数分かかることがあります。進捗は `docker compose logs -f worker` で確認できます。`llm` プロファイルなしでは整形が `[FALLBACK]` のローカル要約で終わります。
 
