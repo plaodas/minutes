@@ -1,9 +1,13 @@
 import logging
 import os
+from datetime import datetime, timezone
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.bg_store import update_task_success
+from minutes.task_result import result_output_file
+
+logger = logging.getLogger("minutes.reconcile")
 
 
 def reconcile_once(outputs_dir: str | None = None) -> None:
@@ -11,45 +15,15 @@ def reconcile_once(outputs_dir: str | None = None) -> None:
 
     This function is best-effort: DB errors are logged and result in an empty tasks map.
     """
-    logger = logging.getLogger("minutes.reconcile")
     outputs_dir = outputs_dir or os.environ.get("OUTPUTS_DIR", "outputs")
 
     # Load tasks from the DB only. Do not fall back to a file-based store.
-    tasks: dict[str, dict] = {}
-    try:
-        from minutes.db import session_scope
-        from minutes.models import Task
-
-        with session_scope() as session:
-            for t in session.query(Task).all():
-                tasks[str(t.id)] = {
-                    "status": t.status,
-                    "result": t.result or {},
-                    "fail_count": int(t.fail_count or 0),
-                    "last_failure_ts": (
-                        t.last_failure_ts.isoformat() + "Z"
-                        if t.last_failure_ts
-                        else None
-                    ),
-                    "last_success_ts": (
-                        t.last_success_ts.isoformat() + "Z"
-                        if t.last_success_ts
-                        else None
-                    ),
-                }
-    except SQLAlchemyError:
-        logger.exception("failed to load tasks for reconciliation")
+    tasks = _load_tasks()
+    if tasks is None:
         tasks = {}
 
     pending = [tid for tid, v in tasks.items() if v.get("status") == "pending"]
-
-    # gather referenced outputs
-    referenced: set[str] = set()
-    for v in tasks.values():
-        r = v.get("result") or {}
-        of = r.get("output_file")
-        if of:
-            referenced.add(os.path.basename(of))
+    referenced = _referenced_output_names(tasks)
 
     # list outputs
     if not os.path.isdir(outputs_dir):
@@ -73,6 +47,107 @@ def reconcile_once(outputs_dir: str | None = None) -> None:
         return
 
     logger.info("No unambiguous mapping found; no changes made.")
+
+
+def quarantine_unreferenced_outputs(
+    outputs_dir: str | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Move old unreferenced minutes files aside, then delete expired quarantined files.
+
+    A failed task read leaves every file in place.
+    """
+    outputs_dir = outputs_dir or os.environ.get("OUTPUTS_DIR", "outputs")
+    moment = now or datetime.now(tz=timezone.utc)
+    tasks = _load_tasks()
+    if tasks is None:
+        logger.error("skipping output quarantine; tasks were not loaded")
+        return
+    if not os.path.isdir(outputs_dir):
+        logger.error("outputs dir not found: %s", outputs_dir)
+        return
+
+    referenced = _referenced_output_names(tasks)
+    quarantine_seconds = int(os.environ.get("OUTPUT_QUARANTINE_SECONDS", "21600"))
+    retention_seconds = int(os.environ.get("OUTPUT_DELETED_RETENTION_SECONDS", "86400"))
+    quarantine_cutoff = moment.timestamp() - quarantine_seconds
+    deleted_dir = os.path.join(outputs_dir, "deleted")
+    moved: set[str] = set()
+
+    for name in os.listdir(outputs_dir):
+        if not name.lower().startswith("minutes_"):
+            continue
+        source = os.path.join(outputs_dir, name)
+        if not os.path.isfile(source) or name in referenced:
+            continue
+        try:
+            if os.path.getmtime(source) > quarantine_cutoff:
+                continue
+            os.makedirs(deleted_dir, exist_ok=True)
+            destination = os.path.join(deleted_dir, name)
+            if os.path.exists(destination):
+                logger.error("quarantine destination already exists: %s", destination)
+                continue
+            os.rename(source, destination)
+            os.utime(destination, (moment.timestamp(), moment.timestamp()))
+            moved.add(name)
+            logger.info("Quarantined unreferenced output %s", destination)
+        except OSError:
+            logger.exception("failed to quarantine output %s", source)
+
+    if not os.path.isdir(deleted_dir):
+        return
+    retention_cutoff = moment.timestamp() - retention_seconds
+    for name in os.listdir(deleted_dir):
+        if name in moved:
+            continue
+        path = os.path.join(deleted_dir, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            if os.path.getmtime(path) <= retention_cutoff:
+                os.remove(path)
+                logger.info("Removed expired quarantined output %s", path)
+        except OSError:
+            logger.exception("failed to remove quarantined output %s", path)
+
+
+def _load_tasks() -> dict[str, dict] | None:
+    try:
+        from minutes.db import session_scope
+        from minutes.models import Task
+
+        tasks: dict[str, dict] = {}
+        with session_scope() as session:
+            for task in session.query(Task).all():
+                tasks[str(task.id)] = {
+                    "status": task.status,
+                    "result": task.result or {},
+                    "fail_count": int(task.fail_count or 0),
+                    "last_failure_ts": (
+                        task.last_failure_ts.isoformat() + "Z"
+                        if task.last_failure_ts
+                        else None
+                    ),
+                    "last_success_ts": (
+                        task.last_success_ts.isoformat() + "Z"
+                        if task.last_success_ts
+                        else None
+                    ),
+                }
+        return tasks
+    except SQLAlchemyError:
+        logger.exception("failed to load tasks for reconciliation")
+        return None
+
+
+def _referenced_output_names(tasks: dict[str, dict]) -> set[str]:
+    referenced: set[str] = set()
+    for task in tasks.values():
+        output_file = result_output_file(task.get("result"))
+        if output_file:
+            referenced.add(os.path.basename(output_file))
+    return referenced
 
 
 if __name__ == "__main__":

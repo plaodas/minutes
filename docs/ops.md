@@ -30,6 +30,8 @@ curl -sS -D - --max-time 3 http://localhost/api/bg/events -o /dev/null || true
 - 生成した成果物は `data/outputs/` にバインドマウントする。
 - Ollama のモデルは、任意の `llm` プロファイルを有効にしたとき、名前付きボリューム `ollama_data` を使う。
 
+`data/outputs/` 直下の `minutes_*` のうち、どのタスクの `result` も指していないファイルは、API が `data/outputs/deleted/` へ移す。対象は更新時刻が `OUTPUT_QUARANTINE_SECONDS`（既定 21600 秒）より古いものだけである。論理削除のタスクが指すファイルは残す。移動時に更新時刻を移した時刻へ直し、移動先に同じ名前があるときは上書きしない。`deleted/` へ移してから `OUTPUT_DELETED_RETENTION_SECONDS`（既定 86400 秒）を過ぎたファイルは消す。タスクの読み取りに失敗した回は移さない。この処理は成果物をタスクへ付けない。実行は起動時と、突き合わせと同じ `RECONCILE_INTERVAL_SECONDS`（既定 3600 秒）ごとで、突き合わせのあとである。
+
 ```bash
 docker compose down
 docker compose --profile llm down -v  # 名前付きボリュームも削除する
@@ -141,7 +143,7 @@ docker compose --profile llm logs --tail 100 ollama ollama-pull
 
 ログイン、一覧、段階の更新が失敗する。API の healthcheck は成功したままである。PostgreSQL が戻ったあとの次の接続取得で、`pool_pre_ping` が張り直す。
 
-段階の書き込みに失敗しても worker はパイプラインを続け、`data/outputs/minutes_*.txt` を書くことがある。API の突き合わせがこのファイルをタスクへ付けるのは、`pending` がちょうど 1 件で、未参照の `minutes_*.txt` もちょうど 1 件のときだけである。すでに `preprocess`、`transcribing`、`formatting` のタスクはそのまま残る。
+段階の書き込みに失敗しても worker はパイプラインを続け、`data/outputs/minutes_*.txt` を書くことがある。API の突き合わせがこのファイルをタスクへ付けるのは、`pending` がちょうど 1 件で、未参照の `minutes_*.txt` もちょうど 1 件のときだけである。すでに `preprocess`、`transcribing`、`formatting` のタスクはそのまま残る。突き合わせのあと、猶予を過ぎた未参照ファイルは `data/outputs/deleted/` へ移る。猶予内のファイルは直下に残り、次の突き合わせの未参照件数に入る。
 
 ```bash
 docker compose up -d db
