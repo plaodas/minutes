@@ -21,7 +21,12 @@ def hard_delete_task(self, task_id: str, requester: str | None = None):
     return delete_task_permanently(task_id, requester)
 
 
-@celery.task(bind=True)
+@celery.task(
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    ignore_result=True,
+)
 def process_audio(self, input_path: str):
     """Run the shared audio pipeline and persist its task lifecycle."""
     task_id = getattr(self.request, "id", None)

@@ -16,6 +16,7 @@ from .task_repository import TaskSnapshot, get_task_snapshot, record_task_histor
 from .task_state import (
     update_cancelled,
     update_failure,
+    update_interrupted,
     update_progress,
     update_status,
     update_success,
@@ -87,6 +88,10 @@ def update_task_success(task_id: str, result: Any):
 
 def update_task_failure(task_id: str, error_msg: str):
     update_failure(task_id, error_msg, emit_task_event)
+
+
+def update_task_interrupted(task_id: str, error_msg: str):
+    update_interrupted(task_id, error_msg, emit_task_event)
 
 
 def update_task_cancelled(task_id: str):

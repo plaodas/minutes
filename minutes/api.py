@@ -5,6 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from minutes.app_lifecycle import app_lifespan
 from minutes.http_errors import http_exception_handler
 from minutes.request_auth import require_admin
+from minutes.request_id import RequestIdMiddleware
 from minutes.routers.admin_buckets import router as admin_buckets_router
 from minutes.routers.authentication import router as authentication_router
 from minutes.routers.background_tasks import (
@@ -52,3 +53,4 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIdMiddleware)

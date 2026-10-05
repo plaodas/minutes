@@ -177,6 +177,27 @@ def update_success(task_id: str, result: Any, emit_event: EventEmitter) -> None:
             return
 
 
+_RESTART_RESULT_KEYS = (
+    "upload_path",
+    "upload_filename",
+    "language",
+    "include_actions",
+)
+
+
+def restart_result(result: object) -> dict[str, Any] | None:
+    """Keep the upload identity so an interrupted task can be run again."""
+    if not isinstance(result, dict):
+        return None
+    kept: dict[str, Any] = {}
+    for key in _RESTART_RESULT_KEYS:
+        value = result.get(key)
+        if value is None or value == "":
+            continue
+        kept[key] = value
+    return kept or None
+
+
 def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> None:
     def mark_failure(session, _key):
         resolved = _get_or_create_task(session, task_id)
@@ -198,6 +219,32 @@ def update_failure(task_id: str, error_msg: str, emit_event: EventEmitter) -> No
             )
         except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
             logger.exception("update_failure failed for %s", task_id)
+            return
+
+
+def update_interrupted(task_id: str, error_msg: str, emit_event: EventEmitter) -> None:
+    """Mark a mid-pipeline task failed while keeping its upload metadata."""
+
+    def mark_interrupted(session, _key):
+        resolved = _get_or_create_task(session, task_id)
+        if not resolved:
+            return
+        _, task = resolved
+        set_task_stage(task, TaskStage.FAILED)
+        task.result = restart_result(task.result)
+        task.fail_count = (task.fail_count or 0) + 1
+        task.last_failure_ts = _now_utc()
+
+    with _lock:
+        try:
+            TaskEventService(emit_event).record_and_publish(
+                task_id,
+                TaskEventType.FAILURE,
+                {"error": error_msg},
+                mutate=mark_interrupted,
+            )
+        except (SQLAlchemyError, OperationalError, OSError, RuntimeError):
+            logger.exception("update_interrupted failed for %s", task_id)
             return
 
 

@@ -23,6 +23,11 @@ def test_lifespan_starts_and_stops_services(monkeypatch):
     )
     monkeypatch.setattr(
         app_lifecycle,
+        "reclaim_interrupted_tasks",
+        lambda: calls.append("reclaim"),
+    )
+    monkeypatch.setattr(
+        app_lifecycle,
         "sweep_expired_uploads",
         lambda: calls.append("sweep"),
     )
@@ -41,6 +46,7 @@ def test_lifespan_starts_and_stops_services(monkeypatch):
         reconcile_task = app.state.reconcile_task
         assert calls == [
             "reconcile",
+            "reclaim",
             "quarantine",
             "sweep",
             ("start_redis", "redis://example:6379/0"),

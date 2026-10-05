@@ -7,7 +7,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.log_context import configure_logging
 from minutes.reconcile_bg_tasks import quarantine_unreferenced_outputs, reconcile_once
+from minutes.task_reclaim import reclaim_interrupted_tasks
 from minutes.upload_retention import sweep_expired_uploads
 
 logger = logging.getLogger("minutes.app_lifecycle")
@@ -15,6 +17,7 @@ logger = logging.getLogger("minutes.app_lifecycle")
 
 def _maintain_background_tasks() -> None:
     reconcile_once()
+    reclaim_interrupted_tasks()
     quarantine_unreferenced_outputs()
     sweep_expired_uploads()
 
@@ -33,6 +36,7 @@ async def _reconcile_loop(interval: int) -> None:
 
 
 async def _start_services(app: FastAPI) -> None:
+    configure_logging()
     try:
         await asyncio.to_thread(_maintain_background_tasks)
         logger.info("Initial bg task reconciliation completed")
