@@ -85,11 +85,22 @@ docker compose run --rm bootstrap
 | --- | --- |
 | `pending` | Redis のキュー長 `docker compose exec redis redis-cli LLEN minutes` と、worker の起動ログ |
 | `preprocess` または `transcribing` | worker ログ。Whisper は worker プロセスの中で動く |
-| `formatting` | worker ログのロガー `minutes.ollama`。ここが数分続くのは想定内 |
+| `formatting` | worker ログのロガー `minutes.ollama`。下の待つ基準の時間までは想定内 |
 | `failed` | `task_history` の `failure` と、worker の例外 |
 | `success` で本文が空、または `[FALLBACK]` で始まる | `data/outputs/` と worker ログ。区間が残っていても議事録本文は空のことがある |
 
 画面だけが止まったときは SSE を見る。ブラウザは `/api/bg/events` を使い、そのストリームが切れると状態のポーリングに落ちる。worker と PostgreSQL が生きていれば処理は続く。
+
+### 待つ基準
+
+止まったように見えても、次のあいだは再起動しない。
+
+| 対象 | 待つ | その後 |
+| --- | --- | --- |
+| 整形（Ollama） | モデルごとに 120 秒、240 秒、480 秒の 3 回。既定の `OLLAMA_TIMEOUT` なら 1 モデルあたり約 14 分 | `formatting` のままが正常。終わると `failed` ではなく、`[FALLBACK]` で始まる `success` |
+| 文字起こし（ローカル Whisper） | 終わるまで。タイムアウトも再実行も無い | `transcribing` が長いこと自体は異常ではない。`celery inspect active` にタスクが無いときだけ、途中で落ちたと判断する |
+| worker が受け取ったジョブ | 待っても戻らない。音声処理の再実行は無い | 受け取ったあとに worker が死ぬと、キューには戻らない |
+| 画面 | SSE は nginx が 1 時間維持する。切れたあとは、進行中タスクを最初 1.5 秒後、以降 10 秒間隔、履歴を 30 秒間隔でポーリングする。状態取得は 10 秒で打ち切り、最大 4 回試す。その失敗が 3 回続くと画面だけ失敗になる | DB の `status` は変わらない |
 
 ### Redis 停止
 
