@@ -1,8 +1,8 @@
-# Operations notes
+# 運用メモ
 
-The supported portfolio deployment is the canonical `docker-compose.yml`.
+このリポジトリで使う構成の正本は `docker-compose.yml` である。
 
-## Start and inspect
+## 起動と確認
 
 ```bash
 docker compose up --build -d
@@ -11,44 +11,153 @@ python3 scripts/smoke_compose.py
 docker compose logs -f minutes worker
 ```
 
-The API and worker wait for PostgreSQL migration and demo-user bootstrap. The frontend waits for the API healthcheck.
+API と worker は、PostgreSQL のマイグレーションと demo ユーザーの作成が終わるまで待つ。フロントエンドは API の healthcheck を待つ。
 
 ## SSE
 
-The browser connects to `/api/bg/events`. `frontend/nginx.conf` gives this path a dedicated unbuffered proxy with one-hour read and send timeouts.
+ブラウザは `/api/bg/events` に接続する。`frontend/nginx.conf` はこのパスだけ、バッファしないプロキシにし、読み取りと送信のタイムアウトを 1 時間にしている。
 
 ```bash
 curl -sS -D - --max-time 3 http://localhost/api/bg/events -o /dev/null || true
 ```
 
-The response should include `content-type: text/event-stream`. When SSE is unavailable, the frontend falls back to status polling.
+レスポンスには `content-type: text/event-stream` が含まれる。SSE が使えないとき、フロントエンドは状態のポーリングに落ちる。
 
-## Data
+## データ
 
-- PostgreSQL uses the `pgdata` named volume.
-- Uploaded files are bind-mounted at `data/uploads/`.
-- Generated artifacts are bind-mounted at `data/outputs/`.
-- Ollama models use the `ollama_data` named volume when the optional `llm` profile is enabled.
+- PostgreSQL は名前付きボリューム `pgdata` を使う。
+- アップロードファイルは `data/uploads/` にバインドマウントする。
+- 生成した成果物は `data/outputs/` にバインドマウントする。
+- Ollama のモデルは、任意の `llm` プロファイルを有効にしたとき、名前付きボリューム `ollama_data` を使う。
 
 ```bash
 docker compose down
-docker compose --profile llm down -v  # also remove named volumes
+docker compose --profile llm down -v  # 名前付きボリュームも削除する
 ```
 
-## Recovery
+## 障害対応
+
+進行中のタスクは、サービスが戻っても続きから再開されない。worker が受け取ったジョブはすぐに ack されるため、worker の停止や再起動でそのジョブは消える。タスク行は最後に書いた段階（`pending`、`preprocess`、`transcribing`、`formatting`）のまま残る。Redis に残っている未着手のジョブは、worker が戻ったあとに処理される。再実行の API はない。音声をアップロードし直し、止まったタスクは削除する。途中段階のタスクは `data/uploads/` のファイルを定期削除から守るので、放置するとそのファイルが残り続ける。
+
+`GET /api/health` が見るのは API プロセスが生きていることだけである。PostgreSQL や Redis が止まっていても成功する。サービスの生死は `docker compose ps` で見る。`db` は `pg_isready`、`redis` は `PING`、`worker` は `celery inspect ping` である。
+
+原因を切り分けているあいだは `docker compose down -v` と全体の再ビルドを使わない。`pgdata`、`data/uploads/`、`data/outputs/` は `-v` 無しの `down` では残る。Redis に名前付きボリュームは無い。`stop` / `start` ではキューが残り、コンテナを作り直すと消える。
+
+### まずやること
+
+1. 症状を一つに決める。アップロードが 500、画面が進まない、タスクが `failed`、`success` なのに本文が空、のどれか。
+2. 終了または unhealthy のサービスを見て、その直近ログを読む。
 
 ```bash
-docker compose restart minutes worker
+docker compose ps
 docker compose logs --tail 200 minutes worker db redis
+```
+
+`llm` プロファイルを使っているときは、`docker compose --profile llm ps` と `docker compose --profile llm logs --tail 200 ollama worker` も実行する。
+
+3. worker がまだそのタスクを実行しているかを見る。
+
+```bash
+docker compose exec worker celery -A minutes.celery_app.celery inspect active
+```
+
+一覧にあれば処理は続いている。一覧に無く、終端でない段階のままなら、そのジョブはもう拾われない。
+
+4. PostgreSQL で段階を読む。Compose の既定はユーザー `minutes`、データベース `minutes` である。
+
+```bash
+docker compose exec db psql -U minutes -d minutes -c \
+  "SELECT id, status, progress, fail_count, updated_at FROM tasks WHERE deleted = false AND status IN ('pending','preprocess','transcribing','formatting') ORDER BY updated_at;"
+```
+
+5. 落ちているサービスだけ起動する。スキーマや demo ユーザーを戻すのは、起動またはログインが失敗しているときだけにする。
+
+```bash
 docker compose run --rm migrate
 docker compose run --rm bootstrap
 ```
 
-Both one-shot jobs are idempotent.
+どちらも繰り返し実行できる。パイプラインの途中で残ったタスクは直らない。
 
-## Where a change runs
+### どこを見るか
 
-Compose copies the source into an image. A file save on the host does not reach a running container. Rebuild only the services that import the changed code:
+| 段階または症状 | 見ること |
+| --- | --- |
+| `pending` | Redis のキュー長 `docker compose exec redis redis-cli LLEN minutes` と、worker の起動ログ |
+| `preprocess` または `transcribing` | worker ログ。Whisper は worker プロセスの中で動く |
+| `formatting` | worker ログのロガー `minutes.ollama`。ここが数分続くのは想定内 |
+| `failed` | `task_history` の `failure` と、worker の例外 |
+| `success` で本文が空、または `[FALLBACK]` で始まる | `data/outputs/` と worker ログ。区間が残っていても議事録本文は空のことがある |
+
+画面だけが止まったときは SSE を見る。ブラウザは `/api/bg/events` を使い、そのストリームが切れると状態のポーリングに落ちる。worker と PostgreSQL が生きていれば処理は続く。
+
+### Redis 停止
+
+Redis は Celery のブローカー、結果バックエンド、SSE のチャネルである。worker 内で進んでいる文字起こしと整形は続き、段階の書き込みは PostgreSQL へ行く。イベント配信は Redis が戻るまで失敗するので、画面は遅れ、その後ポーリングになる。
+
+新規アップロードはキュー投入で失敗し、タスク行は作られない。ファイルは `data/uploads/` に残る。キャンセルは API が PostgreSQL に届くなら行を `cancelled` にする。Celery の revoke には Redis が要る。
+
+```bash
+docker compose up -d redis
+docker compose exec redis redis-cli ping
+```
+
+`PONG` を待つ。コンテナを作り直したあとに `LLEN minutes` が 0 で、タスクが `pending` のままなら、そのジョブは消えている。アップロードし直す。
+
+### worker 停止
+
+Redis に残っているジョブは、worker が戻ったあとに消化される。worker が受け取ったあとに死んだジョブは最後の段階のまま残り、キューには戻らない。
+
+```bash
+docker compose up -d worker
+docker compose logs --tail 200 worker
+```
+
+`inspect active` に出ず、段階が終端でなければ、音声をアップロードし直す。元のファイルは `data/uploads/` に残る。途中の wav（`_mono`、`_norm`、`_clean`）が消えるのは成功したあとだけである。worker イメージの再ビルドでも進行中タスクは落ち、そのコンテナにキャッシュされた Whisper モデルは次の文字起こしで取り直す。
+
+### Ollama 停止・タイムアウト
+
+Ollama は任意である（`llm` プロファイル）。worker は常に `OLLAMA_HOST`（Compose では `http://ollama:11434`）を呼ぶ。Ollama が停止している、または存在しないときも、タスクは `failed` にならない。整形はモデルごとに 3 回待ち、タイムアウトは `OLLAMA_TIMEOUT`、その 2 倍、その 4 倍（既定では 120 秒、240 秒、480 秒）である。その後タスクは `success` になり、議事録本文は `[FALLBACK] Ollama call failed:` で始まる。`message.content` が空のときも `success` として保存される。成果物ファイルは空、履歴のタイトルは未設定、議事録本文は空白のままになる。fallback で終わったタスクは、もう一度整形されない。
+
+```bash
+docker compose --profile llm up -d ollama
+docker compose --profile llm logs --tail 100 ollama ollama-pull
+```
+
+モデルが無いときは `ollama-pull` を見る。プロファイルを上げていないと、整形のたびにこの fallback になる。
+
+### PostgreSQL 停止
+
+ログイン、一覧、段階の更新が失敗する。API の healthcheck は成功したままである。PostgreSQL が戻ったあとの次の接続取得で、`pool_pre_ping` が張り直す。
+
+段階の書き込みに失敗しても worker はパイプラインを続け、`data/outputs/minutes_*.txt` を書くことがある。API の突き合わせがこのファイルをタスクへ付けるのは、`pending` がちょうど 1 件で、未参照の `minutes_*.txt` もちょうど 1 件のときだけである。すでに `preprocess`、`transcribing`、`formatting` のタスクはそのまま残る。
+
+```bash
+docker compose up -d db
+docker compose exec db pg_isready -U minutes -d minutes
+```
+
+`pgdata` ボリュームはそのまま残す。
+
+### Whisper 失敗
+
+Whisper は独立したサービスではない。`faster-whisper` は worker の中で動く（`TRANSCRIBE_MODEL_SIZE`、既定は `small`）。パイプラインが捕捉したエラーはタスクを `failed` にし、`fail_count` を増やし、`result` には `upload_path` だけを残す。文字起こしは保存されない。失敗とキャンセルのアップロードは `UPLOAD_RETENTION_SECONDS`（既定 86400 秒）のあいだ残り、その後 API の定期削除が消す。
+
+worker ログで `preprocess failed` か Whisper の例外を見る。コンテナが殺されたとき（メモリ不足など）は `failed` にならない。worker 停止として扱う。段階は止まった場所のまま残る。
+
+### 処理途中での再起動
+
+| 再起動したサービス | 実行中のタスク |
+| --- | --- |
+| `worker` | 消える。段階はパイプラインの途中のまま残る。Redis に残っているジョブは worker 復帰後に処理される |
+| `minutes` | worker は続行する。SSE は切れ、画面はポーリングで追いつく。起動時の突き合わせは、途中のタスクを動かさない |
+| `db` | 段階の書き込みは短時間失敗し、その後 `pool_pre_ping` が再接続する。停止中に成功を書けなかった場合、成果物ファイルだけが残り `success` の行は付かない |
+| `redis` | 実行中の処理は続く。コンテナを作り直すと、キューに残っていたジョブは消える |
+| スタック全体の `up -d` | 各サービスを再起動したときと同じ。`-v` を付けると PostgreSQL のデータと Ollama のモデルも消える |
+
+## 変更が反映される場所
+
+Compose はソースをイメージへコピーする。ホストでファイルを保存しても、動いているコンテナには届かない。変えたコードを import するサービスだけを再ビルドする。
 
 ```bash
 docker compose up --build -d --no-deps frontend
@@ -56,29 +165,29 @@ docker compose up --build -d --no-deps minutes
 docker compose up --build -d --no-deps worker
 ```
 
-- `frontend`: React UI, labels, and client-side rendering.
-- `minutes`: FastAPI routes, downloads, and response shaping.
-- `worker`: Whisper, the Ollama call, the prompt, and the pipeline that stores a finished task.
-- A module imported by both the API and the worker, such as `minutes/pipeline/formatting.py`, needs both `minutes` and `worker` rebuilt.
+- `frontend`: React の UI、ラベル、クライアント側の描画。
+- `minutes`: FastAPI のルート、ダウンロード、レスポンスの形。
+- `worker`: Whisper、Ollama 呼び出し、プロンプト、完了したタスクを保存するパイプライン。
+- API と worker の両方が import するモジュール（例: `minutes/pipeline/formatting.py`）は、`minutes` と `worker` の両方を再ビルドする。
 
-Do not rebuild the whole stack for one of these changes.
+この種の変更でスタック全体は再ビルドしない。
 
-## What a task stores
+## タスクが保存するもの
 
-Whisper writes `segments` and `transcript` before formatting. Ollama's `message.content` becomes `minutes` and is also written under `data/outputs/`. `summary` and `action_items` are derived from that minutes text. `search_text` joins the task name, transcript, summary, and minutes.
+Whisper は整形の前に `segments` と `transcript` を書く。Ollama の `message.content` が `minutes` になり、`data/outputs/` にも書かれる。`summary` と `action_items` はその議事録本文から導出する。`search_text` はタスク名、文字起こし、要約、議事録を連結する。
 
-The history title is filled only when the task has no name. It uses the first sentence of the output file. The minutes view reads that file. An empty file leaves the title unset and the body blank even when `segments` contain text. `result.minutes` is not a substitute for the file.
+履歴のタイトルが入るのは、タスクに名前が無いときだけである。成果物ファイルの最初の文を使う。議事録画面はそのファイルを読む。ファイルが空だと、`segments` にテキストがあってもタイトルは未設定で本文は空白になる。`result.minutes` はファイルの代わりにならない。
 
-## Model differences
+## モデルの違い
 
-`OLLAMA_MODEL` selects the model for each formatting call, including a fallback model. The request adds `think: false` only when the model name contains `qwen3`. `qwen2.5` keeps the payload without that field. The minutes text is `message.content`. The thinking text is not stored.
+`OLLAMA_MODEL` は、整形の各呼び出しで使うモデルを選ぶ。fallback のモデルも同じである。リクエストに `think: false` を付けるのは、モデル名に `qwen3` が含まれるときだけである。`qwen2.5` ではそのフィールドを付けない。議事録本文は `message.content` である。thinking のテキストは保存しない。
 
-## Checks when the screen disagrees with the code
+## 画面とコードが食い違うとき
 
-- After a frontend rebuild, the service worker can keep the previous SPA. Unregister it in DevTools and reload. See the login note in [README.md](../README.md).
-- From the host, `DATABASE_URL` uses `localhost` and the `postgresql+psycopg2://` scheme. Containers use the host name `db`. Compose builds the container URL from `POSTGRES_*` and does not read `DATABASE_URL` from `.env`.
-- A successful task can still have an empty `minutes` string when Ollama returns an empty `content`. Check the worker log and the output file before treating the transcript as the minutes body.
+- フロントエンドを再ビルドしたあと、service worker が前の SPA を保持することがある。DevTools で登録を解除して再読み込みする。ログイン時の注意は [README.md](../README.md) を見る。
+- ホストから使う `DATABASE_URL` は `localhost` と `postgresql+psycopg2://` スキームである。コンテナはホスト名 `db` を使う。Compose はコンテナの URL を `POSTGRES_*` から組み立て、`.env` の `DATABASE_URL` は読まない。
+- タスクが成功しても、Ollama が空の `content` を返すと `minutes` は空文字のままになる。文字起こしを議事録本文として扱う前に、worker ログと成果物ファイルを確認する。
 
-## Local-only security
+## ローカル限定のセキュリティ
 
-The defaults in `.env.example` are for a local portfolio demo. Docker Compose interpolates `.env` into `docker-compose.yml`; it does not load the whole file into containers. Change `ADMIN_PASS`, `JWT_SECRET`, and PostgreSQL credentials before exposing the service beyond localhost. TLS and multi-host deployment are outside the MVP scope.
+`.env.example` の既定値は、ローカルのデモ用である。Docker Compose は `.env` を `docker-compose.yml` へ展開する。ファイル全体をコンテナへは読み込まない。localhost の外へ出す前に `ADMIN_PASS`、`JWT_SECRET`、PostgreSQL の認証情報を変える。TLS と複数ホストへの配置は MVP の範囲外である。

@@ -1,15 +1,15 @@
-# Minutes frontend
+# Minutes フロントエンド
 
-React, Vite, TypeScript, Tailwind, and a generated service worker provide the Minutes browser UI.
+ブラウザの UI は、React、Vite、TypeScript、Tailwind、生成した service worker でできている。
 
 ```bash
 npm ci
 npm run dev
 ```
 
-The development server proxies `/api` to `http://localhost:8000`. Production uses `nginx.conf` in the frontend image and preserves the same `/api` paths.
+開発サーバーは `/api` を `http://localhost:8000` へプロキシする。本番はフロントエンドイメージの `nginx.conf` を使い、同じ `/api` パスを保つ。
 
-Useful commands:
+使うコマンド:
 
 ```bash
 npm run test:unit
@@ -18,4 +18,4 @@ npm run build
 npm run generate:api-types
 ```
 
-`package-lock.json` is the only dependency lockfile. Generated OpenAPI types live in `src/api/generated.ts`.
+依存のロックファイルは `package-lock.json` だけである。生成した OpenAPI の型は `src/api/generated.ts` にある。

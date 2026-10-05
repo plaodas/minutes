@@ -1,16 +1,16 @@
-# Test guide
+# テスト手順
 
-## Automated checks
+## 自動チェック
 
-From the repository root, with the project virtualenv:
+リポジトリ直下で、プロジェクトの virtualenv を使う。
 
 ```bash
 DATABASE_URL=sqlite:///./.pytest_fresh.db .venv/bin/python -m pytest -q
 ```
 
-`tests/conftest.py` falls back to `sqlite:///./.pytest_sqlite.db` when `DATABASE_URL` is unset. That shared file keeps rows from earlier runs, so a full run should use a fresh file, as above. `python` may be absent; `.venv/bin/python` is the interpreter that has the test dependencies.
+`DATABASE_URL` が未設定のとき、`tests/conftest.py` は `sqlite:///./.pytest_sqlite.db` に落ちる。この共有ファイルは以前の実行の行を残すので、一式を流すときは上のように新しいファイルを使う。`python` が無いことがある。テスト依存の入ったインタプリタは `.venv/bin/python` である。
 
-Frontend:
+フロントエンド:
 
 ```bash
 cd frontend
@@ -20,24 +20,24 @@ npm run lint
 npm run build
 ```
 
-Run the checks that cover the files you changed. A UI change also needs the affected flow exercised in a browser, not only a unit test. A Compose or image change needs the smoke test below.
+変えたファイルをカバーするチェックを実行する。UI の変更は、単体テストに加えて、影響する操作をブラウザで通す。Compose やイメージの変更は、下のスモークテストが要る。
 
-## Compose smoke test
+## Compose のスモークテスト
 
 ```bash
 docker compose up --build -d
 python3 scripts/smoke_compose.py
 ```
 
-The smoke test verifies the required containers, Alembic revision, Redis, the frontend `/api` proxy, and cookie login.
+スモークテストは、必要なコンテナ、Alembic のリビジョン、Redis、フロントエンドの `/api` プロキシ、Cookie ログインを確認する。
 
-## Manual end-to-end acceptance
+## 手動のエンドツーエンド確認
 
-1. Open <http://localhost> or <http://localhost:8080> and sign in with `ADMIN_USER` / `ADMIN_PASS` from `.env` (defaults: `demo` / `demo`).
-2. Upload `docs/sample/demo-meeting.wav` or another short speech recording.
-3. Confirm the task reaches preprocess, transcribing, formatting, and success.
-4. Open the result and download its transcript, summary, and minutes.
-5. Open History and confirm the same task is present.
-6. Stop Ollama or omit the `llm` profile and confirm the task still succeeds with `[FALLBACK]` output.
+1. <http://localhost> または <http://localhost:8080> を開き、`.env` の `ADMIN_USER` / `ADMIN_PASS` でログインする（既定は `demo` / `demo`）。
+2. `docs/sample/demo-meeting.wav` か、別の短い発話の録音をアップロードする。
+3. タスクが preprocess、transcribing、formatting、success まで進むことを確認する。
+4. 結果を開き、文字起こし、要約、議事録をダウンロードする。
+5. 履歴を開き、同じタスクがあることを確認する。
+6. Ollama を止めるか `llm` プロファイルを外し、タスクが `[FALLBACK]` の出力で成功することを確認する。
 
-For SSE fallback testing, enable request blocking for `/api/bg/events`, then reload so the existing EventSource is torn down. History should issue `GET /api/bg/tasks` about every 30 seconds. An in-progress upload should issue `GET /api/bg/status/{id}` about every 10 seconds. Filter Network by Fetch/XHR, not EventStream.
+SSE のフォールバックを試すときは、`/api/bg/events` へのリクエストをブロックしてから再読み込みし、既存の EventSource を破棄する。履歴は約 30 秒ごとに `GET /api/bg/tasks` を出す。進行中のアップロードは約 10 秒ごとに `GET /api/bg/status/{id}` を出す。Network は EventStream ではなく Fetch/XHR で絞る。

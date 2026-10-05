@@ -1,72 +1,71 @@
-Alembic migration skeleton for the project.
+このプロジェクトの Alembic マイグレーションの骨組み。
 
-Quick start:
+クイックスタート:
 
-1. Install dependencies:
+1. 依存を入れる。
 
 ```bash
 pip install alembic sqlalchemy psycopg2-binary
 ```
 
-2. Set your database URL (Postgres example):
+2. データベース URL を設定する（Postgres の例）。
 
 ```bash
 export DATABASE_URL=postgresql://user:password@localhost/minutes
 ```
 
-3. Initialize / run migrations (using the provided initial revision):
+3. 同梱の初期リビジョンでマイグレーションを実行する。
 
 ```bash
 alembic -c alembic.ini upgrade head
 ```
 
-Notes:
-- `alembic/env.py` imports `minutes.models.Base` for `target_metadata`.
-- If you change model module path, update `env.py` accordingly.
+注意:
 
-Recommended workflow
---------------------
+- `alembic/env.py` は `target_metadata` のために `minutes.models.Base` を import する。
+- モデルのモジュールパスを変えたら、`env.py` も合わせる。
 
-1) Install dependencies (locally) or inside the `minutes` container:
+## 推奨する作業手順
+
+1) 依存を入れる（ローカル、または `minutes` コンテナの中）。
 
 ```bash
-# locally (venv)
+# ローカル（venv）
 python3 -m pip install -r requirements.txt
 
-# or inside the compose container that runs the app
+# またはアプリを動かす compose コンテナの中
 docker compose exec minutes bash -lc "python3 -m pip install -r requirements.txt"
 ```
 
-2) Apply migrations (examples)
+2) マイグレーションを適用する（例）。
 
 ```bash
-# preferred: run via Alembic directly
+# 推奨: Alembic を直接実行する
 alembic -c alembic.ini upgrade head
 
-# or use the provided programmatic runner (reads DATABASE_URL env):
+# または同梱の実行スクリプト（DATABASE_URL を読む）
 python3 scripts/run_alembic_head.py
 
-# inside the minutes container (avoids host/network DNS issues):
+# minutes コンテナの中（ホストの名前解決の問題を避ける）
 docker compose exec minutes python3 scripts/run_alembic_head.py
 ```
 
-3) Create a new revision
+3) 新しいリビジョンを作る。
 
 ```bash
-# create an empty revision
+# 空のリビジョンを作る
 alembic -c alembic.ini revision -m "add new column"
 
-# create an autogenerate revision (requires `env.py` to expose target metadata)
+# autogenerate のリビジョンを作る（env.py が target metadata を公開していること）
 alembic -c alembic.ini revision --autogenerate -m "autogen"
 ```
 
-Tips & troubleshooting
-----------------------
-- If your Postgres DB runs inside Docker Compose, run Alembic from inside the same compose network (use `docker compose exec minutes ...`) to avoid "could not translate host name 'db'" errors.
-- If `alembic` is not available in the container, install it via `pip install alembic` or `pip install -r requirements.txt`.
-- If you prefer to run raw SQL migrations, the file `scripts/migrations/001_add_minutes_text.sql` is included as an example.
+## 切り分け
 
-Safety
-------
-- Migration scripts in `alembic/versions/` use idempotent SQL where possible (e.g., `IF NOT EXISTS`). Review generated SQL before applying to production databases.
+- Postgres が Docker Compose の中で動いているときは、同じ compose ネットワークの中から Alembic を実行する（`docker compose exec minutes ...`）。ホストからだと `could not translate host name 'db'` になる。
+- コンテナに `alembic` が無いときは、`pip install alembic` か `pip install -r requirements.txt` で入れる。
+- 生の SQL を流す例は `scripts/migrations_legacy/001_add_minutes_text.sql` にある。
 
+## 安全
+
+- `alembic/versions/` のマイグレーションは、可能な箇所で冪等な SQL（例: `IF NOT EXISTS`）を使う。本番のデータベースへ適用する前に、生成された SQL を確認する。

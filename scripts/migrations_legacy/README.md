@@ -1,9 +1,8 @@
-This folder contains legacy SQL migration scripts that have been
-archived after being incorporated into Alembic revisions.
+このフォルダには、Alembic のリビジョンへ取り込んだあとに保管した、古い SQL マイグレーションがある。
 
-Purpose:
-- Keep a copy of ad-hoc SQL migration files for historical reference.
-- Do NOT run scripts from this folder in production; prefer `alembic upgrade`.
+目的:
 
-If you have pending SQL scripts here that are not reflected in
-`alembic/versions`, please convert them into Alembic revision files.
+- その場限りの SQL マイグレーションを、履歴として残す。
+- 本番ではこのフォルダのスクリプトを実行しない。`alembic upgrade` を使う。
+
+ここに残っていて `alembic/versions` に反映されていない SQL があれば、Alembic のリビジョンファイルへ移す。
