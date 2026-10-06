@@ -11,6 +11,7 @@ from minutes.routers.authentication import router as authentication_router
 from minutes.routers.background_tasks import (
     router as background_tasks_router,
 )
+from minutes.routers.external_users import router as external_users_router
 from minutes.routers.pipeline import router as pipeline_router
 from minutes.routers.service_tokens import router as service_tokens_router
 from minutes.routers.upload_cleanup import router as upload_cleanup_router
@@ -37,6 +38,7 @@ app.include_router(pipeline_router)
 include_canonical_and_legacy_alias(uploads_router)
 app.include_router(user_buckets_router)
 include_canonical_and_legacy_alias(authentication_router)
+app.include_router(external_users_router)
 
 
 # CORS is only used when the browser talks to FastAPI directly (Vite on :5173).

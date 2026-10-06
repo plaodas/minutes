@@ -93,6 +93,7 @@ password: demo
 | --- | --- |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL とコンテナ内 `DATABASE_URL` |
 | `JWT_SECRET` | セッション署名 |
+| `PROVISION_SECRET` | `POST /api/external/users` の共有シークレット。未設定なら発行口は無効。`JWT_SECRET` とは別の値にする |
 | `ADMIN_USER`, `ADMIN_PASS` | bootstrap が作るデモユーザー |
 | `FRONTEND_PORT` | 追加のホストポート（既定 `8080`。80 番は常に公開） |
 | `TRANSCRIBE_MODEL_SIZE` | worker の Whisper モデル |

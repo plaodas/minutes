@@ -5,6 +5,7 @@ x-app-environment: &app-environment
   OUTPUTS_DIR: /app/outputs
   UPLOADS_DIR: /app/uploads
   JWT_SECRET: ${JWT_SECRET:-portfolio-dev-secret-change-me}
+  PROVISION_SECRET: ${PROVISION_SECRET:-}
   ENV: dev
   FORCE_HTTPS: "0"
 

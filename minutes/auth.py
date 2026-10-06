@@ -1,12 +1,15 @@
 import hashlib
+import hmac
 import logging
 import os
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import Cookie, Header, HTTPException, status
 from passlib.hash import pbkdf2_sha256
+from sqlalchemy.exc import IntegrityError
 
 from minutes.db import session_scope
 from minutes.models import ServiceToken, User
@@ -108,20 +111,86 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_service_token(name: str | None = None, user_id: str | None = None):
-    """Create a new service token, store its hash in DB, return plaintext token and model id."""
+def create_service_token(name: str | None = None, user_id: str | None = None, db=None):
+    """Create a new service token, store its hash in DB, return plaintext token and model id.
+
+    Pass ``db`` to insert inside the caller's transaction. Otherwise this opens its own.
+    """
     token = uuid.uuid4().hex + uuid.uuid4().hex
     token_hash = _hash_token(token)
-    with session_scope() as db:
-        st = ServiceToken(name=name, token_hash=token_hash, revoked=False)
+
+    def insert(session):
+        service_token = ServiceToken(name=name, token_hash=token_hash, revoked=False)
         if user_id:
             try:
-                st.user_id = uuid.UUID(user_id)
+                service_token.user_id = uuid.UUID(user_id)
             except (ValueError, TypeError):
                 pass
-        db.add(st)
-        db.flush()
-        return token, str(st.id)
+        session.add(service_token)
+        session.flush()
+        return token, str(service_token.id)
+
+    if db is not None:
+        return insert(db)
+    with session_scope() as session:
+        return insert(session)
+
+
+def match_provision_secret(authorization: str | None) -> bool | None:
+    """Return None when provisioning is disabled, otherwise whether the secret matches.
+
+    The comparison hashes both values so the secret itself is not logged or branched on length.
+    """
+    expected = os.environ.get("PROVISION_SECRET") or ""
+    if not expected.strip():
+        return None
+    presented = authorization or ""
+    if presented.lower().startswith("bearer "):
+        presented = presented.split(" ", 1)[1]
+    expected_digest = hashlib.sha256(expected.encode("utf-8")).digest()
+    presented_digest = hashlib.sha256(presented.encode("utf-8")).digest()
+    return hmac.compare_digest(expected_digest, presented_digest)
+
+
+def provision_external_user(external_id: str) -> tuple[str, str, str]:
+    """Find or create the external user, revoke active tokens, and issue one new token."""
+    last_error: IntegrityError | None = None
+    for _attempt in range(2):
+        try:
+            with session_scope() as db:
+                user = (
+                    db.query(User)
+                    .filter(User.external_subject == external_id)
+                    .one_or_none()
+                )
+                if user is None:
+                    user = User(
+                        username=f"ext-{uuid.uuid4().hex}",
+                        password_hash=get_password_hash(secrets.token_urlsafe(32)),
+                        is_admin=False,
+                        external_subject=external_id,
+                    )
+                    db.add(user)
+                    db.flush()
+                (
+                    db.query(ServiceToken)
+                    .filter(
+                        ServiceToken.user_id == user.id,
+                        ServiceToken.revoked.is_(False),
+                    )
+                    .update({ServiceToken.revoked: True}, synchronize_session=False)
+                )
+                token, token_id = create_service_token(
+                    name="external",
+                    user_id=str(user.id),
+                    db=db,
+                )
+                return str(user.id), token, token_id
+        except IntegrityError as exc:
+            last_error = exc
+    if last_error is None:
+        raise RuntimeError("external user provision failed")
+    raise last_error
 
 
 def verify_service_token(token: str):

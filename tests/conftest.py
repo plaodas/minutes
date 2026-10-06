@@ -27,6 +27,20 @@ try:
                         "NOT NULL DEFAULT 0"
                     )
                 )
+        if "external_subject" not in user_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN external_subject VARCHAR(255)")
+                )
+        index_names = {index["name"] for index in inspector.get_indexes("users")}
+        if "ix_users_external_subject" not in index_names:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_external_subject "
+                        "ON users (external_subject)"
+                    )
+                )
     if inspector.has_table("tasks"):
         task_columns = {column["name"] for column in inspector.get_columns("tasks")}
         if "search_text" not in task_columns:

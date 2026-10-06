@@ -34,6 +34,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     is_admin = Column(Boolean, nullable=False, server_default="false")
     email = Column(String, nullable=True)
+    external_subject = Column(String(255), unique=True, nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
 
 
