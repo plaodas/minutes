@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "20261007_add_user_external_subject"
+revision = "20261007_add_user_ext_subject"
 down_revision = "20261003_add_task_search_text"
 branch_labels = None
 depends_on = None
