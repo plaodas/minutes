@@ -226,4 +226,4 @@ python3 scripts/restore.py backups/<timestamp>
 
 `.env.example` の既定値は、ローカルのデモ用である。Docker Compose は `.env` を `docker-compose.yml` へ展開する。ファイル全体をコンテナへは読み込まない。localhost の外へ出す前に `ADMIN_PASS`、`JWT_SECRET`、`PROVISION_SECRET`、PostgreSQL の認証情報を変える。TLS と複数ホストへの配置は MVP の範囲外である。
 
-外部サービスは `PROVISION_SECRET` を `Authorization: Bearer` に付けて `POST /api/external/users` を呼ぶ。ボディの `external_id` ごとに minutes ユーザーが 1 人でき、応答のサービストークンで以降の API を呼ぶ。同じ `external_id` の再呼び出しは、そのユーザーのサービストークンを失効して新しいトークンを 1 つ返す。秘密とトークンは呼び出し側が保持する。minutes の管理者資格は渡さない。`PROVISION_SECRET` が未設定のとき、この口は 404 である。値は `JWT_SECRET` とは別にする。
+外部サービスの呼び出し手順は [external.md](external.md) にある。`PROVISION_SECRET` が未設定のとき、発行口は 404 である。値は `JWT_SECRET` とは別にする。秘密とサービストークンは呼び出し側が保持し、minutes の管理者資格は渡さない。
