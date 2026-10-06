@@ -1,3 +1,5 @@
+[![CI](https://github.com/plaodas/minutes/actions/workflows/ci.yml/badge.svg)](https://github.com/plaodas/minutes/actions/workflows/ci.yml)
+
 # Minutes
 
 会議の録音をアップロードすると、文字起こし・要約・アクションアイテム付きの議事録まで進むローカル Web アプリです。話者名の手動設定、Word 形式のダウンロード、自分の議事録の本文検索にも対応しています。Celery worker が処理し、ブラウザは SSE（切断時は polling）で進捗を見ます。
