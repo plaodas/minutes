@@ -68,7 +68,7 @@ Content-Type: application/json
 
 一覧の `result` は処理途中のメタデータを含むことがある。`success` になるまで議事録として表示しない。
 
-履歴に `failure: restarting interrupted task` があり、その後に `status: preprocess` などがあれば、停止していた処理を minutes が再投入した記録である。現在の `stage` が処理中なら、そのまま待つ。音声ファイルが失われた場合は `upload file is missing` で `failed` になる。
+履歴に `failure: restarting interrupted task` があり、その後に `status: preprocess` などがあれば、停止していた処理を minutes が再投入した記録である。現在の `stage` が処理中なら、そのまま待つ。音声ファイルが失われた場合は `upload file is missing` で `failed` になる。`failed` で `error` が `preprocess failed` のタスクは、壊れた音声として表示する。
 
 処理中の `stage` が長時間変わらない場合も、外部サービス側だけで `failed` に書き換えない。ポーリングを継続または中止する時間は呼び出し側で決め、minutes の状態確認は運用者へ委ねる。
 

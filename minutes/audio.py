@@ -2,6 +2,15 @@ import os
 import subprocess
 
 
+def _run_ffmpeg(command: list[str]) -> None:
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"ffmpeg failed with exit code {exc.returncode}: {exc.cmd}"
+        ) from exc
+
+
 def preprocess(input_file: str) -> tuple[str, str, str]:
     """Run ffmpeg-based preprocessing and return (mono_file, norm_file, clean_file)."""
     base = os.path.splitext(input_file)[0]
@@ -9,23 +18,16 @@ def preprocess(input_file: str) -> tuple[str, str, str]:
     norm_file = f"{base}_norm.wav"
     clean_file = f"{base}_clean.wav"
 
-    # 1. モノラル化
-    # Produce mono WAV at a controlled sample rate to avoid upsampling
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", input_file, "-ac", "1", "-ar", "16000", mono_file],
-        check=True,
+    # Produce mono WAV at a controlled sample rate to avoid upsampling.
+    _run_ffmpeg(
+        ["ffmpeg", "-y", "-i", input_file, "-ac", "1", "-ar", "16000", mono_file]
     )
-
-    # 2. 音量正規化（loudnorm）
-    # Normalize loudness and keep sample rate stable
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", mono_file, "-ar", "16000", "-af", "loudnorm", norm_file],
-        check=True,
+    # Normalize loudness and keep sample rate stable.
+    _run_ffmpeg(
+        ["ffmpeg", "-y", "-i", mono_file, "-ar", "16000", "-af", "loudnorm", norm_file]
     )
-
-    # 3. ハイパスフィルタ
-    # Apply highpass filter and ensure output sample rate remains 16kHz
-    subprocess.run(
+    # Apply a highpass filter and keep the output sample rate at 16kHz.
+    _run_ffmpeg(
         [
             "ffmpeg",
             "-y",
@@ -36,8 +38,7 @@ def preprocess(input_file: str) -> tuple[str, str, str]:
             "-af",
             "highpass=f=120",
             clean_file,
-        ],
-        check=True,
+        ]
     )
 
     return mono_file, norm_file, clean_file
