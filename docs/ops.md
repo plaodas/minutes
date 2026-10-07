@@ -166,6 +166,8 @@ docker compose exec db pg_isready -U minutes -d minutes
 
 Whisper は独立したサービスではない。`faster-whisper` は worker の中で動く（`TRANSCRIBE_MODEL_SIZE`、既定は `small`）。パイプラインが捕捉したエラーはタスクを `failed` にし、`fail_count` を増やし、`result` には `upload_path` だけを残す。文字起こしは保存されない。失敗とキャンセルのアップロードは `UPLOAD_RETENTION_SECONDS`（既定 86400 秒）のあいだ残り、その後 API の定期削除が消す。
 
+ffmpeg が音声を開けないときも `preprocess failed` で `failed` になる。回収はこの段階を再投入しない。アップロードは失敗から `UPLOAD_RETENTION_SECONDS` 後に消える。タスク行は失敗のまま残り、削除は利用者の操作である。
+
 worker ログで `preprocess failed` か Whisper の例外を見る。コンテナが殺されたとき（メモリ不足など）は `failed` にならない。worker 停止として扱う。段階は止まった場所のまま残る。
 
 ### 処理途中での再起動
@@ -224,4 +226,6 @@ python3 scripts/restore.py backups/<timestamp>
 
 ## ローカル限定のセキュリティ
 
-`.env.example` の既定値は、ローカルのデモ用である。Docker Compose は `.env` を `docker-compose.yml` へ展開する。ファイル全体をコンテナへは読み込まない。localhost の外へ出す前に `ADMIN_PASS`、`JWT_SECRET`、PostgreSQL の認証情報を変える。TLS と複数ホストへの配置は MVP の範囲外である。
+`.env.example` の既定値は、ローカルのデモ用である。Docker Compose は `.env` を `docker-compose.yml` へ展開する。ファイル全体をコンテナへは読み込まない。localhost の外へ出す前に `ADMIN_PASS`、`JWT_SECRET`、`PROVISION_SECRET`、PostgreSQL の認証情報を変える。TLS と複数ホストへの配置は MVP の範囲外である。
+
+外部サービスの呼び出し手順は [external.md](external.md) にある。`PROVISION_SECRET` が未設定のとき、発行口は 404 である。値は `JWT_SECRET` とは別にする。秘密とサービストークンは呼び出し側が保持し、minutes の管理者資格は渡さない。

@@ -413,6 +413,16 @@ class AuthLogoutResponse(BaseModel):
     logged_out: bool
 
 
+class ExternalUserProvisionRequest(BaseModel):
+    external_id: str
+
+
+class ExternalUserProvisionResponse(BaseModel):
+    user_id: str
+    token: str
+    token_id: str
+
+
 class HealthResponse(BaseModel):
     status: str
 

@@ -93,6 +93,7 @@ password: demo
 | --- | --- |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL とコンテナ内 `DATABASE_URL` |
 | `JWT_SECRET` | セッション署名 |
+| `PROVISION_SECRET` | `POST /api/external/users` の共有シークレット。未設定なら発行口は無効。`JWT_SECRET` とは別の値にする |
 | `ADMIN_USER`, `ADMIN_PASS` | bootstrap が作るデモユーザー |
 | `FRONTEND_PORT` | 追加のホストポート（既定 `8080`。80 番は常に公開） |
 | `TRANSCRIBE_MODEL_SIZE` | worker の Whisper モデル |
@@ -177,6 +178,7 @@ npm run build
 
 - [AGENTS.md](AGENTS.md): 開発支援AIが守る作業範囲
 - [docs/ops.md](docs/ops.md): 変更の反映先、タスクの中身、切り分け
+- [docs/external.md](docs/external.md): 外部サービスからのユーザー発行と API の呼び方
 - [docs/test.md](docs/test.md): テストの実行方法
 
 ## 構成

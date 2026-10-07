@@ -1,7 +1,9 @@
+import subprocess
 import wave
 
 import pytest
 
+from minutes.audio import preprocess
 from minutes.pipeline.audio import PreparedAudio, prepare_audio
 
 
@@ -32,6 +34,19 @@ def test_prepare_audio_returns_validated_paths_and_duration(tmp_path):
         sample_rate=16000,
         duration_seconds=pytest.approx(0.02),
     )
+
+
+def test_preprocess_wraps_ffmpeg_failure(monkeypatch, tmp_path):
+    source = tmp_path / "clip.mp3"
+    source.write_bytes(b"not-audio")
+
+    def fail(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(183, ["ffmpeg", "-i", str(source)])
+
+    monkeypatch.setattr("minutes.audio.subprocess.run", fail)
+
+    with pytest.raises(RuntimeError, match=r"exit code 183: \['ffmpeg', '-i'"):
+        preprocess(str(source))
 
 
 def test_prepare_audio_rejects_invalid_clean_wav(tmp_path):
