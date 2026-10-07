@@ -178,7 +178,7 @@ npm run build
 
 - [AGENTS.md](AGENTS.md): 開発支援AIが守る作業範囲
 - [docs/ops.md](docs/ops.md): 変更の反映先、タスクの中身、切り分け
-- [docs/external.md](docs/external.md): 外部サービスからのユーザー発行と API の呼び方
+- [docs/external.md](docs/external.md): 外部サービスからのユーザー発行、API の呼び方、[minutes-ext-access](https://github.com/plaodas/minutes-ext-access) の起動順
 - [docs/test.md](docs/test.md): テストの実行方法
 
 ## 構成

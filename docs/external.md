@@ -4,6 +4,49 @@ minutes のホストから、ベース URL と `PROVISION_SECRET` を受け取�
 
 Compose のベース URL は `http://<host>/api` である。80 番と `FRONTEND_PORT`（既定 8080）のどちらでも同じ nginx に届く。minutes の API コンテナはホストに公開されない。
 
+## 連携サンプル
+
+React、Laravel、MySQL、JWT Bearer からこの API を呼ぶ例が [minutes-ext-access](https://github.com/plaodas/minutes-ext-access) にある。minutes を先に起動する。
+
+### 1. minutes の起動
+
+```bash
+git clone https://github.com/plaodas/minutes.git
+cd minutes
+cp .env.example .env
+```
+
+`.env` の `PROVISION_SECRET` を空以外にし、`JWT_SECRET` とは別の値にする。未設定だと発行口は 404 である。
+
+```bash
+docker compose up --build -d
+```
+
+ホストの 80 番が `/api` を受け付ける。別コンテナからのベース URL は `http://host.docker.internal/api` である。
+
+### 2. minutes-ext-access
+
+```bash
+git clone https://github.com/plaodas/minutes-ext-access.git
+cd minutes-ext-access
+```
+
+`backend/.env` が無いときは `.env.example` をコピーする。`MINUTES_PROVISION_SECRET` に、minutes の `PROVISION_SECRET` と同じ値を書く。`MINUTES_BASE_URL` の初期値は `http://host.docker.internal/api` である。
+
+```bash
+docker compose up --build
+```
+
+別ターミナルでフロントエンドを起動する。
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+ブラウザで <http://localhost:5173> を開く。ログインは `demo@example.com` / `password` である。画面は Laravel（<http://localhost:8000>）だけを呼び、minutes の秘密とサービストークンは Laravel が保持する。
+
 ## 接続の流れ
 
 ```mermaid
