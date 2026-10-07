@@ -53,6 +53,50 @@ Content-Type: application/json
 
 進捗の SSE（`GET /api/bg/events`）は、間に入るプロキシで切れることがある。状態は status のポーリングで見る。
 
+## 取得したデータを表示する
+
+### タスク一覧
+
+`GET /api/bg/tasks` の応答は `{ "tasks": [...] }` である。各タスクの現在状態は `stage` で判定する。`preview_events` は新しい順の履歴が最大 3 件入るが、過去の `failure` を現在の失敗として扱わない。
+
+| `stage` | 表示と処理 |
+| --- | --- |
+| `pending`、`preprocess`、`transcribing`、`formatting` | 処理中として表示する。必要なら `GET /api/bg/status/{task_id}` をポーリングする |
+| `success` | 完了として表示し、選択時に結果を取得する |
+| `failed` | 失敗として表示する。status または履歴の最新エラーを補足に使う |
+| `cancelled` | キャンセル済みとして表示する |
+
+一覧の `result` は処理途中のメタデータを含むことがある。`success` になるまで議事録として表示しない。
+
+履歴に `failure: restarting interrupted task` があり、その後に `status: preprocess` などがあれば、停止していた処理を minutes が再投入した記録である。現在の `stage` が処理中なら、そのまま待つ。音声ファイルが失われた場合は `upload file is missing` で `failed` になる。
+
+処理中の `stage` が長時間変わらない場合も、外部サービス側だけで `failed` に書き換えない。ポーリングを継続または中止する時間は呼び出し側で決め、minutes の状態確認は運用者へ委ねる。
+
+### 結果詳細
+
+`stage` が `success` のときに `GET /api/bg/result/{task_id}` を呼ぶ。成功時は次の形である。
+
+```json
+{
+  "status": "success",
+  "result": {
+    "transcript": "...",
+    "segments": [],
+    "minutes": "...",
+    "summary": "...",
+    "action_items": []
+  }
+}
+```
+
+- `result.minutes` と `result.summary` は Markdown として描画する。raw HTML は実行しない。React では raw HTML を有効にしていない Markdown レンダラーを使う。
+- `result.transcript` はプレーンテキストとして表示する。
+- `result.segments` は区間ごとの時刻、文字列、話者名を使う画面だけで利用する。
+- `result.action_items` は配列で、要素は `text`、または `who`、`what`、`due` などを持つ。未知のフィールドがあっても表示を壊さず、存在する値だけを使う。
+- `minutes` が `[FALLBACK]` で始まる場合も API 上は成功である。ローカル整形の結果として表示し、必要なら「簡易整形」と注記する。
+
+結果 API は未完了、失敗、キャンセルのタスクに HTTP 202 と `status`、`error` を返す。202 は成功レスポンスとして詳細画面へ渡さず、一覧の状態表示へ戻す。401 はトークンの再発行、404 は別ユーザーのタスクまたは存在しないタスクとして扱う。
+
 ## トークンをなくしたとき
 
 同じ `external_id` で発行口をもう一度呼ぶ。`user_id` は変わらない。それまで有効だったサービストークンは失効し、新しい `token` が返る。保存している値をこのトークンに置き換える。
