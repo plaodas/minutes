@@ -425,6 +425,7 @@ class ExternalUserProvisionResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+    hayamimi: bool = False
 
 
 class FormatRawRequest(BaseModel):

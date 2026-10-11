@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from minutes.hayamimi_engine import hayamimi_enabled
 from minutes.http_errors import error_json
 from minutes.ollama import format_minutes_from_raw
 from minutes.schemas import (
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api", tags=["pipeline"])
 
 @router.get("/health", response_model=HealthResponse)
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "hayamimi": hayamimi_enabled()}
 
 
 @router.post(

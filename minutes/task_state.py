@@ -182,6 +182,7 @@ _RESTART_RESULT_KEYS = (
     "upload_filename",
     "language",
     "include_actions",
+    "engine",
 )
 
 

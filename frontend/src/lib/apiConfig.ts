@@ -8,7 +8,10 @@ export function showAdminControls(): boolean {
 export type UploadSettings = {
   language?: string;
   includeActions?: boolean;
+  engine?: string;
 };
+
+const HAYAMIMI_AVAILABLE_KEY = 'minutes.hayamimiAvailable';
 
 function readStorage(key: string): string | null {
   try {
@@ -87,10 +90,31 @@ export function getUploadSettings(): UploadSettings {
   }
 }
 
+export function rememberHayamimiAvailability(available: boolean): void {
+  writeStorage(HAYAMIMI_AVAILABLE_KEY, available ? '1' : '0');
+}
+
+export function isHayamimiAvailable(): boolean {
+  return readStorage(HAYAMIMI_AVAILABLE_KEY) === '1';
+}
+
+export function isJapaneseLanguage(language: string | undefined): boolean {
+  if (!language) return false;
+  const normalized = language.trim().toLowerCase();
+  return normalized === 'ja' || normalized === 'japanese' || normalized.startsWith('jap');
+}
+
 export function applyUploadSettings(formData: FormData): void {
   const settings = getUploadSettings();
   if (settings.language) formData.append('language', settings.language);
   if (typeof settings.includeActions !== 'undefined') {
     formData.append('include_actions', settings.includeActions ? '1' : '0');
+  }
+  if (
+    settings.engine === 'hayamimi' &&
+    isJapaneseLanguage(settings.language) &&
+    isHayamimiAvailable()
+  ) {
+    formData.append('engine', 'hayamimi');
   }
 }

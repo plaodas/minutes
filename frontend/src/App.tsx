@@ -11,7 +11,7 @@ import SettingsView from './components/SettingsView';
 import BucketsAdmin from './components/BucketsAdmin';
 import ServiceTokensAdmin from './components/ServiceTokensAdmin';
 import { getUserFeatures } from './api/client';
-import { showAdminControls } from './lib/apiConfig';
+import { API_BASE, rememberHayamimiAvailability, showAdminControls } from './lib/apiConfig';
 
 export default function App() {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
@@ -44,6 +44,21 @@ export default function App() {
     return () => {
       mounted = false;
       window.removeEventListener('auth-changed', refresh);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let mounted = true;
+    fetch(`${API_BASE}/health`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { hayamimi?: boolean } | null) => {
+        if (mounted) rememberHayamimiAvailability(body?.hayamimi === true);
+      })
+      .catch(() => {
+        if (mounted) rememberHayamimiAvailability(false);
+      });
+    return () => {
+      mounted = false;
     };
   }, []);
 

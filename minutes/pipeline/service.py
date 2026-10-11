@@ -26,12 +26,12 @@ Preprocessor = Callable[[str], Any]
 Formatter = Callable[..., str]
 
 
-def _upload_language(metadata: object) -> str | None:
+def _upload_field(metadata: object, key: str) -> str | None:
     if not isinstance(metadata, dict):
         return None
-    language = metadata.get("language")
-    if isinstance(language, str) and language.strip():
-        return language.strip()
+    value = metadata.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
     return None
 
 
@@ -65,7 +65,8 @@ class PipelineService:
             raise RuntimeError(f"preprocess failed: {exc}") from exc
 
         update_status(TaskStage.TRANSCRIBING, None)
-        language = _upload_language(metadata)
+        language = _upload_field(metadata, "language")
+        engine = _upload_field(metadata, "engine")
         if inference_url:
             transcription = transcribe_remotely(
                 prepared.clean,
@@ -75,6 +76,7 @@ class PipelineService:
                 update_status=update_status,
                 update_progress=update_progress,
                 language=language,
+                engine=engine,
             )
         else:
             transcription = transcribe_locally(
@@ -84,6 +86,7 @@ class PipelineService:
                 update_status=update_status,
                 update_progress=update_progress,
                 language=language,
+                engine=engine,
             )
 
         update_status(TaskStage.FORMATTING, None)

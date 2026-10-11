@@ -97,6 +97,7 @@ password: demo
 | `ADMIN_USER`, `ADMIN_PASS` | bootstrap が作るデモユーザー |
 | `FRONTEND_PORT` | 追加のホストポート（既定 `8080`。80 番は常に公開） |
 | `TRANSCRIBE_MODEL_SIZE` | worker の Whisper モデル |
+| `INSTALL_HAYAMIMI`, `HAYAMIMI_ENABLED` | 任意の日本語エンジン。手順は [docs/ops.md](docs/ops.md) |
 | `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS`, `OLLAMA_TIMEOUT` | `--profile llm` のときだけ |
 
 `.env` にある `MINIO_*`、`ADMIN_API_TOKEN`、`DATABASE_URL` はこの Compose では無視されます。Compose は `POSTGRES_*` から `postgresql+psycopg2://...@db:5432/...` を組み立てます。ホスト側の Python から DB に繋ぐときは `localhost`、コンテナ同士は `db` です。サンプルの秘密情報は localhost 以外で使わないでください。

@@ -88,7 +88,7 @@ def test_pipeline_service_passes_language_to_local_transcription(monkeypatch, tm
 
     service.run(
         "input.wav",
-        metadata={"language": "English"},
+        metadata={"language": "English", "engine": "hayamimi"},
         update_status=lambda stage, detail: None,
         update_progress=lambda progress: None,
         outputs_dir=str(tmp_path),
@@ -96,3 +96,4 @@ def test_pipeline_service_passes_language_to_local_transcription(monkeypatch, tm
     )
 
     assert seen["language"] == "English"
+    assert seen["engine"] == "hayamimi"

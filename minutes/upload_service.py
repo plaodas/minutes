@@ -93,6 +93,7 @@ def _metadata(
     language: str | None,
     include_actions: str | None,
     upload_path: str | None = None,
+    engine: str | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {"upload_filename": filename}
     if upload_path:
@@ -104,6 +105,8 @@ def _metadata(
             metadata["include_actions"] = bool(int(include_actions))
         except (ValueError, TypeError):
             metadata["include_actions"] = include_actions in {"1", "true", "True"}
+    if isinstance(engine, str) and engine.strip():
+        metadata["engine"] = engine.strip()
     return metadata
 
 
@@ -115,6 +118,7 @@ def handle_audio_upload(
     include_actions: str | None,
     create_task_record: CreateTask,
     include_filename: bool,
+    engine: str | None = None,
 ) -> dict[str, Any] | JSONResponse:
     allowed, reason = _is_allowed_upload(file)
     if not allowed:
@@ -140,7 +144,9 @@ def handle_audio_upload(
         )
         create_task_record(
             task.id,
-            metadata=_metadata(filename, language, include_actions, destination),
+            metadata=_metadata(
+                filename, language, include_actions, destination, engine
+            ),
             user_id=str(owner_id),
         )
     except (OSError, AttributeError, RuntimeError, ValueError, SQLAlchemyError) as exc:

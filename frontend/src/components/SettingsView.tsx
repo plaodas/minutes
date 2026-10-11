@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
 
 import useLocalStorage from '../hooks/useLocalStorage';
+import { API_BASE, isJapaneseLanguage, rememberHayamimiAvailability } from '../lib/apiConfig';
 
 import { useToast } from './ToastProvider';
 
@@ -9,9 +10,41 @@ export function SettingsView() {
   const [settings, setSettings] = useLocalStorage('minutes.settings', {
     language: 'Japanese',
     includeActions: true,
+    engine: 'whisper',
   });
+  const [hayamimiAvailable, setHayamimiAvailable] = useState<boolean | null>(null);
   const prevRef = useRef<typeof settings | null>(null);
   const { addToast } = useToast();
+  const showEngine = hayamimiAvailable === true && isJapaneseLanguage(settings.language);
+
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/health`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { hayamimi?: boolean } | null) => {
+        if (cancelled) return;
+        const available = body?.hayamimi === true;
+        rememberHayamimiAvailability(available);
+        setHayamimiAvailable(available);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        rememberHayamimiAvailability(false);
+        setHayamimiAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hayamimiAvailable === false && settingsRef.current.engine === 'hayamimi') {
+      setSettings({ ...settingsRef.current, engine: 'whisper' });
+    }
+  }, [hayamimiAvailable, setSettings]);
 
   useEffect(() => {
     if (prevRef.current === null) {
@@ -25,6 +58,12 @@ export function SettingsView() {
     }
     if (prev.includeActions !== settings.includeActions) {
       addToast(`Include action items: ${settings.includeActions ? 'On' : 'Off'}`, {
+        level: 'success',
+        duration: 2000,
+      });
+    }
+    if (prev.engine !== settings.engine) {
+      addToast(`Transcript engine: ${settings.engine === 'hayamimi' ? '早耳' : 'Whisper'}`, {
         level: 'success',
         duration: 2000,
       });
@@ -58,6 +97,22 @@ export function SettingsView() {
             </select>
           </div>
         </div>
+        {showEngine && (
+          <div className="border-b border-slate-100 p-4 pl-[3.75rem]">
+            <label htmlFor="engine" className="block text-sm font-medium">
+              Japanese transcript engine
+            </label>
+            <select
+              id="engine"
+              value={settings.engine === 'hayamimi' ? 'hayamimi' : 'whisper'}
+              onChange={(event) => setSettings({ ...settings, engine: event.target.value })}
+              className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm sm:max-w-xs"
+            >
+              <option value="whisper">Whisper</option>
+              <option value="hayamimi">早耳</option>
+            </select>
+          </div>
+        )}
         <label
           aria-label="Include action items"
           className="flex cursor-pointer items-center justify-between gap-5 p-4"
