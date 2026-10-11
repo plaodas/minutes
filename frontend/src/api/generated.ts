@@ -352,6 +352,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bg/task/{task_id}/speakers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bg Task Speakers */
+        post: operations["bg_task_speakers_api_bg_task__task_id__speakers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bg/tasks": {
         parameters: {
             query?: never;
@@ -438,6 +455,23 @@ export interface paths {
         put?: never;
         /** Create Bucket */
         post: operations["create_bucket_api_buckets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/external/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create External User */
+        post: operations["create_external_user_api_external_users_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -621,6 +655,8 @@ export interface components {
         };
         /** Body_transcribe_upload_api_transcribe_upload_post */
         Body_transcribe_upload_api_transcribe_upload_post: {
+            /** Engine */
+            engine?: string | null;
             /**
              * File
              * Format: binary
@@ -633,6 +669,8 @@ export interface components {
         };
         /** Body_transcribe_upload_background_api_transcribe_upload_bg_post */
         Body_transcribe_upload_background_api_transcribe_upload_bg_post: {
+            /** Engine */
+            engine?: string | null;
             /**
              * File
              * Format: binary
@@ -689,6 +727,20 @@ export interface components {
             /** Error */
             error: string;
         };
+        /** ExternalUserProvisionRequest */
+        ExternalUserProvisionRequest: {
+            /** External Id */
+            external_id: string;
+        };
+        /** ExternalUserProvisionResponse */
+        ExternalUserProvisionResponse: {
+            /** Token */
+            token: string;
+            /** Token Id */
+            token_id: string;
+            /** User Id */
+            user_id: string;
+        };
         /** FormatRawRequest */
         FormatRawRequest: {
             /** Raw */
@@ -706,6 +758,11 @@ export interface components {
         };
         /** HealthResponse */
         HealthResponse: {
+            /**
+             * Hayamimi
+             * @default false
+             */
+            hayamimi: boolean;
             /** Status */
             status: string;
         };
@@ -778,6 +835,13 @@ export interface components {
         ServiceTokenListResponse: {
             /** Tokens */
             tokens: components["schemas"]["ServiceTokenItem"][];
+        };
+        /** SpeakerUpdate */
+        SpeakerUpdate: {
+            /** Index */
+            index: number;
+            /** Speaker */
+            speaker: string;
         };
         /** StatusResponse */
         StatusResponse: {
@@ -921,6 +985,22 @@ export interface components {
             task_id: string;
             /** Undeleted */
             undeleted: boolean;
+        };
+        /** UpdateSpeakersRequest */
+        UpdateSpeakersRequest: {
+            /** Updates */
+            updates: components["schemas"]["SpeakerUpdate"][];
+        };
+        /** UpdateSpeakersResponse */
+        UpdateSpeakersResponse: {
+            /** Segments */
+            segments: {
+                [key: string]: unknown;
+            }[];
+            /** Task Id */
+            task_id: string;
+            /** Transcript */
+            transcript: string;
         };
         /** UploadCleanupCandidate */
         UploadCleanupCandidate: {
@@ -1347,11 +1427,15 @@ export interface operations {
             query?: {
                 format?: string;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1416,11 +1500,15 @@ export interface operations {
     bg_cancel_api_bg_cancel__task_id__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1447,11 +1535,15 @@ export interface operations {
     bg_delete_api_bg_delete__task_id__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1505,9 +1597,13 @@ export interface operations {
     bg_events_api_bg_events_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1520,16 +1616,29 @@ export interface operations {
                     "text/event-stream": components["schemas"]["TaskEvent"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     bg_force_delete_api_bg_force_delete__task_id__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1574,11 +1683,15 @@ export interface operations {
     bg_hard_delete_api_bg_hard_delete__task_id__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1632,9 +1745,13 @@ export interface operations {
     bg_histories_api_bg_histories_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody: {
             content: {
@@ -1677,11 +1794,15 @@ export interface operations {
                 limit?: number;
                 offset?: number;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1716,12 +1837,18 @@ export interface operations {
     };
     bg_minutes_file_api_bg_minutes__task_id__get: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                format?: string;
+            };
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1784,11 +1911,15 @@ export interface operations {
     bg_result_api_bg_result__task_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1833,11 +1964,15 @@ export interface operations {
     bg_status_api_bg_status__task_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1875,11 +2010,15 @@ export interface operations {
             query?: {
                 format?: string;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -1943,11 +2082,15 @@ export interface operations {
     bg_task_regenerate_name_api_bg_task__task_id__regenerate_name_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -2001,11 +2144,15 @@ export interface operations {
     bg_task_rename_api_bg_task__task_id__rename_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody: {
             content: {
@@ -2051,16 +2198,77 @@ export interface operations {
             };
         };
     };
+    bg_task_speakers_api_bg_task__task_id__speakers_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: {
+                minutes_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSpeakersRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateSpeakersResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     bg_tasks_api_bg_tasks_get: {
         parameters: {
             query?: {
                 limit?: number;
                 offset?: number;
-                q?: string;
+                q?: string | null;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path?: never;
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -2087,11 +2295,15 @@ export interface operations {
     bg_task_events_api_bg_tasks__task_id__events_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -2129,11 +2341,15 @@ export interface operations {
             query?: {
                 format?: string;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -2197,11 +2413,15 @@ export interface operations {
     bg_undelete_api_bg_undelete__task_id__post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                authorization?: string | null;
+            };
             path: {
                 task_id: string;
             };
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody?: never;
         responses: {
@@ -2340,6 +2560,77 @@ export interface operations {
             };
             /** @description Upstream error */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_external_user_api_external_users_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExternalUserProvisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalUserProvisionResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Server error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2526,11 +2817,12 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "x-user-id"?: string | null;
                 authorization?: string | null;
             };
             path?: never;
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody: {
             content: {
@@ -2562,11 +2854,12 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "x-user-id"?: string | null;
                 authorization?: string | null;
             };
             path?: never;
-            cookie?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
         };
         requestBody: {
             content: {

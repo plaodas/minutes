@@ -17,6 +17,7 @@ def transcribe_upload(
     file: UploadFile = File(...),  # noqa: B008
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
+    engine: str | None = Form(None),
     user: User = Depends(require_current_user),  # noqa: B008
 ):
     return handle_audio_upload(
@@ -24,6 +25,7 @@ def transcribe_upload(
         owner_id=user.id,
         language=language,
         include_actions=include_actions,
+        engine=engine,
         create_task_record=bg_store.create_task,
         include_filename=True,
     )
@@ -34,6 +36,7 @@ def transcribe_upload_background(
     file: UploadFile = File(...),  # noqa: B008
     language: str | None = Form(None),
     include_actions: str | None = Form(None),
+    engine: str | None = Form(None),
     user: User = Depends(require_current_user),  # noqa: B008
 ):
     return handle_audio_upload(
@@ -41,6 +44,7 @@ def transcribe_upload_background(
         owner_id=user.id,
         language=language,
         include_actions=include_actions,
+        engine=engine,
         create_task_record=bg_store.create_task,
         include_filename=False,
     )

@@ -170,6 +170,27 @@ ffmpeg が音声を開けないときも `preprocess failed` で `failed` にな
 
 worker ログで `preprocess failed` か Whisper の例外を見る。コンテナが殺されたとき（メモリ不足など）は `failed` にならない。worker 停止として扱う。段階は止まった場所のまま残る。
 
+### 日本語エンジン（hayamimi）
+
+既定の文字起こしは faster-whisper である。日本語だけ、アップロードの `engine=hayamimi` で [hayamimi](https://github.com/oboroge0/hayamimi)（ReazonSpeech）を選べる。英語と自動判定はこの値があっても Whisper のままである。モデルが読めない、または `HAYAMIMI_ENABLED` がオフのときに選ばれていたら、Whisper へ戻さずそのタスクは失敗する。話者の自動分離はしない。
+
+導入は worker イメージの再ビルドと、約 1.1 GB の `--minimal` モデルが要る。API と worker の両方で `HAYAMIMI_ENABLED=1` にする。画面の選択肢は API の `GET /api/health` が `hayamimi: true` のときだけ出る。モデルはプロセスごとに載るので、`HAYAMIMI_ENABLED` がオンのとき worker は `--concurrency=1` で起動する。
+
+```bash
+# .env
+INSTALL_HAYAMIMI=true
+HAYAMIMI_ENABLED=1
+```
+
+```bash
+docker compose up --build -d --no-deps worker
+docker compose up --build -d --no-deps minutes
+docker compose run --rm --no-deps worker \
+  python /opt/hayamimi/scripts/download_models.py --minimal
+```
+
+重みは `data/hayamimi-models/` に置かれ、コンテナの `/opt/hayamimi/models` にマウントされる。ソースのピンは Dockerfile の `HAYAMIMI_REF` である。
+
 ### 処理途中での再起動
 
 | 再起動したサービス | 実行中のタスク |

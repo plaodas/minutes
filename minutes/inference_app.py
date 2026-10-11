@@ -18,12 +18,14 @@ app = FastAPI(title="Minutes Inference Service")
 # module-level defaults for FastAPI params to satisfy the linter
 _UPLOAD_FILE = File(...)
 _LANGUAGE_FORM = Form(None)
+_ENGINE_FORM = Form(None)
 
 
 @app.post("/transcribe")
 async def transcribe_endpoint(
     file: UploadFile = _UPLOAD_FILE,
     language: str | None = _LANGUAGE_FORM,
+    engine: str | None = _ENGINE_FORM,
 ):
     uploads_dir = os.environ.get("UPLOADS_DIR", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
@@ -111,6 +113,7 @@ async def transcribe_endpoint(
                 prompt=None,
                 progress_callback=_progress,
                 language=language,
+                engine=engine,
             )
             final = {"type": "final", "raw_text": raw_text, "segments": segs}
             q.put(json.dumps(final, ensure_ascii=False) + "\n")

@@ -8,6 +8,8 @@ x-app-environment: &app-environment
   PROVISION_SECRET: ${PROVISION_SECRET:-}
   ENV: dev
   FORCE_HTTPS: "0"
+  # Optional Japanese engine. Empty keeps Whisper as the only choice.
+  HAYAMIMI_ENABLED: ${HAYAMIMI_ENABLED:-}
 
 x-app-volumes: &app-volumes
   - ./data/uploads:/app/uploads
@@ -108,6 +110,7 @@ services:
       context: .
       args:
         INSTALL_WORKER: "true"
+        INSTALL_HAYAMIMI: ${INSTALL_HAYAMIMI:-false}
     environment:
       <<: *app-environment
       OLLAMA_HOST: http://ollama:11434
@@ -116,16 +119,16 @@ services:
       # Seconds per /api/chat attempt (retries at 1x, 2x, 4x). CPU inference needs more than 5s.
       OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-120}
       TRANSCRIBE_MODEL_SIZE: ${TRANSCRIBE_MODEL_SIZE:-small}
-    volumes: *app-volumes
+      HAYAMIMI_ROOT: /opt/hayamimi
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./data/outputs:/app/outputs
+      - ./data/hayamimi-models:/opt/hayamimi/models
     command:
       [
-        "celery",
-        "-A",
-        "minutes.celery_app.celery",
-        "worker",
-        "-Q",
-        "minutes",
-        "--loglevel=info",
+        "sh",
+        "-c",
+        "case \"$$HAYAMIMI_ENABLED\" in 1|true|yes|TRUE|YES) extra=--concurrency=1;; *) extra=;; esac; exec celery -A minutes.celery_app.celery worker -Q minutes --loglevel=info $$extra",
       ]
     depends_on:
       bootstrap:

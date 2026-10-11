@@ -54,6 +54,7 @@ def test_transcribe_locally_uses_model_size_env(monkeypatch):
 
     assert seen["model_size"] == "tiny"
     assert seen["language"] is None
+    assert seen["engine"] is None
 
 
 def test_transcribe_locally_forwards_upload_language():
@@ -73,6 +74,7 @@ def test_transcribe_locally_forwards_upload_language():
     )
 
     assert seen["language"] == "English"
+    assert seen["engine"] is None
 
 
 def test_transcribe_locally_skips_percentage_without_duration():
@@ -140,6 +142,29 @@ def test_transcribe_remotely_parses_streamed_segments(tmp_path):
     assert statuses == [(TaskStage.TRANSCRIBING, "2.5s")]
     assert progress == [50.0, 100.0]
     assert posts[0]["data"] == {"language": "English"}
+
+
+def test_transcribe_remotely_sends_hayamimi_engine(tmp_path):
+    audio = tmp_path / "clean.wav"
+    audio.write_bytes(b"audio")
+    posts = []
+
+    def post(*_args, **kwargs):
+        posts.append(kwargs)
+        return FakeResponse(text='{"type":"final","raw_text":"ja","segments":[]}')
+
+    transcribe_remotely(
+        str(audio),
+        inference_url="http://inference/transcribe",
+        duration_seconds=None,
+        post=post,
+        update_status=lambda _stage, _detail: None,
+        update_progress=lambda _progress: None,
+        language="Japanese",
+        engine="hayamimi",
+    )
+
+    assert posts[0]["data"] == {"language": "Japanese", "engine": "hayamimi"}
 
 
 def test_transcribe_remotely_falls_back_after_chunk_error(tmp_path):

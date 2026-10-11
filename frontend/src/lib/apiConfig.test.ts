@@ -9,6 +9,8 @@ import {
   getUploadAuthHeaders,
   getUploadSettings,
   getUserId,
+  isHayamimiAvailable,
+  rememberHayamimiAvailability,
   showAdminControls,
 } from './apiConfig';
 
@@ -52,5 +54,35 @@ describe('apiConfig', () => {
     applyUploadSettings(formData);
     expect(formData.get('language')).toBe('ja');
     expect(formData.get('include_actions')).toBe('0');
+    expect(formData.get('engine')).toBeNull();
+  });
+
+  it('sends hayamimi only for Japanese when the server offers it', () => {
+    rememberHayamimiAvailability(true);
+    expect(isHayamimiAvailable()).toBe(true);
+    localStorage.setItem(
+      'minutes.settings',
+      JSON.stringify({ language: 'Japanese', includeActions: true, engine: 'hayamimi' })
+    );
+    const japanese = new FormData();
+    applyUploadSettings(japanese);
+    expect(japanese.get('engine')).toBe('hayamimi');
+
+    localStorage.setItem(
+      'minutes.settings',
+      JSON.stringify({ language: 'English', includeActions: true, engine: 'hayamimi' })
+    );
+    const english = new FormData();
+    applyUploadSettings(english);
+    expect(english.get('engine')).toBeNull();
+
+    rememberHayamimiAvailability(false);
+    localStorage.setItem(
+      'minutes.settings',
+      JSON.stringify({ language: 'Japanese', includeActions: true, engine: 'hayamimi' })
+    );
+    const unavailable = new FormData();
+    applyUploadSettings(unavailable);
+    expect(unavailable.get('engine')).toBeNull();
   });
 });

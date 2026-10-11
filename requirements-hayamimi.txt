@@ -1,0 +1,9 @@
+# Optional Japanese ASR (hayamimi / ReazonSpeech via sherpa-onnx).
+# Installed only when the image is built with INSTALL_HAYAMIMI=true.
+# Versions match oboroge0/hayamimi requirements.txt at HAYAMIMI_REF.
+numpy==2.4.6
+soundfile==0.14.0
+sherpa-onnx==1.13.6
+onnxruntime==1.29.0
+fugashi==1.5.2
+unidic-lite==1.0.8

@@ -89,7 +89,7 @@ Content-Type: application/json
 
 以降の呼び出しは `Authorization: Bearer <token>` を付ける。
 
-1. `POST /api/transcribe-upload-bg` に音声を multipart の `file` で送る。受け付ける拡張子は `.wav`、`.mp3`、`.m4a`、`.flac`、`.ogg`、`.opus`、または `audio/` の Content-Type である。応答の `task_id` を保存する。
+1. `POST /api/transcribe-upload-bg` に音声を multipart の `file` で送る。受け付ける拡張子は `.wav`、`.mp3`、`.m4a`、`.flac`、`.ogg`、`.opus`、または `audio/` の Content-Type である。任意の `engine` は未指定なら Whisper である。`hayamimi` は言語が日本語のときだけ使われ、導入されていないとそのタスクは失敗する。応答の `task_id` を保存する。
 2. `GET /api/bg/status/{task_id}` を繰り返す。`stage` は `pending`、`preprocess`、`transcribing`、`formatting` を経て、`success`、`failed`、`cancelled` のいずれかで終わる。
 3. `success` のあと、`GET /api/bg/result/{task_id}` で結果を取る。本文だけの取得は `GET /api/bg/minutes/{task_id}`、`GET /api/bg/transcript/{task_id}`、`GET /api/bg/summary/{task_id}`、`GET /api/bg/action-items/{task_id}` である。
 4. 一覧は `GET /api/bg/tasks` である。

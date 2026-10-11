@@ -54,6 +54,13 @@ def jsonable_segments(segments: Iterable[object] | object) -> list[Any]:
     return [jsonable_segment(item) for item in items]
 
 
+def use_hayamimi(engine: object, language: object) -> bool:
+    """True only for an explicit hayamimi request whose language resolves to Japanese."""
+    if not isinstance(engine, str) or engine.strip().lower() != "hayamimi":
+        return False
+    return whisper_language(language) == "ja"
+
+
 def transcribe(
     audio_path: str,
     model_size: str = "medium",
@@ -62,13 +69,49 @@ def transcribe(
     raw_out: str | None = None,
     progress_callback: Callable[[Any], None] | None = None,
     language: str | None = None,
+    engine: str | None = None,
 ) -> tuple[str, object]:
-    """Transcribe audio using faster-whisper and optionally save raw transcript.
+    """Transcribe audio and optionally save the raw transcript.
 
-    Delays importing `faster_whisper` so the API can start without heavy
-    dependencies. If `faster_whisper` is not installed, a RuntimeError is raised
-    at call time with instructions.
+    Japanese audio can use hayamimi when ``engine`` is ``hayamimi``. Every
+    other request uses faster-whisper. Import of either engine is delayed so
+    the API can start without the worker dependencies.
     """
+    if use_hayamimi(engine, language):
+        from minutes.hayamimi_engine import transcribe_with_hayamimi
+
+        raw_text, seg_list = transcribe_with_hayamimi(
+            audio_path,
+            progress_callback=progress_callback,
+        )
+    else:
+        raw_text, seg_list = _transcribe_whisper(
+            audio_path,
+            model_size=model_size,
+            prompt=prompt,
+            device=device,
+            progress_callback=progress_callback,
+            language=language,
+        )
+
+    seg_list = jsonable_segments(seg_list)
+
+    if raw_out:
+        with open(raw_out, "w", encoding="utf-8") as f:
+            f.write(raw_text)
+
+    return raw_text, seg_list
+
+
+def _transcribe_whisper(
+    audio_path: str,
+    *,
+    model_size: str,
+    prompt: str | None,
+    device: str,
+    progress_callback: Callable[[Any], None] | None,
+    language: str | None,
+) -> tuple[str, list[Any]]:
     try:
         from faster_whisper import WhisperModel
     except ImportError as e:
@@ -100,10 +143,4 @@ def transcribe(
                 pass
 
     raw_text = "\n".join([seg.text for seg in seg_list])
-    seg_list = jsonable_segments(seg_list)
-
-    if raw_out:
-        with open(raw_out, "w", encoding="utf-8") as f:
-            f.write(raw_text)
-
     return raw_text, seg_list

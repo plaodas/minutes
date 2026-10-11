@@ -68,6 +68,7 @@ def test_interrupted_stage_restarts_with_upload_metadata(monkeypatch):
             "upload_path": "/tmp/audio.wav",
             "upload_filename": "audio.wav",
             "language": "English",
+            "engine": "hayamimi",
             "minutes": "partial",
         },
     )
@@ -79,6 +80,7 @@ def test_interrupted_stage_restarts_with_upload_metadata(monkeypatch):
 
     assert result["status"] == "success"
     assert seen[0]["language"] == "English"
+    assert seen[0]["engine"] == "hayamimi"
     assert seen[0]["upload_path"] == "/tmp/audio.wav"
     stored = get_task(task_id)
     assert stored["status"] == "success"

@@ -86,6 +86,7 @@ def transcribe_locally(
     update_status: StatusUpdater,
     update_progress: ProgressUpdater,
     language: str | None = None,
+    engine: str | None = None,
 ) -> TranscriptionResult:
     def report_progress(segment: object) -> None:
         _report_progress(
@@ -101,6 +102,7 @@ def transcribe_locally(
         prompt=None,
         progress_callback=report_progress,
         language=language,
+        engine=engine,
     )
     update_progress(100.0)
     return TranscriptionResult(
@@ -109,10 +111,16 @@ def transcribe_locally(
     )
 
 
-def _language_form(language: str | None) -> dict[str, str] | None:
-    if not language:
-        return None
-    return {"language": language}
+def _request_form(
+    language: str | None,
+    engine: str | None,
+) -> dict[str, str] | None:
+    data: dict[str, str] = {}
+    if language:
+        data["language"] = language
+    if engine:
+        data["engine"] = engine
+    return data or None
 
 
 def transcribe_remotely(
@@ -126,6 +134,7 @@ def transcribe_remotely(
     sleep: Sleeper = time.sleep,
     max_attempts: int = 3,
     language: str | None = None,
+    engine: str | None = None,
 ) -> TranscriptionResult:
     backoff = 1.0
     last_error: Exception | None = None
@@ -135,7 +144,7 @@ def transcribe_remotely(
                 response = post(
                     inference_url,
                     files={"file": (os.path.basename(audio_path), audio, "audio/wav")},
-                    data=_language_form(language),
+                    data=_request_form(language, engine),
                     stream=True,
                     timeout=(5, 360),
                     headers={"Connection": "keep-alive"},
@@ -156,7 +165,7 @@ def transcribe_remotely(
                 response = post(
                     inference_url,
                     files={"file": (os.path.basename(audio_path), audio, "audio/wav")},
-                    data=_language_form(language),
+                    data=_request_form(language, engine),
                     timeout=(5, 300),
                     headers={"Connection": "keep-alive"},
                 )
