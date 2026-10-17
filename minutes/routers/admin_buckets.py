@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.audit import actor_from_admin_request, record_audit
 from minutes.db import session_scope
 from minutes.http_errors import error_json
 from minutes.minio_client import MinioService
@@ -116,16 +117,25 @@ def create_bucket(payload: AdminCreateBucketRequest):
     response_model=DeletedFlagResponse,
     responses={500: JSON_ERROR_RESPONSES[500]},
 )
-def delete_bucket(name: str, force: bool = False):
+def delete_bucket(name: str, force: bool = False, request: Request = None):
     try:
         from minio.error import S3Error
     except ImportError:
         S3Error = Exception
+    actor = actor_from_admin_request(request)
     try:
         service = MinioService()
         service.delete_bucket(name, force=force)
         with session_scope() as session:
             session.query(Bucket).filter(Bucket.name == name).delete()
+            record_audit(
+                action="bucket.delete",
+                actor=actor,
+                target_type="bucket",
+                target_id=name,
+                detail={"force": force},
+                session=session,
+            )
         return {"deleted": True}
     except (S3Error, OSError, SQLAlchemyError) as exc:
         return error_json(str(exc), 500)

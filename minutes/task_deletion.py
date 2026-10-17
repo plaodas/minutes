@@ -25,6 +25,7 @@ def delete_task_permanently(
     requester: str | None = None,
     *,
     artifact_errors_fatal: bool = True,
+    after_mutate=None,
 ) -> dict[str, object]:
     def delete_task(db, key):
         task = db.get(Task, key)
@@ -87,6 +88,9 @@ def delete_task_permanently(
                         db.delete(bucket)
         except SQLAlchemyError:
             logger.exception("Bucket cleanup failed for task %s", task_id)
+
+        if after_mutate is not None:
+            after_mutate(db)
 
     try:
         TaskEventService(emit_task_event).record_and_publish(

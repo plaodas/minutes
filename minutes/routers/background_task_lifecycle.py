@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from kombu.exceptions import KombuError
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.audit import actor_from_user_request, record_audit
 from minutes.auth import require_current_user
 from minutes.bg_store import update_task_cancelled
 from minutes.celery_app import celery
@@ -72,12 +73,26 @@ def bg_cancel(task_id: str, user: User = Depends(require_current_user)):  # noqa
         500: JSON_ERROR_RESPONSES[500],
     },
 )
-def bg_delete(task_id: str, user: User = Depends(require_current_user)):  # noqa: B008
+def bg_delete(
+    task_id: str,
+    user: User = Depends(require_current_user),  # noqa: B008
+    request: Request = None,
+):
     missing = _unknown_unless_owned(task_id, user)
     if missing:
         return missing
+    actor = actor_from_user_request(request, user)
     try:
-        if not mark_task_deleted(task_id):
+        if not mark_task_deleted(
+            task_id,
+            after_mutate=lambda session: record_audit(
+                action="task.delete",
+                actor=actor,
+                target_type="task",
+                target_id=task_id,
+                session=session,
+            ),
+        ):
             return error_json("unknown task", 404)
     except ValueError as exc:
         return error_json(str(exc), 409)
@@ -96,10 +111,12 @@ def bg_delete(task_id: str, user: User = Depends(require_current_user)):  # noqa
 def bg_force_delete(
     task_id: str,
     user: User = Depends(require_current_user),  # noqa: B008
+    request: Request = None,
 ):
     missing = _unknown_unless_owned(task_id, user)
     if missing:
         return missing
+    actor = actor_from_user_request(request, user)
     try:
         celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
     except (CeleryError, KombuError):
@@ -109,6 +126,13 @@ def bg_force_delete(
         result = delete_task_permanently(
             task_id,
             artifact_errors_fatal=False,
+            after_mutate=lambda session: record_audit(
+                action="task.force_delete",
+                actor=actor,
+                target_type="task",
+                target_id=task_id,
+                session=session,
+            ),
         )
         if not result["deleted"]:
             return error_json("unknown task", 404)
@@ -126,12 +150,26 @@ def bg_force_delete(
         500: JSON_ERROR_RESPONSES[500],
     },
 )
-def bg_undelete(task_id: str, user: User = Depends(require_current_user)):  # noqa: B008
+def bg_undelete(
+    task_id: str,
+    user: User = Depends(require_current_user),  # noqa: B008
+    request: Request = None,
+):
     missing = _unknown_unless_owned(task_id, user)
     if missing:
         return missing
+    actor = actor_from_user_request(request, user)
     try:
-        if not restore_task(task_id):
+        if not restore_task(
+            task_id,
+            after_mutate=lambda session: record_audit(
+                action="task.undelete",
+                actor=actor,
+                target_type="task",
+                target_id=task_id,
+                session=session,
+            ),
+        ):
             return error_json("unknown task", 404)
     except ValueError as exc:
         return error_json(str(exc), 409)
@@ -167,8 +205,15 @@ def bg_hard_delete(
             from minutes.tasks import hard_delete_task
 
             job = hard_delete_task.delay(task_id, None)
+            record_audit(
+                action="task.hard_delete",
+                actor=actor_from_user_request(request, user),
+                target_type="task",
+                target_id=task_id,
+                detail={"enqueued": True},
+            )
             return {"task_id": task_id, "enqueued": True, "job_id": str(job)}
         except (ImportError, AttributeError, CeleryError, KombuError):
-            return bg_force_delete(task_id, user)
+            return bg_force_delete(task_id, user, request)
     except (SQLAlchemyError, OSError, RuntimeError, CeleryError) as exc:
         return error_json(str(exc), 500)

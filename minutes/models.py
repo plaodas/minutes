@@ -6,6 +6,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -107,3 +108,18 @@ class ServiceToken(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     revoked = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(DateTime, server_default=func.now())
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (Index("ix_audit_events_target", "target_type", "target_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+    action = Column(String, nullable=False)
+    actor_kind = Column(String, nullable=False)
+    actor_user_id = Column(UUID(as_uuid=True), nullable=True)
+    actor_token_id = Column(UUID(as_uuid=True), nullable=True)
+    target_type = Column(String, nullable=False)
+    target_id = Column(String, nullable=False)
+    detail = Column(JSON, nullable=True)

@@ -1,8 +1,9 @@
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from minutes.audit import actor_from_admin_request, record_audit
 from minutes.auth import create_service_token
 from minutes.db import session_scope
 from minutes.http_errors import error_json
@@ -23,10 +24,17 @@ class CreateServiceTokenRequest(BaseModel):
 
 
 @router.post("", response_model=ServiceTokenCreatedResponse)
-def create_token(payload: CreateServiceTokenRequest):
+def create_token(payload: CreateServiceTokenRequest, request: Request = None):
     token, token_id = create_service_token(
         name=payload.name,
         user_id=payload.user_id,
+    )
+    record_audit(
+        action="service_token.create",
+        actor=actor_from_admin_request(request),
+        target_type="service_token",
+        target_id=token_id,
+        detail={"name": payload.name, "user_id": payload.user_id},
     )
     return {"token": token, "id": token_id}
 
@@ -59,15 +67,27 @@ def list_tokens():
         404: JSON_ERROR_RESPONSES[404],
     },
 )
-def revoke_token(token_id: str):
+def revoke_token(token_id: str, request: Request = None):
     try:
         key = uuid.UUID(token_id)
     except (ValueError, TypeError):
         return error_json("invalid token id", 400)
 
+    actor = actor_from_admin_request(request)
     with session_scope() as session:
         token = session.get(ServiceToken, key)
         if not token:
             return error_json("not found", 404)
         token.revoked = True
+        record_audit(
+            action="service_token.revoke",
+            actor=actor,
+            target_type="service_token",
+            target_id=str(token.id),
+            detail={
+                "name": token.name,
+                "user_id": str(token.user_id) if token.user_id else None,
+            },
+            session=session,
+        )
         return {"revoked": True}

@@ -99,12 +99,26 @@ export default function ServiceTokensAdmin() {
         ) : (
           <ul className="space-y-2">
             {tokens.map((t) => (
-              <li key={t.id} className="rounded border p-2 flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{t.name || t.id}</div>
+              <li
+                key={t.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded border p-2"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className={`break-all font-medium ${t.revoked ? 'text-[var(--muted)]' : ''}`}
+                    >
+                      {t.name || t.id}
+                    </div>
+                    {t.revoked && (
+                      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">
+                        Revoked
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-[var(--muted)]">user: {t.user_id || '—'}</div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     onClick={() => {
                       try {
@@ -119,7 +133,8 @@ export default function ServiceTokensAdmin() {
                   </button>
                   <button
                     onClick={() => handleRevoke(t.id)}
-                    className="rounded bg-red-600 px-2 py-1 text-sm text-white"
+                    disabled={t.revoked}
+                    className="rounded bg-red-600 px-2 py-1 text-sm text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     Revoke
                   </button>

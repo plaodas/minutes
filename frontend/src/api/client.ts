@@ -9,6 +9,7 @@ import { parseTaskHistoryResponse, parseTaskListResponse } from '../lib/taskStat
 import type { TaskHistoryPreview, TaskListItem } from '../lib/taskState';
 
 import type {
+  AuditEventListResponse,
   AuthFeaturesResponse,
   AuthLoginResponse,
   AuthLogoutResponse,
@@ -349,6 +350,26 @@ export async function createBucket(name: string): Promise<UserBucketResponse> {
   });
   if (!res.ok) throw new Error('failed to create bucket');
   return res.json() as Promise<UserBucketResponse>;
+}
+
+export async function listAuditEvents(
+  filters: {
+    action?: string;
+    target_type?: string;
+    target_id?: string;
+  } = {}
+): Promise<AuditEventListResponse> {
+  const params = new URLSearchParams();
+  if (filters.action) params.set('action', filters.action);
+  if (filters.target_type) params.set('target_type', filters.target_type);
+  if (filters.target_id) params.set('target_id', filters.target_id);
+  const query = params.toString();
+  const res = await fetch(`${API_BASE}/audit-events${query ? `?${query}` : ''}`, {
+    credentials: 'same-origin',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error('failed to fetch audit events');
+  return res.json() as Promise<AuditEventListResponse>;
 }
 
 export async function listServiceTokens(): Promise<ServiceTokenListResponse> {

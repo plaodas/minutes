@@ -11,7 +11,7 @@ class _TaskNotFoundError(Exception):
     pass
 
 
-def mark_task_deleted(task_id: str) -> bool:
+def mark_task_deleted(task_id: str, *, after_mutate=None) -> bool:
     def delete_task(session, key):
         task = session.get(Task, key)
         if not task:
@@ -22,6 +22,8 @@ def mark_task_deleted(task_id: str) -> bool:
         task.deleted = True
         task.deleted_at = datetime.now(tz=timezone.utc)
         session.add(task)
+        if after_mutate is not None:
+            after_mutate(session)
         return previous_status
 
     try:
@@ -36,7 +38,7 @@ def mark_task_deleted(task_id: str) -> bool:
     return True
 
 
-def restore_task(task_id: str) -> bool:
+def restore_task(task_id: str, *, after_mutate=None) -> bool:
     def undelete_task(session, key):
         task = session.get(Task, key)
         if not task:
@@ -48,6 +50,8 @@ def restore_task(task_id: str) -> bool:
         task.deleted = False
         task.deleted_at = None
         session.add(task)
+        if after_mutate is not None:
+            after_mutate(session)
         return previous_status, restored_stage.value
 
     try:
