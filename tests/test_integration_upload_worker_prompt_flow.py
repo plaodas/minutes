@@ -29,15 +29,14 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
     client, _user_id = logged_in_client(app)
     client.raise_server_exceptions = True
 
-    fake_id = uuid.uuid4()
-
-    # stub process_audio.delay to return predictable id
     class DummyTask:
         def __init__(self, id):
             self.id = id
 
     monkeypatch.setattr(
-        tasks.process_audio, "delay", lambda path: DummyTask(str(fake_id))
+        tasks.process_audio,
+        "apply_async",
+        lambda args, task_id=None: DummyTask(task_id),
     )
 
     # ensure create_task writes a DB Task row with metadata so worker can read it
@@ -91,7 +90,7 @@ def test_upload_and_worker_prompt_flow(monkeypatch):
 
     # fetch Task row from DB and get metadata
     with session_scope() as session:
-        t = session.get(Task, fake_id)
+        t = session.get(Task, uuid.UUID(resp["task_id"]))
         assert t is not None
         meta = t.result or {}
 

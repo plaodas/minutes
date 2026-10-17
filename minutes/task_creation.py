@@ -50,18 +50,23 @@ def _persist_task_creation(
         persisted_owner_id = None
 
     if use_pg_upsert:
-        statement = (
-            pg_insert(Task.__table__)
-            .values(
-                id=task_key,
-                status="pending",
-                progress=None,
-                result=metadata or None,
-                fail_count=0,
-                user_id=persisted_owner_id,
+        insert_values = {
+            "id": task_key,
+            "status": "pending",
+            "progress": None,
+            "result": metadata or None,
+            "fail_count": 0,
+            "user_id": persisted_owner_id,
+        }
+        statement = pg_insert(Task.__table__).values(**insert_values)
+        if metadata:
+            statement = statement.on_conflict_do_update(
+                index_elements=["id"],
+                set_={"result": metadata},
+                where=Task.__table__.c.result.is_(None),
             )
-            .on_conflict_do_nothing(index_elements=["id"])
-        )
+        else:
+            statement = statement.on_conflict_do_nothing(index_elements=["id"])
         session.execute(statement)
     else:
         task = session.get(Task, task_key)

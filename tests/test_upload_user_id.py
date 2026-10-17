@@ -37,9 +37,11 @@ def _capture_create(monkeypatch):
         called["user_id"] = user_id
 
     monkeypatch.setattr(bg, "create_task", fake_create)
-    if hasattr(tasks.process_audio, "delay"):
+    if hasattr(tasks.process_audio, "apply_async"):
         monkeypatch.setattr(
-            tasks.process_audio, "delay", lambda path: DummyTask("fake-user-id-1234")
+            tasks.process_audio,
+            "apply_async",
+            lambda args, task_id=None: DummyTask(task_id),
         )
     else:
         monkeypatch.setattr(

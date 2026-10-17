@@ -28,17 +28,21 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
         def __init__(self, id):
             self.id = id
 
-    if hasattr(tasks.process_audio, "delay"):
-        monkeypatch.setattr(
-            tasks.process_audio, "delay", lambda path: Dummy("fake-id-xyz")
-        )
-    else:
-        monkeypatch.setattr(tasks, "process_audio", lambda path: Dummy("fake-id-xyz"))
-
     called = {}
     import minutes.bg_store as bg
 
+    def fake_apply_async(args, task_id=None):
+        called.setdefault("order", []).append("enqueue")
+        called["enqueued_id"] = task_id
+        return Dummy(task_id)
+
+    if hasattr(tasks.process_audio, "apply_async"):
+        monkeypatch.setattr(tasks.process_audio, "apply_async", fake_apply_async)
+    else:
+        monkeypatch.setattr(tasks, "process_audio", lambda path: Dummy("fake-id-xyz"))
+
     def fake_create(task_id, metadata=None, user_id=None, db=None):
+        called.setdefault("order", []).append("create")
         called["task_id"] = task_id
         called["metadata"] = metadata
         called["user_id"] = user_id
@@ -59,6 +63,8 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
     assert "transcript_only" not in called["metadata"]
     assert called["metadata"]["upload_path"].endswith(".wav")
     assert called["user_id"] == str(user_id)
+    assert called["order"] == ["create", "enqueue"]
+    assert called["enqueued_id"] == called["task_id"]
 
     called.clear()
     data["transcript_only"] = "1"

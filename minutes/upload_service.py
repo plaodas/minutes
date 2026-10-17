@@ -14,6 +14,18 @@ from .http_errors import error_json
 
 CreateTask = Callable[..., None]
 
+
+def _enqueue_processing(destination: str, task_id: str) -> None:
+    processor = tasks.process_audio
+    if hasattr(processor, "apply_async"):
+        processor.apply_async(args=[destination], task_id=task_id)
+        return
+    if hasattr(processor, "delay"):
+        processor.delay(destination)
+        return
+    processor(destination)
+
+
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus"}
 
 
@@ -144,14 +156,9 @@ def handle_audio_upload(
         with open(destination, "wb") as output:
             shutil.copyfileobj(file.file, output)
 
-        processor = tasks.process_audio
-        task = (
-            processor.delay(destination)
-            if hasattr(processor, "delay")
-            else processor(destination)
-        )
+        task_id = str(uuid.uuid4())
         create_task_record(
-            task.id,
+            task_id,
             metadata=_metadata(
                 filename,
                 language,
@@ -162,10 +169,11 @@ def handle_audio_upload(
             ),
             user_id=str(owner_id),
         )
+        _enqueue_processing(destination, task_id)
     except (OSError, AttributeError, RuntimeError, ValueError, SQLAlchemyError) as exc:
         return error_json(str(exc), 500)
 
-    response: dict[str, Any] = {"task_id": task.id}
+    response: dict[str, Any] = {"task_id": task_id}
     if include_filename:
         response["upload_filename"] = filename
     return response
