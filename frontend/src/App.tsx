@@ -13,11 +13,14 @@ import ServiceTokensAdmin from './components/ServiceTokensAdmin';
 import AuditEventsAdmin from './components/AuditEventsAdmin';
 import { getUserFeatures } from './api/client';
 import { API_BASE, rememberHayamimiAvailability, showAdminControls } from './lib/apiConfig';
+import { minutesTaskIdFromHash } from './lib/minutesLink';
 
 export default function App() {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [result, setResult] = useState<unknown | null>(null);
-  const [activeView, setActiveView] = useState<NavigationView>('upload');
+  const [activeView, setActiveView] = useState<NavigationView>(() =>
+    minutesTaskIdFromHash(window.location.hash) ? 'history' : 'upload'
+  );
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -46,6 +49,14 @@ export default function App() {
       mounted = false;
       window.removeEventListener('auth-changed', refresh);
     };
+  }, []);
+
+  React.useEffect(() => {
+    const openHistoryForMinutesLink = () => {
+      if (minutesTaskIdFromHash(window.location.hash)) setActiveView('history');
+    };
+    window.addEventListener('hashchange', openHistoryForMinutesLink);
+    return () => window.removeEventListener('hashchange', openHistoryForMinutesLink);
   }, []);
 
   React.useEffect(() => {
