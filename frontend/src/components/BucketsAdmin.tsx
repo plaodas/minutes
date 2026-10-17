@@ -40,7 +40,7 @@ export default function BucketsAdmin() {
       const data = await getBuckets();
       setBuckets(data.buckets || []);
     } catch (e: unknown) {
-      setError(errorMessage(e, 'failed'));
+      setError(errorMessage(e, '失敗しました'));
     } finally {
       setLoading(false);
     }
@@ -58,7 +58,7 @@ export default function BucketsAdmin() {
       setName('');
       await load();
     } catch (e: unknown) {
-      setError(errorMessage(e, 'create failed'));
+      setError(errorMessage(e, '作成に失敗しました'));
     }
   };
 
@@ -77,7 +77,7 @@ export default function BucketsAdmin() {
       });
       setPreview(res.candidates || []);
     } catch (err: unknown) {
-      const msg = errorMessage(err, 'preview failed');
+      const msg = errorMessage(err, 'プレビューに失敗しました');
       setError(msg);
       dispatchAppToast({ type: 'error', message: msg });
     } finally {
@@ -88,9 +88,7 @@ export default function BucketsAdmin() {
   const handleRun = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError(null);
-    setConfirmMessage(
-      'Are you sure you want to delete matching upload files? This cannot be undone.'
-    );
+    setConfirmMessage('一致するアップロードファイルを削除しますか？元に戻せません。');
     setConfirmAction(() => async () => {
       setConfirmOpen(false);
       setRunLoading(true);
@@ -104,9 +102,12 @@ export default function BucketsAdmin() {
         });
         setRunResult(res);
         setPreview(null);
-        dispatchAppToast({ type: 'success', message: `Deleted ${res.count || 0} files` });
+        dispatchAppToast({
+          type: 'success',
+          message: `${res.count || 0} 件のファイルを削除しました`,
+        });
       } catch (err: unknown) {
-        const msg = errorMessage(err, 'cleanup failed');
+        const msg = errorMessage(err, 'クリーンアップに失敗しました');
         setError(msg);
         dispatchAppToast({ type: 'error', message: msg });
       } finally {
@@ -119,39 +120,39 @@ export default function BucketsAdmin() {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Admin Tools</h2>
+        <h2 className="text-lg font-semibold">管理ツール</h2>
         <p className="text-sm text-[var(--muted)]">
-          Manage buckets, service tokens, and admin helpers.
+          バケット、サービストークン、管理機能を扱います。
         </p>
       </div>
 
       <div className="mb-4 rounded border p-3">
-        <h3 className="font-medium">Uploads cleanup</h3>
+        <h3 className="font-medium">アップロードの整理</h3>
         <p className="text-xs text-[var(--muted)]">
-          Preview and delete files from the shared uploads directory. Admin only.
+          共有アップロードディレクトリのファイルを確認して削除します。管理者のみ。
         </p>
         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-4">
           <input
             className="rounded border px-2 py-1"
-            placeholder="dir (optional)"
+            placeholder="ディレクトリ（任意）"
             value={uploadsDir}
             onChange={(e) => setUploadsDir(e.target.value)}
           />
           <input
             className="rounded border px-2 py-1"
-            placeholder="pattern prefix"
+            placeholder="パターンの接頭辞"
             value={uploadsPattern}
             onChange={(e) => setUploadsPattern(e.target.value)}
           />
           <input
             className="rounded border px-2 py-1"
-            placeholder="older_than (seconds)"
+            placeholder="経過秒数"
             value={String(olderThan)}
             onChange={(e) => setOlderThan(Number(e.target.value || 0))}
           />
           <input
             className="rounded border px-2 py-1"
-            placeholder="limit"
+            placeholder="上限"
             value={String(limit)}
             onChange={(e) => setLimit(Number(e.target.value || 100))}
           />
@@ -162,20 +163,20 @@ export default function BucketsAdmin() {
             onClick={handlePreview}
             disabled={previewLoading}
           >
-            {previewLoading ? 'Preview…' : 'Preview'}
+            {previewLoading ? 'プレビュー中…' : 'プレビュー'}
           </button>
           <button
             className="rounded bg-[var(--accent)] px-3 py-1 text-white"
             onClick={handleRun}
             disabled={runLoading}
           >
-            {runLoading ? 'Running…' : 'Run clean'}
+            {runLoading ? '実行中…' : '整理を実行'}
           </button>
         </div>
 
         {preview && (
           <div className="mt-3">
-            <div className="text-xs text-[var(--muted)]">Candidates ({preview.length})</div>
+            <div className="text-xs text-[var(--muted)]">候補 ({preview.length})</div>
             <ul className="mt-2 max-h-40 overflow-auto text-sm list-disc list-inside">
               {preview.map((c, i) => (
                 <li key={c.path || i}>{c.path || c.name}</li>
@@ -186,10 +187,10 @@ export default function BucketsAdmin() {
 
         {runResult && (
           <div className="mt-3 text-sm">
-            <div className="text-xs text-[var(--muted)]">Deleted: {runResult.count || 0}</div>
+            <div className="text-xs text-[var(--muted)]">削除: {runResult.count || 0}</div>
             {runResult.errors && runResult.errors.length > 0 && (
               <div className="mt-2 text-xs text-red-600">
-                Errors: {runResult.errors.map((err) => `${err.path}: ${err.error}`).join('; ')}
+                エラー: {runResult.errors.map((err) => `${err.path}: ${err.error}`).join('; ')}
               </div>
             )}
           </div>
@@ -200,11 +201,11 @@ export default function BucketsAdmin() {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="bucket-name"
+          placeholder="バケット名"
           className="rounded border px-2 py-1"
         />
         <button className="rounded bg-[var(--accent)] px-3 py-1 text-white" disabled={!name}>
-          Create
+          作成
         </button>
       </form>
 
@@ -212,13 +213,13 @@ export default function BucketsAdmin() {
 
       <div>
         {loading ? (
-          <div className="text-sm text-[var(--muted)]">Loading…</div>
+          <div className="text-sm text-[var(--muted)]">読み込み中…</div>
         ) : (
           <ul className="space-y-2">
             {buckets.map((b) => (
               <li key={b.id} className="rounded border p-2">
                 <div className="font-medium">{b.name}</div>
-                <div className="text-xs text-[var(--muted)]">owner: {b.owner_id || '—'}</div>
+                <div className="text-xs text-[var(--muted)]">所有者: {b.owner_id || '—'}</div>
               </li>
             ))}
           </ul>
@@ -226,10 +227,10 @@ export default function BucketsAdmin() {
       </div>
       <ConfirmModal
         open={confirmOpen}
-        title="Confirm"
+        title="確認"
         message={confirmMessage}
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        confirmLabel="削除"
+        cancelLabel="キャンセル"
         onConfirm={() => {
           if (confirmAction) confirmAction();
         }}

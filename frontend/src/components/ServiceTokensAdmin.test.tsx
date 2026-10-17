@@ -51,15 +51,15 @@ describe('ServiceTokensAdmin', () => {
       </ToastProvider>
     );
 
-    expect(await screen.findByText('Revoked')).toBeTruthy();
+    expect(await screen.findByText('失効済み')).toBeTruthy();
     expect(screen.getByText('memoroku')).toBeTruthy();
     expect(screen.getByText('revoked-id')).toBeTruthy();
 
-    const revokeButtons = screen.getAllByRole('button', { name: 'Revoke' });
+    const revokeButtons = screen.getAllByRole('button', { name: '失効' });
     expect(revokeButtons).toHaveLength(2);
     expect((revokeButtons[0] as HTMLButtonElement).disabled).toBe(false);
     expect((revokeButtons[1] as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText('user: demo · user-1')).toBeTruthy();
+    expect(screen.getByText('ユーザー: demo · user-1')).toBeTruthy();
   });
 
   it('creates a token only after a username is selected', async () => {
@@ -71,10 +71,10 @@ describe('ServiceTokensAdmin', () => {
       </ToastProvider>
     );
 
-    const userSelect = await screen.findByRole('combobox', { name: 'user' });
+    const userSelect = await screen.findByRole('combobox', { name: 'ユーザー' });
     expect(screen.getByRole('option', { name: 'demo' })).toBeTruthy();
     expect(screen.queryByPlaceholderText('associate user id (optional)')).toBeNull();
-    const createButton = screen.getByRole('button', { name: 'Create token' });
+    const createButton = screen.getByRole('button', { name: 'トークンを作成' });
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.change(userSelect, { target: { value: 'user-1' } });

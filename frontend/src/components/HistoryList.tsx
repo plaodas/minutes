@@ -15,7 +15,7 @@ export default function HistoryList({ items, onOpenMinutes, onOpenEvents, sentin
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       {items.length === 0 && (
         <div className="p-6 text-sm text-[var(--muted)]">
-          No recent tasks. Upload audio to see history here.
+          最近のタスクはありません。音声をアップロードすると、ここに履歴が表示されます。
         </div>
       )}
 
@@ -45,7 +45,7 @@ export default function HistoryList({ items, onOpenMinutes, onOpenEvents, sentin
             </span>
             <span id={`history-desc-${item.id}`} className="sr-only">
               {item.created_at ? new Date(item.created_at).toLocaleString() + ', ' : ''}
-              {item.status || 'Status unknown'}
+              {item.status || '状態不明'}
             </span>
             <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]">
               <Clock3 size={13} />{' '}
@@ -61,7 +61,7 @@ export default function HistoryList({ items, onOpenMinutes, onOpenEvents, sentin
                   />
                 </div>
                 <div className="mt-1 text-xs text-[var(--muted)]">
-                  {Math.round(item.progress)}% — {item.status || 'processing'}
+                  {Math.round(item.progress)}% — {item.status || '処理中'}
                 </div>
               </div>
             )}
@@ -88,11 +88,11 @@ export default function HistoryList({ items, onOpenMinutes, onOpenEvents, sentin
                   }}
                   className="text-xs text-[var(--accent)]"
                 >
-                  View full events
+                  すべてのイベントを見る
                 </button>
                 <span className="text-xs text-[var(--muted)]">
-                  Showing {item.histories ? item.histories.length : 0}
-                  {item.event_count ? ` of ${item.event_count}` : ''}
+                  {item.histories ? item.histories.length : 0} 件を表示
+                  {item.event_count ? ` / 全 ${item.event_count} 件` : ''}
                 </span>
               </div>
             </div>
@@ -102,7 +102,7 @@ export default function HistoryList({ items, onOpenMinutes, onOpenEvents, sentin
             {item.latest ? item.latest.event_type : '—'}
           </span>
           <button
-            aria-label={`View minutes for ${item.name || item.id}`}
+            aria-label={`${item.name || item.id} の議事録を見る`}
             onClick={(e) => {
               e.stopPropagation();
               onOpenMinutes(item.id);

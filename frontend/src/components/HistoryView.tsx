@@ -138,24 +138,24 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       <section>
         <div className="mb-7 flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-[var(--accent)]">Workspace archive</p>
-            <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Recent minutes</h1>
+            <p className="text-sm font-medium text-[var(--accent)]">アーカイブ</p>
+            <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">最近の議事録</h1>
           </div>
           <button
             type="button"
             onClick={onCreate}
             className="inline-flex shrink-0 items-center gap-2 rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white shadow-sm hover:brightness-95"
           >
-            <Plus size={17} /> New upload
+            <Plus size={17} /> 新規アップロード
           </button>
         </div>
         <label className="mb-4 block">
-          <span className="sr-only">Search minutes</span>
+          <span className="sr-only">議事録を検索</span>
           <input
-            aria-label="Search minutes"
+            aria-label="議事録を検索"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search by name, summary, or text"
+            placeholder="名前、要約、本文で検索"
             className="w-full rounded-md border px-3 py-2 text-sm"
           />
         </label>
@@ -167,9 +167,9 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
             <div className="flex items-center justify-between gap-4">
               <div className="text-sm">
                 {items.length > 0 ? (
-                  <span>Could not retrieve the latest history. Displaying older data.</span>
+                  <span>最新の履歴を取得できませんでした。以前のデータを表示しています。</span>
                 ) : (
-                  <span>Failed to load history. Please check your network connection.</span>
+                  <span>履歴の読み込みに失敗しました。ネットワーク接続を確認してください。</span>
                 )}
               </div>
               <div className="shrink-0">
@@ -177,7 +177,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
                   onClick={() => reload()}
                   className={`rounded px-3 py-1 text-sm font-medium text-white ${items.length > 0 ? 'bg-yellow-600 hover:brightness-90' : 'bg-rose-600 hover:brightness-90'}`}
                 >
-                  Retry
+                  再試行
                 </button>
               </div>
             </div>
@@ -195,7 +195,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
         />
 
         <p className="mt-3 text-xs text-[var(--muted)]">
-          {loading ? 'Loading history...' : 'History is loaded from the backend.'}
+          {loading ? '履歴を読み込み中…' : '履歴はサーバーから読み込んでいます。'}
         </p>
       </section>
 

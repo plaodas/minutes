@@ -26,14 +26,14 @@ type Props = {
 };
 
 const itemsBase: Array<{ view: NavigationView; label: string; icon: React.ReactNode }> = [
-  { view: 'upload', label: 'Upload', icon: <Upload size={18} /> },
-  { view: 'history', label: 'History', icon: <Archive size={18} /> },
-  { view: 'settings', label: 'Settings', icon: <Settings size={18} /> },
+  { view: 'upload', label: 'アップロード', icon: <Upload size={18} /> },
+  { view: 'history', label: '履歴', icon: <Archive size={18} /> },
+  { view: 'settings', label: '設定', icon: <Settings size={18} /> },
 ];
 
 const adminItem = {
   view: 'admin' as NavigationView,
-  label: 'Admin',
+  label: '管理',
   icon: <SlidersHorizontal size={18} />,
 };
 
@@ -49,7 +49,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
   };
 
   const navigation = (showLabels: boolean) => (
-    <nav className="flex-1 space-y-1" aria-label="Main navigation">
+    <nav className="flex-1 space-y-1" aria-label="メインメニュー">
       {itemsBase.map((item) => {
         const isActive = activeView === item.view;
         return (
@@ -92,7 +92,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
     <>
       <button
         type="button"
-        aria-label="Open menu"
+        aria-label="メニューを開く"
         aria-expanded={mobileOpen}
         onClick={() => setMobileOpen(true)}
         className="fixed left-4 top-4 z-30 rounded-md bg-white p-2 shadow-sm ring-1 ring-black/5 md:hidden"
@@ -103,7 +103,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
       {mobileOpen && (
         <button
           type="button"
-          aria-label="Close menu"
+          aria-label="メニューを閉じる"
           className="fixed inset-0 z-30 bg-slate-950/20 md:hidden"
           onClick={() => setMobileOpen(false)}
         />
@@ -123,7 +123,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
           </div>
           <button
             type="button"
-            aria-label="Close menu"
+            aria-label="メニューを閉じる"
             onClick={() => setMobileOpen(false)}
             className="rounded p-1 hover:bg-[var(--bg-default)]"
           >
@@ -138,11 +138,11 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
               setLoadingLogout(true);
               try {
                 await logout();
-                addToast('Logged out', { level: 'success' });
+                addToast('ログアウトしました', { level: 'success' });
                 window.dispatchEvent(new CustomEvent('auth-changed'));
                 setMobileOpen(false);
               } catch (err: unknown) {
-                addToast(errorMessage(err, 'Logout failed'), { level: 'error' });
+                addToast(errorMessage(err, 'ログアウトに失敗しました'), { level: 'error' });
               } finally {
                 setLoadingLogout(false);
               }
@@ -153,7 +153,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
             <span className="shrink-0">
               <LogOut size={18} />
             </span>
-            <span className="ml-3 text-sm font-medium">Sign out</span>
+            <span className="ml-3 text-sm font-medium">ログアウト</span>
           </button>
         </div>
         <footer className="mt-4 text-xs text-[var(--muted)]">v0.1</footer>
@@ -175,8 +175,8 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
           </div>
           <button
             type="button"
-            aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
-            title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={expanded ? 'サイドバーを折りたたむ' : 'サイドバーを広げる'}
+            title={expanded ? 'サイドバーを折りたたむ' : 'サイドバーを広げる'}
             onClick={() => setExpanded(!expanded)}
             className={`rounded p-1 hover:bg-[var(--bg-default)] ${expanded ? '' : 'absolute left-20 top-5'}`}
           >
@@ -191,10 +191,10 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
               setLoadingLogout(true);
               try {
                 await logout();
-                addToast('Logged out', { level: 'success' });
+                addToast('ログアウトしました', { level: 'success' });
                 window.dispatchEvent(new CustomEvent('auth-changed'));
               } catch (err: unknown) {
-                addToast(errorMessage(err, 'Logout failed'), { level: 'error' });
+                addToast(errorMessage(err, 'ログアウトに失敗しました'), { level: 'error' });
               } finally {
                 setLoadingLogout(false);
               }
@@ -205,7 +205,7 @@ export default function Sidebar({ activeView, onNavigate, showAdmin = false }: P
             <span className="shrink-0">
               <LogOut size={18} />
             </span>
-            {expanded && <span className="text-sm font-medium">Sign out</span>}
+            {expanded && <span className="text-sm font-medium">ログアウト</span>}
           </button>
         </div>
         {expanded && <footer className="mt-4 text-xs text-[var(--muted)]">v0.1</footer>}

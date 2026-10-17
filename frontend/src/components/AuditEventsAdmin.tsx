@@ -21,9 +21,9 @@ const ACTIONS = [
 ];
 
 function actorLine(event: AuditEventItem): string {
-  const parts = [`actor: ${event.actor_kind}`];
-  if (event.actor_user_id) parts.push(`user: ${event.actor_user_id}`);
-  if (event.actor_token_id) parts.push(`token: ${event.actor_token_id}`);
+  const parts = [`操作者: ${event.actor_kind}`];
+  if (event.actor_user_id) parts.push(`ユーザー: ${event.actor_user_id}`);
+  if (event.actor_token_id) parts.push(`トークン: ${event.actor_token_id}`);
   return parts.join(' · ');
 }
 
@@ -64,7 +64,7 @@ export default function AuditEventsAdmin() {
         setEvents(incoming);
       }
     } catch (e: unknown) {
-      addToast(errorMessage(e, 'failed to load audit events'), { level: 'error' });
+      addToast(errorMessage(e, '監査イベントの読み込みに失敗しました'), { level: 'error' });
     } finally {
       if (before) setLoadingMore(false);
       else setLoading(false);
@@ -95,20 +95,20 @@ export default function AuditEventsAdmin() {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Audit events</h2>
+        <h2 className="text-lg font-semibold">監査イベント</h2>
         <p className="text-sm text-[var(--muted)]">
-          Recent changes to access and stored data, newest first.
+          アクセスと保存データの最近の変更です。新しい順です。
         </p>
       </div>
 
       <form onSubmit={handleFilter} className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <select
-          aria-label="action"
+          aria-label="操作"
           value={action}
           onChange={(e) => setAction(e.target.value)}
           className="rounded border px-2 py-1"
         >
-          <option value="">all actions</option>
+          <option value="">すべての操作</option>
           {ACTIONS.map((item) => (
             <option key={item} value={item}>
               {item}
@@ -116,29 +116,29 @@ export default function AuditEventsAdmin() {
           ))}
         </select>
         <input
-          aria-label="target type"
+          aria-label="対象の種類"
           value={targetType}
           onChange={(e) => setTargetType(e.target.value)}
-          placeholder="target type"
+          placeholder="対象の種類"
           className="rounded border px-2 py-1"
         />
         <input
-          aria-label="target id"
+          aria-label="対象 ID"
           value={targetId}
           onChange={(e) => setTargetId(e.target.value)}
-          placeholder="target id"
+          placeholder="対象 ID"
           className="min-w-0 flex-1 rounded border px-2 py-1"
         />
         <button className="rounded bg-[var(--accent)] px-3 py-1 text-white" type="submit">
-          Show
+          表示
         </button>
       </form>
 
       <div>
         {loading ? (
-          <div className="text-sm text-[var(--muted)]">Loading…</div>
+          <div className="text-sm text-[var(--muted)]">読み込み中…</div>
         ) : events.length === 0 ? (
-          <div className="text-sm text-[var(--muted)]">No audit events.</div>
+          <div className="text-sm text-[var(--muted)]">監査イベントはありません。</div>
         ) : (
           <ul className="space-y-2">
             {events.map((event) => (
@@ -167,7 +167,7 @@ export default function AuditEventsAdmin() {
             disabled={loading || loadingMore}
             onClick={showOlder}
           >
-            {loadingMore ? 'Loading…' : 'Show older'}
+            {loadingMore ? '読み込み中…' : 'さらに古いものを表示'}
           </button>
         )}
       </div>

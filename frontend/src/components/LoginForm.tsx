@@ -16,10 +16,10 @@ export default function LoginForm() {
     setLoading(true);
     try {
       await login(username, password);
-      addToast('Login successful', { level: 'success' });
+      addToast('ログインしました', { level: 'success' });
       window.dispatchEvent(new CustomEvent('auth-changed'));
     } catch (err: unknown) {
-      addToast(errorMessage(err, 'Login failed'), { level: 'error' });
+      addToast(errorMessage(err, 'ログインに失敗しました'), { level: 'error' });
     } finally {
       setLoading(false);
     }
@@ -28,21 +28,21 @@ export default function LoginForm() {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <p className="text-sm font-medium text-[var(--accent)]">Minutes</p>
-      <h1 className="mt-1 text-2xl font-semibold">Sign in</h1>
+      <h1 className="mt-1 text-2xl font-semibold">ログイン</h1>
       <p className="mt-2 text-sm text-[var(--muted)]">
-        Use the local demo account to upload audio and review generated minutes.
+        ローカルのデモアカウントで、音声をアップロードして議事録を確認します。
       </p>
       <form onSubmit={doLogin} className="mt-5 flex flex-col gap-2">
         <input
-          aria-label="username"
-          placeholder="username"
+          aria-label="ユーザー名"
+          placeholder="ユーザー名"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           className="w-full rounded border px-3 py-2 text-sm"
         />
         <input
-          aria-label="password"
-          placeholder="password"
+          aria-label="パスワード"
+          placeholder="パスワード"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -54,7 +54,7 @@ export default function LoginForm() {
             disabled={loading}
             className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white"
           >
-            Sign in
+            ログイン
           </button>
         </div>
       </form>

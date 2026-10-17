@@ -14,8 +14,8 @@ describe('ConfirmDialog', () => {
         <div className="relative z-10 bg-white">drawer</div>
         <ConfirmDialog
           open
-          title="Delete minutes"
-          message="Delete this minutes entry?"
+          title="議事録を削除"
+          message="この議事録を削除しますか？"
           onConfirm={onConfirm}
           onCancel={onCancel}
         />
@@ -25,9 +25,9 @@ describe('ConfirmDialog', () => {
     const dialog = screen.getByTestId('confirm-dialog');
     expect(dialog.parentElement).toBe(document.body);
     expect(dialog.className).toContain('z-[80]');
-    expect(screen.getByRole('heading', { name: 'Delete minutes' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '議事録を削除' })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

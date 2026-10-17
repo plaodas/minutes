@@ -36,7 +36,7 @@ export default function ServiceTokensAdmin() {
       setTokens(tokenData.tokens || []);
       setUsers(userData.users || []);
     } catch (e: unknown) {
-      addToast(errorMessage(e, 'failed to load tokens'), { level: 'error' });
+      addToast(errorMessage(e, 'トークンの読み込みに失敗しました'), { level: 'error' });
     } finally {
       setLoading(false);
     }
@@ -51,9 +51,11 @@ export default function ServiceTokensAdmin() {
     if (!userId) return;
     try {
       const data = await createServiceToken(name || undefined, userId);
-      addToast('Token created — copy it now (shown once)', { level: 'success' });
+      addToast('トークンを作成しました。今すぐコピーしてください（一度だけ表示）', {
+        level: 'success',
+      });
       try {
-        window.prompt('Service token (copy and store securely):', data.token);
+        window.prompt('サービストークン（コピーして安全に保管）:', data.token);
       } catch {
         // window.prompt can throw if the browser blocks it
       }
@@ -61,20 +63,20 @@ export default function ServiceTokensAdmin() {
       setUserId('');
       await load();
     } catch (e: unknown) {
-      addToast(errorMessage(e, 'create failed'), { level: 'error' });
+      addToast(errorMessage(e, '作成に失敗しました'), { level: 'error' });
     }
   };
 
   const handleRevoke = async (id: string) => {
-    setConfirmMessage('Revoke this token?');
+    setConfirmMessage('このトークンを失効しますか？');
     setConfirmAction(() => async () => {
       setConfirmOpen(false);
       try {
         await revokeServiceToken(id);
-        addToast('Token revoked', { level: 'success' });
+        addToast('トークンを失効しました', { level: 'success' });
         await load();
       } catch (e: unknown) {
-        addToast(errorMessage(e, 'revoke failed'), { level: 'error' });
+        addToast(errorMessage(e, '失効に失敗しました'), { level: 'error' });
       }
     });
     setConfirmOpen(true);
@@ -83,9 +85,9 @@ export default function ServiceTokensAdmin() {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Service tokens</h2>
+        <h2 className="text-lg font-semibold">サービストークン</h2>
         <p className="text-sm text-[var(--muted)]">
-          Create and revoke service tokens for programmatic access.
+          プログラムから使うサービストークンを作成し、失効します。
         </p>
       </div>
 
@@ -93,16 +95,16 @@ export default function ServiceTokensAdmin() {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="token name (optional)"
+          placeholder="トークン名（任意）"
           className="rounded border px-2 py-1"
         />
         <select
-          aria-label="user"
+          aria-label="ユーザー"
           value={userId}
           onChange={(e) => setUserId(e.target.value)}
           className="rounded border px-2 py-1"
         >
-          <option value="">select a user</option>
+          <option value="">ユーザーを選択</option>
           {users.map((user) => (
             <option key={user.id} value={user.id}>
               {user.username}
@@ -114,13 +116,13 @@ export default function ServiceTokensAdmin() {
           type="submit"
           disabled={!userId}
         >
-          Create token
+          トークンを作成
         </button>
       </form>
 
       <div>
         {loading ? (
-          <div className="text-sm text-[var(--muted)]">Loading…</div>
+          <div className="text-sm text-[var(--muted)]">読み込み中…</div>
         ) : (
           <ul className="space-y-2">
             {tokens.map((t) => (
@@ -137,31 +139,33 @@ export default function ServiceTokensAdmin() {
                     </div>
                     {t.revoked && (
                       <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">
-                        Revoked
+                        失効済み
                       </span>
                     )}
                   </div>
-                  <div className="break-all text-xs text-[var(--muted)]">user: {userLine(t)}</div>
+                  <div className="break-all text-xs text-[var(--muted)]">
+                    ユーザー: {userLine(t)}
+                  </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     onClick={() => {
                       try {
-                        window.prompt('Token id:', t.id);
+                        window.prompt('トークン ID:', t.id);
                       } catch {
                         // window.prompt can throw if the browser blocks it
                       }
                     }}
                     className="rounded bg-slate-100 px-2 py-1 text-sm"
                   >
-                    Show id
+                    ID を表示
                   </button>
                   <button
                     onClick={() => handleRevoke(t.id)}
                     disabled={t.revoked}
                     className="rounded bg-red-600 px-2 py-1 text-sm text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    Revoke
+                    失効
                   </button>
                 </div>
               </li>
@@ -171,10 +175,10 @@ export default function ServiceTokensAdmin() {
       </div>
       <ConfirmModal
         open={confirmOpen}
-        title="Confirm"
+        title="確認"
         message={confirmMessage}
-        confirmLabel="Revoke"
-        cancelLabel="Cancel"
+        confirmLabel="失効"
+        cancelLabel="キャンセル"
         onConfirm={() => {
           if (confirmAction) confirmAction();
         }}

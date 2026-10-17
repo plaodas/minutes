@@ -7,6 +7,16 @@ import { API_BASE, isJapaneseLanguage, rememberHayamimiAvailability } from '../l
 import MyServiceTokens from './MyServiceTokens';
 import { useToast } from './ToastProvider';
 
+const LANGUAGE_LABELS: Record<string, string> = {
+  Japanese: '日本語',
+  English: '英語',
+  'Auto-detect': '自動検出',
+};
+
+function languageLabel(value: string): string {
+  return LANGUAGE_LABELS[value] ?? value;
+}
+
 export function SettingsView() {
   const [settings, setSettings] = useLocalStorage('minutes.settings', {
     language: 'Japanese',
@@ -55,16 +65,19 @@ export function SettingsView() {
     const prev = prevRef.current;
     prevRef.current = settings;
     if (prev.language !== settings.language) {
-      addToast(`Transcript language: ${settings.language}`, { level: 'success', duration: 2000 });
+      addToast(`文字起こし言語: ${languageLabel(settings.language)}`, {
+        level: 'success',
+        duration: 2000,
+      });
     }
     if (prev.includeActions !== settings.includeActions) {
-      addToast(`Include action items: ${settings.includeActions ? 'On' : 'Off'}`, {
+      addToast(`アクションアイテムを含める: ${settings.includeActions ? 'オン' : 'オフ'}`, {
         level: 'success',
         duration: 2000,
       });
     }
     if (prev.engine !== settings.engine) {
-      addToast(`Transcript engine: ${settings.engine === 'hayamimi' ? '早耳' : 'Whisper'}`, {
+      addToast(`文字起こしエンジン: ${settings.engine === 'hayamimi' ? '早耳' : 'Whisper'}`, {
         level: 'success',
         duration: 2000,
       });
@@ -74,8 +87,8 @@ export function SettingsView() {
   return (
     <section>
       <div className="mb-7">
-        <p className="text-sm font-medium text-[var(--accent)]">Preferences</p>
-        <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">Settings</h1>
+        <p className="text-sm font-medium text-[var(--accent)]">設定</p>
+        <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">設定</h1>
       </div>
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div className="flex items-start gap-3 border-b border-slate-100 p-4">
@@ -84,7 +97,7 @@ export function SettingsView() {
           </span>
           <div className="min-w-0 flex-1">
             <label htmlFor="language" className="block text-sm font-medium">
-              Transcript language
+              文字起こし言語
             </label>
             <select
               id="language"
@@ -92,16 +105,16 @@ export function SettingsView() {
               onChange={(event) => setSettings({ ...settings, language: event.target.value })}
               className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm sm:max-w-xs"
             >
-              <option>Japanese</option>
-              <option>English</option>
-              <option>Auto-detect</option>
+              <option value="Japanese">日本語</option>
+              <option value="English">英語</option>
+              <option value="Auto-detect">自動検出</option>
             </select>
           </div>
         </div>
         {showEngine && (
           <div className="border-b border-slate-100 p-4 pl-[3.75rem]">
             <label htmlFor="engine" className="block text-sm font-medium">
-              Japanese transcript engine
+              日本語の文字起こしエンジン
             </label>
             <select
               id="engine"
@@ -115,13 +128,13 @@ export function SettingsView() {
           </div>
         )}
         <label
-          aria-label="Include action items"
+          aria-label="アクションアイテムを含める"
           className="flex cursor-pointer items-center justify-between gap-5 p-4"
         >
           <span>
-            <span className="block text-sm font-medium">Include action items</span>
+            <span className="block text-sm font-medium">アクションアイテムを含める</span>
             <span className="mt-1 block text-sm text-[var(--muted)]">
-              Extract tasks and owners from the meeting.
+              会議からタスクと担当を抽出します。
             </span>
           </span>
           <input
@@ -132,9 +145,7 @@ export function SettingsView() {
           />
         </label>
       </div>
-      <p className="mt-3 text-xs text-[var(--muted)]">
-        Settings are saved locally to your browser.
-      </p>
+      <p className="mt-3 text-xs text-[var(--muted)]">設定はこのブラウザに保存されます。</p>
       <MyServiceTokens />
     </section>
   );

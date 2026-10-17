@@ -43,8 +43,8 @@ describe('startDownload', () => {
     expect(addToast).toHaveBeenCalled();
     const firstCall = addToast.mock.calls[0];
     const opts = firstCall[1];
-    expect(firstCall[0]).toContain('Download failed');
-    expect(opts).toHaveProperty('actionLabel', 'Retry');
+    expect(firstCall[0]).toContain('ダウンロードに失敗しました');
+    expect(opts).toHaveProperty('actionLabel', '再試行');
     expect(typeof opts.action).toBe('function');
 
     // invoke retry action

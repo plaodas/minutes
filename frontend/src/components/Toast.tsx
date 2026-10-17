@@ -82,7 +82,7 @@ export default function Toast({
           </button>
         )}
         <button
-          aria-label="Close notification"
+          aria-label="通知を閉じる"
           onClick={() => {
             setVisible(false);
             setTimeout(() => {

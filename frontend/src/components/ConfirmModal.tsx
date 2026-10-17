@@ -14,8 +14,8 @@ export default function ConfirmModal({
   open,
   title,
   message,
-  confirmLabel = 'OK',
-  cancelLabel = 'Cancel',
+  confirmLabel = '確認',
+  cancelLabel = 'キャンセル',
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {

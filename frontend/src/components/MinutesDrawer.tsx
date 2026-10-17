@@ -23,6 +23,8 @@ import Toast from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './ToastProvider';
 
+const STILL_PROCESSING = '議事録はまだ処理中です';
+
 export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onClose: () => void }) {
   const [loading, setLoading] = useState(false);
   const [text, setText] = useState<string | null>(null);
@@ -99,12 +101,12 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
           { retries: 2, timeoutMs: 10000 }
         );
         if (res.status === 202) {
-          setError('Minutes are still processing');
+          setError(STILL_PROCESSING);
           return;
         }
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
-          setError(j?.error || `failed to load minutes (${res.status})`);
+          setError(j?.error || `議事録の読み込みに失敗しました (${res.status})`);
           return;
         }
         const txt = await res.text();
@@ -126,7 +128,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
           }
         })();
       } catch (e: unknown) {
-        setError(errorMessage(e, 'fetch error'));
+        setError(errorMessage(e, '取得に失敗しました'));
       } finally {
         setLoading(false);
       }
@@ -142,7 +144,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
 
   const handleCopyLink = async () => {
     if (!taskId) {
-      toast.addToast('Task id unavailable', { level: 'error' });
+      toast.addToast('タスク ID がありません', { level: 'error' });
       return;
     }
     const url = `${location.origin}${location.pathname}#minutes=${taskId}`;
@@ -160,17 +162,17 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
         document.execCommand('copy');
         document.body.removeChild(ta);
       }
-      toast.addToast('Copied link to clipboard', { level: 'success' });
-      setLiveMessage('Link copied');
+      toast.addToast('リンクをクリップボードにコピーしました', { level: 'success' });
+      setLiveMessage('リンクをコピーしました');
       setTimeout(() => setLiveMessage(null), 2000);
     } catch {
-      toast.addToast('Copy failed', { level: 'error' });
+      toast.addToast('コピーに失敗しました', { level: 'error' });
     }
   };
 
   const handleCopyTaskId = async () => {
     if (!taskId) {
-      toast.addToast('Task id unavailable', { level: 'error' });
+      toast.addToast('タスク ID がありません', { level: 'error' });
       return;
     }
     try {
@@ -188,11 +190,11 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
         document.execCommand('copy');
         document.body.removeChild(ta);
       }
-      toast.addToast('Copied task id to clipboard', { level: 'success' });
-      setLiveMessage('Task id copied');
+      toast.addToast('タスク ID をクリップボードにコピーしました', { level: 'success' });
+      setLiveMessage('タスク ID をコピーしました');
       setTimeout(() => setLiveMessage(null), 2000);
     } catch {
-      toast.addToast('Copy failed', { level: 'error' });
+      toast.addToast('コピーに失敗しました', { level: 'error' });
     }
   };
 
@@ -201,22 +203,22 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
     if (!taskId) return;
     try {
       // If minutes are still processing (no text and error indicating processing), call force-delete
-      const isProcessing = error === 'Minutes are still processing' && !text;
+      const isProcessing = error === STILL_PROCESSING && !text;
       if (isProcessing) {
         await forceDeleteTask(taskId);
-        toast.addToast('Force deleted', { level: 'success' });
+        toast.addToast('強制削除しました', { level: 'success' });
       } else {
         await deleteTask(taskId);
-        toast.addToast('Deleted', {
+        toast.addToast('削除しました', {
           level: 'success',
-          actionLabel: 'Undo',
+          actionLabel: '元に戻す',
           action: async () => {
             try {
               await undeleteTask(taskId);
-              toast.addToast('Restored', { level: 'success' });
+              toast.addToast('復元しました', { level: 'success' });
             } catch {
               // restore is best-effort from the undo toast
-              toast.addToast('Restore failed', { level: 'error' });
+              toast.addToast('復元に失敗しました', { level: 'error' });
             }
           },
         });
@@ -226,7 +228,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
       setTimeout(() => onClose(), 260);
       dispatchTaskChanged(taskId, 'deleted');
     } catch {
-      toast.addToast('Delete failed', { level: 'error' });
+      toast.addToast('削除に失敗しました', { level: 'error' });
     }
   };
 
@@ -247,18 +249,18 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
     <div className={`${overlayClass} md:items-start md:justify-end items-end justify-center`}>
       <button
         type="button"
-        aria-label="Close minutes"
+        aria-label="議事録を閉じる"
         className="absolute inset-0"
         onClick={handleClose}
       />
       <aside
         role="dialog"
         aria-modal="true"
-        aria-label={`Minutes for ${taskId}`}
+        aria-label={`${taskId} の議事録`}
         className={`${drawerBase} z-10 ${isVisible ? drawerVisible : drawerHidden}`}
       >
         <button
-          aria-label="Close minutes"
+          aria-label="議事録を閉じる"
           onClick={handleClose}
           className="absolute right-3 top-3 rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-slate-100"
         >
@@ -274,10 +276,10 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
               {taskName && taskName.length > 0 ? taskName : 'Minutes'}
             </h2>
             <div className="text-xs text-[var(--muted)]">
-              Task:{' '}
+              タスク:{' '}
               <button
                 onClick={handleCopyTaskId}
-                title="Copy task id"
+                title="タスク ID をコピー"
                 className="inline-block text-[var(--muted)] hover:underline focus:outline-none"
               >
                 {taskId}
@@ -287,19 +289,19 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
           <div>
             <button
               onClick={async () => {
-                const newName = window.prompt('Enter new name for this task', taskName || '');
+                const newName = window.prompt('このタスクの新しい名前', taskName || '');
                 if (!newName) return;
                 try {
                   await renameBgTask(taskId, newName);
                   setTaskName(newName);
-                  toast.addToast('Renamed', { level: 'success' });
+                  toast.addToast('名前を変更しました', { level: 'success' });
                 } catch (e: unknown) {
-                  toast.addToast(errorMessage(e, 'Rename failed'), { level: 'error' });
+                  toast.addToast(errorMessage(e, '名前の変更に失敗しました'), { level: 'error' });
                 }
               }}
               className="rounded bg-slate-100 px-2 py-1 text-sm"
             >
-              Rename
+              名前を変更
             </button>
           </div>
         </div>
@@ -310,11 +312,11 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
         {/* Visual toast for live messages (also accessible) */}
         <Toast message={liveMessage} onClose={() => setLiveMessage(null)} />
         <div>
-          {loading && <div className="p-4">Loading minutes…</div>}
+          {loading && <div className="p-4">議事録を読み込み中…</div>}
           {error && <div className="p-4 text-sm text-red-600">{error}</div>}
           {text && (
             <div>
-              <div className="mb-3 text-sm text-[var(--muted)]">Summary</div>
+              <div className="mb-3 text-sm text-[var(--muted)]">要約</div>
               <MarkdownBody
                 className="mb-4 rounded bg-slate-50 p-3 text-sm"
                 text={summary && summary.length > 0 ? summary : text.slice(0, 1000)}
@@ -324,11 +326,11 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                 segments={segments}
                 onSaved={(_transcript, nextSegments) => {
                   setSegments(nextSegments);
-                  toast.addToast('Speaker names saved', { level: 'success' });
+                  toast.addToast('話者名を保存しました', { level: 'success' });
                 }}
                 onError={(message) => toast.addToast(message, { level: 'error' })}
               />
-              <div className="mb-3 text-sm text-[var(--muted)]">Full text</div>
+              <div className="mb-3 text-sm text-[var(--muted)]">全文</div>
               <MarkdownBody className="mb-4 rounded bg-slate-50 p-3 text-sm" text={text} />
               <div className="mt-4">
                 <div
@@ -345,7 +347,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                     }
                     className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm"
                   >
-                    Word minutes
+                    Word 議事録
                   </button>
 
                   <button
@@ -358,7 +360,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                     }
                     className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded bg-[var(--accent)] px-3 py-2 text-sm text-white"
                   >
-                    Download transcript
+                    文字起こしをダウンロード
                   </button>
 
                   <button
@@ -371,7 +373,7 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                     }
                     className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm"
                   >
-                    Download summary
+                    要約をダウンロード
                   </button>
 
                   <button
@@ -384,36 +386,38 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
                     }
                     className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm"
                   >
-                    Download action items
+                    アクションアイテムをダウンロード
                   </button>
 
                   <button
                     onClick={async () => {
                       try {
                         await navigator.clipboard.writeText(text);
-                        toast.addToast('Copied minutes to clipboard', { level: 'success' });
+                        toast.addToast('議事録をクリップボードにコピーしました', {
+                          level: 'success',
+                        });
                       } catch {
                         // clipboard permission can be denied
-                        toast.addToast('Copy failed', { level: 'error' });
+                        toast.addToast('コピーに失敗しました', { level: 'error' });
                       }
                     }}
                     className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm"
                   >
-                    Copy
+                    コピー
                   </button>
 
                   <button
                     onClick={handleCopyLink}
                     className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm"
                   >
-                    Copy link
+                    リンクをコピー
                   </button>
                   {isAdmin && (
                     <button
                       onClick={handleDelete}
                       className="flex-1 md:flex-none min-w-[44%] md:min-w-0 rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                     >
-                      Delete
+                      削除
                     </button>
                   )}
                 </div>
@@ -428,26 +432,26 @@ export function MinutesDrawer({ taskId, onClose }: { taskId: string | null; onCl
               onClick={handleDelete}
               className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50"
             >
-              Delete
+              削除
             </button>
           </div>
         )}
       </aside>
       <ConfirmDialog
         open={confirmOpen}
-        title={error === 'Minutes are still processing' ? 'Force delete minutes' : 'Delete minutes'}
+        title={error === STILL_PROCESSING ? '議事録を強制削除' : '議事録を削除'}
         message={
-          error === 'Minutes are still processing'
-            ? 'Minutes are still processing — force delete will remove outputs and DB records and cannot be undone.'
-            : 'Delete this minutes entry? This action can be undone.'
+          error === STILL_PROCESSING
+            ? '議事録はまだ処理中です。強制削除すると成果物と記録が消え、元に戻せません。'
+            : 'この議事録を削除しますか？元に戻せます。'
         }
         onConfirm={() => {
           setConfirmOpen(false);
           handleDeleteConfirmed();
         }}
         onCancel={() => setConfirmOpen(false)}
-        confirmLabel={error === 'Minutes are still processing' ? 'Force delete' : 'Delete'}
-        cancelLabel="Cancel"
+        confirmLabel={error === STILL_PROCESSING ? '強制削除' : '削除'}
+        cancelLabel="キャンセル"
       />
     </div>
   );

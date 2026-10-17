@@ -113,22 +113,22 @@ export function ToastProvider({
       if (!pendingTaskId) return;
       try {
         await deleteTask(pendingTaskId);
-        addToast('Deleted', {
+        addToast('削除しました', {
           level: 'success',
-          actionLabel: 'Undo',
+          actionLabel: '元に戻す',
           action: async () => {
             try {
               await undeleteTask(pendingTaskId);
-              addToast('Restored', { level: 'success' });
+              addToast('復元しました', { level: 'success' });
             } catch {
               // restore is best-effort from the undo toast
-              addToast('Restore failed', { level: 'error' });
+              addToast('復元に失敗しました', { level: 'error' });
             }
           },
         });
         dispatchTaskChanged(pendingTaskId, 'deleted');
       } catch {
-        addToast('Delete failed', { level: 'error' });
+        addToast('削除に失敗しました', { level: 'error' });
       } finally {
         setOpen(false);
         setPendingTaskId(null);
@@ -138,12 +138,12 @@ export function ToastProvider({
     return (
       <ConfirmDialog
         open={open}
-        title="Delete minutes"
-        message="Delete this minutes entry? This action can be undone."
+        title="議事録を削除"
+        message="この議事録を削除しますか？元に戻せます。"
         onConfirm={doConfirm}
         onCancel={() => setOpen(false)}
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        confirmLabel="削除"
+        cancelLabel="キャンセル"
       />
     );
   };

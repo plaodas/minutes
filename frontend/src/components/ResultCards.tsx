@@ -20,6 +20,10 @@ import MarkdownBody from './MarkdownBody';
 import SpeakerEditor from './SpeakerEditor';
 import { useToast } from './ToastProvider';
 
+const TRANSCRIPT_TITLE = '文字起こし';
+const SUMMARY_TITLE = '要約';
+const ACTION_ITEMS_TITLE = 'アクションアイテム';
+
 const Card: React.FC<{
   title: string;
   children: React.ReactNode;
@@ -114,7 +118,7 @@ const Card: React.FC<{
         className={`absolute top-1/2 -translate-y-1/2 right-3 md:hidden bg-red-600 text-white px-3 py-2 rounded ${swiped ? 'block' : 'hidden'}`}
         aria-hidden={swiped ? 'false' : 'true'}
       >
-        Delete
+        削除
       </button>
     </div>
   );
@@ -125,10 +129,10 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   const handle = async () => {
     try {
       await navigator.clipboard.writeText(text);
-      addToast('Copied to clipboard', { level: 'success' });
+      addToast('コピーしました', { level: 'success' });
     } catch {
       // clipboard permission can be denied
-      addToast('Copy failed', { level: 'error' });
+      addToast('コピーに失敗しました', { level: 'error' });
     }
   };
   return (
@@ -145,41 +149,41 @@ const PresignedButton: React.FC<{ info: PresignedInfo }> = ({ info }) => {
       window.open(info.url, '_blank', 'noopener');
     } catch {
       // popup blockers can reject window.open
-      addToast('Unable to open link, trying direct download', { level: 'info' });
+      addToast('リンクを開けないため、直接ダウンロードを試します', { level: 'info' });
       try {
         const parts = info.object ? info.object.split('/') : [];
         const taskId = parts[1] || '';
         window.open(`/api/bg/minutes/${encodeURIComponent(taskId)}`, '_blank', 'noopener');
       } catch {
-        addToast('Fallback failed', { level: 'error' });
+        addToast('代替のダウンロードに失敗しました', { level: 'error' });
       }
     }
   };
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(info.url);
-      addToast('Link copied', { level: 'success' });
+      addToast('リンクをコピーしました', { level: 'success' });
     } catch {
       // clipboard permission can be denied
-      addToast('Copy failed', { level: 'error' });
+      addToast('コピーに失敗しました', { level: 'error' });
     }
   };
   const expiresText = info?.expires_at
-    ? `Expires: ${new Date(info.expires_at).toLocaleString()}`
+    ? `期限: ${new Date(info.expires_at).toLocaleString()}`
     : info?.expires
-      ? `Expires in ${info.expires} sec`
+      ? `${info.expires} 秒で期限切れ`
       : '';
   return (
     <div className="flex items-center gap-1">
       <button
-        title="Open cached file"
+        title="キャッシュしたファイルを開く"
         className="p-1 rounded hover:bg-[var(--bg-default)]"
         onClick={handleOpen}
       >
         <ExternalLink size={16} />
       </button>
       <button
-        title="Copy link"
+        title="リンクをコピー"
         className="p-1 rounded hover:bg-[var(--bg-default)]"
         onClick={handleCopy}
       >
@@ -220,7 +224,7 @@ export default function ResultCards({
     filename: string
   ) => {
     if (!taskId) {
-      addToast('Task id unavailable for download', { level: 'error' });
+      addToast('ダウンロードに必要なタスク ID がありません', { level: 'error' });
       return;
     }
     await startDownload(() => fetcher(taskId), filename, addToast);
@@ -228,7 +232,7 @@ export default function ResultCards({
 
   const handleDelete = async () => {
     if (!taskId) {
-      addToast('Task id unavailable', { level: 'error' });
+      addToast('タスク ID がありません', { level: 'error' });
       return;
     }
     // open confirm dialog via DOM event dispatch to avoid adding state here
@@ -239,10 +243,10 @@ export default function ResultCards({
   const handleMobileCopy = async () => {
     try {
       await navigator.clipboard.writeText(focusedContent);
-      addToast('Copied to clipboard', { level: 'success' });
+      addToast('コピーしました', { level: 'success' });
     } catch {
       // clipboard permission can be denied
-      addToast('Copy failed', { level: 'error' });
+      addToast('コピーに失敗しました', { level: 'error' });
     }
   };
 
@@ -263,16 +267,16 @@ export default function ResultCards({
         onClick={() => downloadBlob(fetchMinutesDocx, `minutes_${taskId || 'unknown'}.docx`)}
         className="mb-3 rounded border px-3 py-2 text-sm"
       >
-        Word minutes
+        Word 議事録
       </button>
 
       <Card
-        title="Transcript"
+        title={TRANSCRIPT_TITLE}
         onDownload={() =>
           downloadBlob(fetchTranscriptDownload, `minutes_${taskId || 'unknown'}_transcript.txt`)
         }
         onFocus={() => {
-          setFocusedTitle('Transcript');
+          setFocusedTitle(TRANSCRIPT_TITLE);
           setFocusedContent(transcript);
         }}
         onBlur={() => {
@@ -285,13 +289,13 @@ export default function ResultCards({
       </Card>
 
       <Card
-        title="Summary"
+        title={SUMMARY_TITLE}
         markdown
         onDownload={() =>
           downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`)
         }
         onFocus={() => {
-          setFocusedTitle('Summary');
+          setFocusedTitle(SUMMARY_TITLE);
           setFocusedContent(summary);
         }}
         onDelete={handleDelete}
@@ -301,12 +305,12 @@ export default function ResultCards({
       </Card>
 
       <Card
-        title="Action Items"
+        title={ACTION_ITEMS_TITLE}
         onDownload={() =>
           downloadBlob(fetchActionItemsDownload, `minutes_${taskId || 'unknown'}_action_items.json`)
         }
         onFocus={() => {
-          setFocusedTitle('Action Items');
+          setFocusedTitle(ACTION_ITEMS_TITLE);
           setFocusedContent(actions);
         }}
         onDelete={handleDelete}
@@ -321,7 +325,7 @@ export default function ResultCards({
           onClick={handleDelete}
           className="rounded border px-3 py-2 text-sm text-red-600 hover:bg-red-50"
         >
-          Delete
+          削除
         </button>
       </div>
 
@@ -342,16 +346,16 @@ export default function ResultCards({
             onClick={handleMobileCopy}
             className="rounded bg-[var(--accent)] px-3 py-2 text-sm text-white flex items-center gap-2"
           >
-            <Copy size={16} /> Copy
+            <Copy size={16} /> コピー
           </button>
           <button
             onClick={() => {
-              if (focusedTitle === 'Transcript') {
+              if (focusedTitle === TRANSCRIPT_TITLE) {
                 downloadBlob(
                   fetchTranscriptDownload,
                   `minutes_${taskId || 'unknown'}_transcript.txt`
                 );
-              } else if (focusedTitle === 'Summary') {
+              } else if (focusedTitle === SUMMARY_TITLE) {
                 downloadBlob(fetchSummaryDownload, `minutes_${taskId || 'unknown'}_summary.txt`);
               } else {
                 downloadBlob(
@@ -362,10 +366,10 @@ export default function ResultCards({
             }}
             className="rounded border px-3 py-2 text-sm flex items-center gap-2"
           >
-            <Download size={16} /> Download
+            <Download size={16} /> ダウンロード
           </button>
           <button
-            aria-label="Close actions"
+            aria-label="操作を閉じる"
             onClick={() => {
               setFocusedTitle(null);
               setFocusedContent('');

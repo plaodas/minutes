@@ -29,8 +29,8 @@ describe('MyServiceTokens', () => {
 
     expect(screen.queryByRole('combobox', { name: 'user' })).toBeNull();
     expect(screen.queryByPlaceholderText('associate user id (optional)')).toBeNull();
-    fireEvent.change(screen.getByLabelText('token name'), { target: { value: 'phone' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    fireEvent.change(screen.getByLabelText('トークン名'), { target: { value: 'phone' } });
+    fireEvent.click(screen.getByRole('button', { name: 'トークンを作成' }));
 
     await waitFor(() => {
       expect(createMyServiceToken).toHaveBeenCalledWith('phone');

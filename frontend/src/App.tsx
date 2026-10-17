@@ -68,7 +68,7 @@ export default function App() {
     const LoginForm = React.lazy(() => import('./components/LoginForm'));
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--bg-default)]">
-        <React.Suspense fallback={<div>Loading...</div>}>
+        <React.Suspense fallback={<div>読み込み中…</div>}>
           <div className="w-full max-w-md">
             <LoginForm />
           </div>
@@ -86,12 +86,10 @@ export default function App() {
             {activeView === 'upload' && (
               <>
                 <div className="mb-6">
-                  <p className="text-sm font-medium text-[var(--accent)]">Audio workspace</p>
-                  <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">
-                    Create meeting minutes
-                  </h1>
+                  <p className="text-sm font-medium text-[var(--accent)]">音声</p>
+                  <h1 className="mt-1 text-2xl font-semibold sm:text-3xl">議事録を作成</h1>
                   <p className="mt-2 text-sm text-[var(--muted)]">
-                    Upload a recording to transcribe, summarize, and collect action items.
+                    録音をアップロードすると、文字起こし、要約、アクションアイテムを作ります。
                   </p>
                 </div>
                 <Dropzone setActiveIndex={setActiveIndex} setResult={setResult} />
