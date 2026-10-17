@@ -62,7 +62,7 @@ export default function HistoryEventsModal({
     };
     const focusTimer = window.setTimeout(() => {
       const closeBtn = document.querySelector(
-        '[role="dialog"] button[aria-label="Close"]'
+        '[role="dialog"] button[aria-label="閉じる"]'
       ) as HTMLElement | null;
       if (closeBtn) {
         closeBtn.focus();
@@ -107,30 +107,30 @@ export default function HistoryEventsModal({
     >
       <button
         type="button"
-        aria-label="Close full history"
+        aria-label="履歴全体を閉じる"
         className="absolute inset-0"
         onClick={close}
       />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Full history for ${taskId}`}
+        aria-label={`${taskId} の履歴全体`}
         className={`relative z-10 max-h-[80vh] w-full max-w-2xl overflow-auto rounded bg-white p-6 transform transition-all duration-200 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3'}`}
       >
         <button
-          aria-label="Close"
+          aria-label="閉じる"
           onClick={close}
           className="absolute right-3 top-3 rounded px-2 py-1 text-sm text-[var(--muted)] hover:bg-slate-100"
         >
           ✕
         </button>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Full history for {item?.name || taskId}</h2>
+          <h2 className="text-lg font-semibold">{item?.name || taskId} の履歴全体</h2>
           <div>
             <button
               data-testid={`rename-${taskId}`}
               onClick={async () => {
-                const newName = window.prompt('Enter new name for this task', item?.name || '');
+                const newName = window.prompt('このタスクの新しい名前', item?.name || '');
                 if (!newName) return;
                 try {
                   await renameBgTask(taskId, newName);
@@ -141,7 +141,7 @@ export default function HistoryEventsModal({
               }}
               className="mr-3 rounded bg-slate-100 px-2 py-1 text-sm"
             >
-              Rename
+              名前を変更
             </button>
           </div>
         </div>
@@ -165,7 +165,7 @@ export default function HistoryEventsModal({
                       rel="noreferrer"
                       href={`${API_BASE}/${h.payload.result.output_file}`}
                     >
-                      Open output file
+                      出力ファイルを開く
                     </a>
                   </div>
                 )}
@@ -173,7 +173,7 @@ export default function HistoryEventsModal({
             </div>
           ))}
           <div className="mt-4">
-            <div className="text-sm text-[var(--muted)]">All events loaded</div>
+            <div className="text-sm text-[var(--muted)]">すべてのイベントを読み込みました</div>
           </div>
         </div>
       </div>

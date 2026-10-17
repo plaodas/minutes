@@ -43,7 +43,7 @@ export async function uploadAudioBg(file: File): Promise<UploadTaskResponse> {
     body: fd,
     headers: getUploadAuthHeaders(),
   });
-  if (!res.ok) throw new Error('upload failed');
+  if (!res.ok) throw new Error('アップロードに失敗しました');
   return res.json() as Promise<UploadTaskResponse>;
 }
 
@@ -68,12 +68,15 @@ export function uploadAudioBgWithProgress(file: File, onProgress?: (percent: num
           resolve({ task_id: '' });
         }
       } else {
-        const msg = `upload failed: ${xhr.status} ${xhr.statusText} ${xhr.responseText || ''}`;
+        const msg = `アップロードに失敗しました: ${xhr.status} ${xhr.statusText} ${xhr.responseText || ''}`;
         reject(new Error(msg));
       }
     };
 
-    xhr.onerror = () => reject(new Error('upload failed: network error or CORS blocked'));
+    xhr.onerror = () =>
+      reject(
+        new Error('アップロードに失敗しました: ネットワークエラー、または CORS で遮断されました')
+      );
   });
 
   if (xhr.upload && onProgress) {
@@ -99,7 +102,7 @@ export async function getBgStatus(taskId: string): Promise<BgStatusResponse> {
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: 3, timeoutMs: 10000 }
   );
-  if (!res.ok) throw new Error('status fetch failed');
+  if (!res.ok) throw new Error('状態の取得に失敗しました');
   return res.json() as Promise<BgStatusResponse>;
 }
 
@@ -109,7 +112,7 @@ export async function getBgResult(taskId: string): Promise<ResultSuccess> {
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: 3, timeoutMs: 10000 }
   );
-  if (!res.ok) throw new Error('result fetch failed');
+  if (!res.ok) throw new Error('結果の取得に失敗しました');
   return res.json() as Promise<ResultSuccess>;
 }
 
@@ -132,9 +135,9 @@ export async function getBgTasks(
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: options.retries ?? 3, timeoutMs: options.timeoutMs ?? 10000 }
   );
-  if (!res.ok) throw new Error('task list fetch failed');
+  if (!res.ok) throw new Error('タスク一覧の取得に失敗しました');
   const tasks = parseTaskListResponse(await res.json());
-  if (!tasks) throw new Error('invalid task list response');
+  if (!tasks) throw new Error('タスク一覧の応答が不正です');
   return tasks;
 }
 
@@ -144,9 +147,9 @@ export async function getBgTaskEvents(taskId: string): Promise<TaskHistoryPrevie
     { credentials: 'same-origin', headers: getAuthHeaders() },
     { retries: 2, timeoutMs: 10000 }
   );
-  if (!res.ok) throw new Error('task events fetch failed');
+  if (!res.ok) throw new Error('タスクイベントの取得に失敗しました');
   const events = parseTaskHistoryResponse(await res.json());
-  if (!events) throw new Error('invalid task events response');
+  if (!events) throw new Error('タスクイベントの応答が不正です');
   return events;
 }
 
@@ -166,7 +169,7 @@ export async function renameBgTask(taskId: string, name: string): Promise<void> 
   const message =
     typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
       ? body.error
-      : 'Rename failed';
+      : '名前の変更に失敗しました';
   throw new Error(message);
 }
 
@@ -189,7 +192,7 @@ export async function updateTaskSpeakers(
     const message =
       typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
         ? body.error
-        : 'Failed to save speaker names';
+        : '話者名の保存に失敗しました';
     throw new Error(message);
   }
   const record = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
@@ -236,7 +239,7 @@ export async function deleteTask(taskId: string): Promise<TaskDeletedResponse> {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('delete failed');
+  if (!res.ok) throw new Error('削除に失敗しました');
   return res.json();
 }
 
@@ -246,7 +249,7 @@ export async function cancelTask(taskId: string): Promise<TaskCancelledResponse>
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('cancel failed');
+  if (!res.ok) throw new Error('取り消しに失敗しました');
   return res.json() as Promise<TaskCancelledResponse>;
 }
 
@@ -256,7 +259,7 @@ export async function forceDeleteTask(taskId: string): Promise<TaskDeletedRespon
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('force delete failed');
+  if (!res.ok) throw new Error('強制削除に失敗しました');
   return res.json();
 }
 
@@ -279,7 +282,7 @@ export async function adminUploadsCleanupGet(
     credentials: 'same-origin',
     headers,
   });
-  if (!res.ok) throw new Error('cleanup preview failed');
+  if (!res.ok) throw new Error('クリーンアップのプレビューに失敗しました');
   return res.json() as Promise<UploadCleanupListResponse>;
 }
 
@@ -296,7 +299,7 @@ export async function adminUploadsCleanupPost(payload: {
     headers,
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error('cleanup run failed');
+  if (!res.ok) throw new Error('クリーンアップの実行に失敗しました');
   return res.json() as Promise<UploadCleanupDeleteResponse>;
 }
 
@@ -312,7 +315,7 @@ export async function login(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || 'login failed');
+    throw new Error(text || 'ログインに失敗しました');
   }
   try {
     return await res.json();
@@ -324,7 +327,7 @@ export async function login(
 
 export async function logout(): Promise<AuthLogoutResponse | Response> {
   const res = await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
-  if (!res.ok) throw new Error('logout failed');
+  if (!res.ok) throw new Error('ログアウトに失敗しました');
   try {
     return (await res.json()) as AuthLogoutResponse;
   } catch {
@@ -338,7 +341,7 @@ export async function getBuckets(): Promise<UserBucketListResponse> {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('failed to fetch buckets');
+  if (!res.ok) throw new Error('バケットの取得に失敗しました');
   return res.json() as Promise<UserBucketListResponse>;
 }
 
@@ -349,7 +352,7 @@ export async function createBucket(name: string): Promise<UserBucketResponse> {
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ name }),
   });
-  if (!res.ok) throw new Error('failed to create bucket');
+  if (!res.ok) throw new Error('バケットの作成に失敗しました');
   return res.json() as Promise<UserBucketResponse>;
 }
 
@@ -373,7 +376,7 @@ export async function listAuditEvents(
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('failed to fetch audit events');
+  if (!res.ok) throw new Error('監査イベントの取得に失敗しました');
   return res.json() as Promise<AuditEventListResponse>;
 }
 
@@ -382,7 +385,7 @@ export async function listUsers(): Promise<UserListResponse> {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('failed to fetch users');
+  if (!res.ok) throw new Error('ユーザーの取得に失敗しました');
   return res.json() as Promise<UserListResponse>;
 }
 
@@ -391,7 +394,7 @@ export async function listServiceTokens(): Promise<ServiceTokenListResponse> {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('failed to fetch service tokens');
+  if (!res.ok) throw new Error('サービストークンの取得に失敗しました');
   return res.json() as Promise<ServiceTokenListResponse>;
 }
 
@@ -405,7 +408,7 @@ export async function createServiceToken(
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ name, user_id }),
   });
-  if (!res.ok) throw new Error('failed to create service token');
+  if (!res.ok) throw new Error('サービストークンの作成に失敗しました');
   return res.json() as Promise<ServiceTokenCreatedResponse>;
 }
 
@@ -414,7 +417,7 @@ export async function listMyServiceTokens(): Promise<ServiceTokenListResponse> {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('failed to fetch service tokens');
+  if (!res.ok) throw new Error('サービストークンの取得に失敗しました');
   return res.json() as Promise<ServiceTokenListResponse>;
 }
 
@@ -425,7 +428,7 @@ export async function createMyServiceToken(name?: string): Promise<ServiceTokenC
     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ name }),
   });
-  if (!res.ok) throw new Error('failed to create service token');
+  if (!res.ok) throw new Error('サービストークンの作成に失敗しました');
   return res.json() as Promise<ServiceTokenCreatedResponse>;
 }
 
@@ -435,7 +438,7 @@ export async function revokeMyServiceToken(id: string): Promise<RevokedResponse>
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('failed to revoke token');
+  if (!res.ok) throw new Error('トークンの失効に失敗しました');
   return res.json() as Promise<RevokedResponse>;
 }
 
@@ -445,7 +448,7 @@ export async function revokeServiceToken(id: string): Promise<RevokedResponse> {
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('failed to revoke token');
+  if (!res.ok) throw new Error('トークンの失効に失敗しました');
   return res.json() as Promise<RevokedResponse>;
 }
 
@@ -455,6 +458,6 @@ export async function undeleteTask(taskId: string): Promise<TaskUndeletedRespons
     credentials: 'same-origin',
     headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error('undelete failed');
+  if (!res.ok) throw new Error('復元に失敗しました');
   return res.json();
 }

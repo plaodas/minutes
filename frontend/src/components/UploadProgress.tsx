@@ -16,7 +16,7 @@ export default function UploadProgress({ uploadProgress, transcribeProgress }: P
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
-          <div className="text-xs text-[var(--muted)] mt-1">Uploading: {uploadProgress}%</div>
+          <div className="text-xs text-[var(--muted)] mt-1">アップロード中: {uploadProgress}%</div>
         </div>
       )}
       {transcribeProgress !== null && (
@@ -28,7 +28,7 @@ export default function UploadProgress({ uploadProgress, transcribeProgress }: P
             />
           </div>
           <div className="text-xs text-[var(--muted)] mt-1">
-            Transcribing: {transcribeProgress}%
+            文字起こし中: {transcribeProgress}%
           </div>
         </div>
       )}

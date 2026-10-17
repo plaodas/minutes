@@ -2,11 +2,16 @@ import React from 'react';
 import { Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-const steps = ['Uploading', 'preprocess', 'transcribing', 'formatting'];
+const steps = [
+  { id: 'uploading', label: 'アップロード' },
+  { id: 'preprocess', label: '前処理' },
+  { id: 'transcribing', label: '文字起こし' },
+  { id: 'formatting', label: '整形' },
+];
 
 export default function ProcessingSteps({ activeIndex }: { activeIndex: number }) {
   const isRunning = activeIndex >= 0;
-  const currentStep = isRunning ? steps[activeIndex] : 'Waiting for audio';
+  const currentStep = isRunning ? steps[activeIndex]?.label : '音声を待っています';
 
   return (
     <>
@@ -25,7 +30,9 @@ export default function ProcessingSteps({ activeIndex }: { activeIndex: number }
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{currentStep}</div>
             <div className="text-xs text-[var(--muted)]">
-              {isRunning ? `Step ${activeIndex + 1} of ${steps.length}` : 'Waiting for upload'}
+              {isRunning
+                ? `${activeIndex + 1} / ${steps.length} 段階`
+                : 'アップロードを待っています'}
             </div>
           </div>
         </div>
@@ -33,15 +40,15 @@ export default function ProcessingSteps({ activeIndex }: { activeIndex: number }
 
       {/* Desktop / tablet: full timeline */}
       <div className="hidden sm:block">
-        <section className="border-l-2 border-slate-200 pl-4" aria-label="Processing status">
+        <section className="border-l-2 border-slate-200 pl-4" aria-label="処理状況">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold">Processing status</h2>
+              <h2 className="text-sm font-semibold">処理状況</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">{currentStep}</p>
             </div>
             {isRunning && (
               <span className="shrink-0 text-xs font-medium text-[var(--accent)]">
-                Step {activeIndex + 1} of {steps.length}
+                {activeIndex + 1} / {steps.length} 段階
               </span>
             )}
           </div>
@@ -50,7 +57,7 @@ export default function ProcessingSteps({ activeIndex }: { activeIndex: number }
               const isCurrent = activeIndex === index;
               const isComplete = activeIndex > index;
               return (
-                <li key={step} className="flex min-w-0 items-center gap-2">
+                <li key={step.id} className="flex min-w-0 items-center gap-2">
                   {isCurrent ? (
                     <motion.span
                       animate={{ rotate: 360 }}
@@ -67,7 +74,7 @@ export default function ProcessingSteps({ activeIndex }: { activeIndex: number }
                   <span
                     className={`truncate text-sm ${isCurrent || isComplete ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--muted)]'}`}
                   >
-                    {step}
+                    {step.label}
                   </span>
                 </li>
               );

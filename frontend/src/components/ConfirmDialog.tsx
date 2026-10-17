@@ -7,8 +7,8 @@ export default function ConfirmDialog({
   message,
   onConfirm,
   onCancel,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel = '確認',
+  cancelLabel = 'キャンセル',
 }: {
   open: boolean;
   title?: string;

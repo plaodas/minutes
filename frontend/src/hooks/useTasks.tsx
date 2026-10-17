@@ -41,9 +41,9 @@ export function useTasks() {
           // cached_tasks may be missing or invalid JSON
         }
 
-        addToast('Failed to load history', {
+        addToast('履歴の読み込みに失敗しました', {
           level: 'error',
-          actionLabel: 'Retry',
+          actionLabel: '再試行',
           action: () => {
             load();
           },

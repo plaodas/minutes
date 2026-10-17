@@ -81,7 +81,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         if (created) {
           dispatchAppToast({
             type: 'success',
-            message: 'User ID generated and saved for uploads',
+            message: 'アップロード用のユーザー ID を作成して保存しました',
           });
         }
 
@@ -96,7 +96,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
         if (generation !== uploadGenerationRef.current) return;
         xhrRef.current = null;
         const id = resp.task_id || resp.taskId || resp.id;
-        if (!id) throw new Error('no task id returned');
+        if (!id) throw new Error('タスク ID が返りませんでした');
         setTaskId(id);
 
         try {
@@ -158,19 +158,19 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
     setTaskId(null);
     setActiveIndex(-1);
     if (!activeTaskId) {
-      dispatchAppToast({ type: 'info', message: 'Upload cancelled' });
+      dispatchAppToast({ type: 'info', message: 'アップロードを取り消しました' });
       return;
     }
     try {
       await cancelTask(activeTaskId);
-      dispatchAppToast({ type: 'info', message: 'Task cancelled' });
+      dispatchAppToast({ type: 'info', message: 'タスクを取り消しました' });
     } catch (error: unknown) {
       dispatchAppToast({
         type: 'error',
         message:
           error instanceof Error
-            ? `Task cancellation failed: ${error.message}`
-            : 'Task cancellation failed',
+            ? `タスクの取り消しに失敗しました: ${error.message}`
+            : 'タスクの取り消しに失敗しました',
       });
     }
   }, [abortUpload, setActiveIndex, stopPolling, taskId]);
@@ -178,7 +178,7 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
   return (
     <div>
       <label
-        aria-label="Upload audio file"
+        aria-label="音声ファイルをアップロード"
         className={`block rounded-lg border border-transparent p-5 sm:p-8 glass-card cursor-pointer transition-shadow ${dragActive ? 'drag-active shadow-lg' : 'hover:shadow-md focus:shadow-md'}`}
         onDragOver={(e) => {
           e.preventDefault();
@@ -193,16 +193,18 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
             animate={{ scale: dragActive ? 1.03 : 1 }}
             transition={{ type: 'spring', stiffness: 200 }}
           >
-            <div className="text-lg font-medium">Drop your audio file</div>
+            <div className="text-lg font-medium">音声ファイルをドロップ</div>
           </motion.div>
-          <div className="text-sm text-[var(--muted)]">MP3 / WAV supported · max 200MB</div>
-          <div className="mt-2 text-xs text-[var(--accent)]">Tap to select or drop a file</div>
+          <div className="text-sm text-[var(--muted)]">MP3 / WAV に対応 · 最大 200MB</div>
+          <div className="mt-2 text-xs text-[var(--accent)]">
+            タップして選ぶか、ファイルをドロップ
+          </div>
           {dragActive && (
             <div className="w-full h-8 mt-4 bg-gradient-to-r from-accent/30 to-transparent rounded-md" />
           )}
           {fileName && (
             <div className="mt-2 max-w-full break-all text-sm text-[var(--muted)]">
-              Selected: {fileName}
+              選択中: {fileName}
             </div>
           )}
           <UploadProgress uploadProgress={uploadProgress} transcribeProgress={transcribeProgress} />
@@ -213,34 +215,34 @@ export default function Dropzone({ setActiveIndex, setResult }: Props) {
                 className="px-3 py-1 rounded bg-gray-200"
                 onClick={() => void cancelAll()}
               >
-                Cancel
+                キャンセル
               </button>
             </div>
           )}
-          {taskId && <div className="mt-2 max-w-full break-all text-sm">Task: {taskId}</div>}
+          {taskId && <div className="mt-2 max-w-full break-all text-sm">タスク: {taskId}</div>}
           {error && (
             <div className="mt-2 flex items-center gap-3">
-              <div className="text-sm text-red-600">Error: {error}</div>
+              <div className="text-sm text-red-600">エラー: {error}</div>
               {lastFile && (
                 <button
                   onClick={handleRetry}
                   className="ml-2 rounded bg-[var(--accent)] px-3 py-1 text-xs text-white"
                 >
-                  Retry
+                  再試行
                 </button>
               )}
               <button
                 onClick={() => setShowErrorModal(true)}
                 className="ml-2 rounded border border-slate-200 bg-white px-3 py-1 text-xs"
               >
-                Details
+                詳細
               </button>
             </div>
           )}
           <ErrorModal
             open={showErrorModal}
             onClose={() => setShowErrorModal(false)}
-            title="Server response"
+            title="サーバー応答"
             content={lastErrorDetails}
           />
         </div>

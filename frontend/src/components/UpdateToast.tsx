@@ -18,7 +18,7 @@ export default function UpdateToast() {
 
   return (
     <div className="fixed bottom-6 right-6 bg-white p-3 rounded-md shadow-lg flex items-center gap-3">
-      <div className="text-sm">New version available.</div>
+      <div className="text-sm">新しいバージョンがあります。</div>
       <div className="flex gap-2">
         <button
           className="px-3 py-1 rounded bg-[var(--accent)] text-white"
@@ -30,7 +30,7 @@ export default function UpdateToast() {
             );
           }}
         >
-          Update
+          更新
         </button>
       </div>
     </div>

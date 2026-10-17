@@ -22,7 +22,7 @@ export default function MyServiceTokens() {
       const data = await listMyServiceTokens();
       setTokens(data.tokens || []);
     } catch (e: unknown) {
-      addToast(errorMessage(e, 'failed to load tokens'), { level: 'error' });
+      addToast(errorMessage(e, 'トークンの読み込みに失敗しました'), { level: 'error' });
     } finally {
       setLoading(false);
     }
@@ -36,29 +36,31 @@ export default function MyServiceTokens() {
     e.preventDefault();
     try {
       const data = await createMyServiceToken(name || undefined);
-      addToast('Token created — copy it now (shown once)', { level: 'success' });
+      addToast('トークンを作成しました。今すぐコピーしてください（一度だけ表示）', {
+        level: 'success',
+      });
       try {
-        window.prompt('Service token (copy and store securely):', data.token);
+        window.prompt('サービストークン（コピーして安全に保管）:', data.token);
       } catch {
         // window.prompt can throw if the browser blocks it
       }
       setName('');
       await load();
     } catch (e: unknown) {
-      addToast(errorMessage(e, 'create failed'), { level: 'error' });
+      addToast(errorMessage(e, '作成に失敗しました'), { level: 'error' });
     }
   };
 
   const handleRevoke = async (id: string) => {
-    setConfirmMessage('Revoke this token?');
+    setConfirmMessage('このトークンを失効しますか？');
     setConfirmAction(() => async () => {
       setConfirmOpen(false);
       try {
         await revokeMyServiceToken(id);
-        addToast('Token revoked', { level: 'success' });
+        addToast('トークンを失効しました', { level: 'success' });
         await load();
       } catch (e: unknown) {
-        addToast(errorMessage(e, 'revoke failed'), { level: 'error' });
+        addToast(errorMessage(e, '失効に失敗しました'), { level: 'error' });
       }
     });
     setConfirmOpen(true);
@@ -67,9 +69,9 @@ export default function MyServiceTokens() {
   return (
     <div className="mt-8">
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Service tokens</h2>
+        <h2 className="text-lg font-semibold">サービストークン</h2>
         <p className="text-sm text-[var(--muted)]">
-          Create a token for this account. Copy it when it appears; it is shown once.
+          このアカウント用のトークンを作成します。表示されたらコピーしてください。一度だけ表示されます。
         </p>
       </div>
 
@@ -77,20 +79,20 @@ export default function MyServiceTokens() {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="token name (optional)"
-          aria-label="token name"
+          placeholder="トークン名（任意）"
+          aria-label="トークン名"
           className="rounded border px-2 py-1"
         />
         <button className="rounded bg-[var(--accent)] px-3 py-1 text-white" type="submit">
-          Create token
+          トークンを作成
         </button>
       </form>
 
       <div>
         {loading ? (
-          <div className="text-sm text-[var(--muted)]">Loading…</div>
+          <div className="text-sm text-[var(--muted)]">読み込み中…</div>
         ) : tokens.length === 0 ? (
-          <div className="text-sm text-[var(--muted)]">No service tokens.</div>
+          <div className="text-sm text-[var(--muted)]">サービストークンはありません。</div>
         ) : (
           <ul className="space-y-2">
             {tokens.map((token) => (
@@ -104,7 +106,7 @@ export default function MyServiceTokens() {
                   {token.name || token.id}
                   {token.revoked && (
                     <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">
-                      Revoked
+                      失効済み
                     </span>
                   )}
                 </div>
@@ -113,7 +115,7 @@ export default function MyServiceTokens() {
                   disabled={token.revoked}
                   className="rounded bg-red-600 px-2 py-1 text-sm text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  Revoke
+                  失効
                 </button>
               </li>
             ))}
@@ -122,10 +124,10 @@ export default function MyServiceTokens() {
       </div>
       <ConfirmModal
         open={confirmOpen}
-        title="Confirm"
+        title="確認"
         message={confirmMessage}
-        confirmLabel="Revoke"
-        cancelLabel="Cancel"
+        confirmLabel="失効"
+        cancelLabel="キャンセル"
         onConfirm={() => {
           if (confirmAction) confirmAction();
         }}

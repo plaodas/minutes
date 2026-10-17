@@ -116,7 +116,7 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
         return;
       }
       if (event.event_type === 'failure') {
-        failTask(event.payload.error || 'Task failed', event.payload.error, event.task_id);
+        failTask(event.payload.error || 'タスクが失敗しました', event.payload.error, event.task_id);
         return;
       }
       if (event.event_type === 'cancelled') {
@@ -146,7 +146,11 @@ export function useActiveTask(taskId: string | null, options: UseActiveTaskOptio
         const backendError = statusResponse.error;
 
         if (backendError || statusResponse.stage === 'failed') {
-          failTask(backendError ? String(backendError) : 'Task failed', backendError || status, id);
+          failTask(
+            backendError ? String(backendError) : 'タスクが失敗しました',
+            backendError || status,
+            id
+          );
           return true;
         }
 

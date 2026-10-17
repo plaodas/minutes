@@ -14,7 +14,7 @@ export async function startDownload(
   runner: Runner,
   filename: string,
   addToast: AddToast,
-  successMsg = 'Download started'
+  successMsg = 'ダウンロードを開始しました'
 ) {
   try {
     const { blob } = await runner();
@@ -29,9 +29,9 @@ export async function startDownload(
     addToast(successMsg, { level: 'info', duration: 3000 });
   } catch (e: unknown) {
     const message = e instanceof Error && e.message ? e.message : String(e);
-    addToast('Download failed: ' + message, {
+    addToast('ダウンロードに失敗しました: ' + message, {
       level: 'error',
-      actionLabel: 'Retry',
+      actionLabel: '再試行',
       action: () => startDownload(runner, filename, addToast, successMsg),
     });
   }

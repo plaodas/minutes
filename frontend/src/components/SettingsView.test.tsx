@@ -32,17 +32,17 @@ describe('SettingsView', () => {
 
     expect(screen.queryByRole('combobox', { name: 'user' })).toBeNull();
     expect(screen.queryByPlaceholderText('associate user id (optional)')).toBeNull();
-    expect(screen.getByLabelText('token name')).toBeTruthy();
+    expect(screen.getByLabelText('トークン名')).toBeTruthy();
 
-    const engine = await screen.findByLabelText('Japanese transcript engine');
+    const engine = await screen.findByLabelText('日本語の文字起こしエンジン');
     fireEvent.change(engine, { target: { value: 'hayamimi' } });
     expect(JSON.parse(localStorage.getItem('minutes.settings') || '{}').engine).toBe('hayamimi');
 
-    fireEvent.change(screen.getByLabelText('Transcript language'), {
+    fireEvent.change(screen.getByLabelText('文字起こし言語'), {
       target: { value: 'English' },
     });
     await waitFor(() => {
-      expect(screen.queryByLabelText('Japanese transcript engine')).toBeNull();
+      expect(screen.queryByLabelText('日本語の文字起こしエンジン')).toBeNull();
     });
   });
 
@@ -62,7 +62,7 @@ describe('SettingsView', () => {
     renderSettings();
 
     await waitFor(() => {
-      expect(screen.queryByLabelText('Japanese transcript engine')).toBeNull();
+      expect(screen.queryByLabelText('日本語の文字起こしエンジン')).toBeNull();
       expect(JSON.parse(localStorage.getItem('minutes.settings') || '{}').engine).toBe('whisper');
     });
   });
