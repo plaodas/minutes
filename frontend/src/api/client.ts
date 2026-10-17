@@ -358,12 +358,16 @@ export async function listAuditEvents(
     action?: string;
     target_type?: string;
     target_id?: string;
+    before_created_at?: string;
+    before_id?: string;
   } = {}
 ): Promise<AuditEventListResponse> {
   const params = new URLSearchParams();
   if (filters.action) params.set('action', filters.action);
   if (filters.target_type) params.set('target_type', filters.target_type);
   if (filters.target_id) params.set('target_id', filters.target_id);
+  if (filters.before_created_at) params.set('before_created_at', filters.before_created_at);
+  if (filters.before_id) params.set('before_id', filters.before_id);
   const query = params.toString();
   const res = await fetch(`${API_BASE}/audit-events${query ? `?${query}` : ''}`, {
     credentials: 'same-origin',

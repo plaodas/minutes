@@ -127,4 +127,111 @@ def test_audit_event_list_caps_limit_at_200(monkeypatch):
     assert response.status_code == 200
     events = response.json()["events"]
     assert len(events) == 200
+    assert response.json()["has_more"] is True
     assert events[0]["created_at"].startswith("2026-10-17T02:03:20")
+
+
+def test_audit_event_list_pages_older_than_the_last_row(monkeypatch):
+    monkeypatch.delenv("FORCE_ADMIN", raising=False)
+    target_id = f"page-{uuid.uuid4().hex}"
+    moment = datetime(2026, 10, 17, 3, 0, tzinfo=timezone.utc)
+    _add_event(
+        action="task.delete",
+        target_type="task",
+        target_id=target_id,
+        created_at=moment,
+        detail={"order": "oldest"},
+    )
+    _add_event(
+        action="task.undelete",
+        target_type="task",
+        target_id=target_id,
+        created_at=moment,
+        detail={"order": "middle"},
+    )
+    _add_event(
+        action="task.force_delete",
+        target_type="task",
+        target_id=target_id,
+        created_at=moment,
+        detail={"order": "newest"},
+    )
+    _add_event(
+        action="bucket.delete",
+        target_type="bucket",
+        target_id=target_id,
+        created_at=moment + timedelta(minutes=1),
+    )
+
+    client = TestClient(app)
+    headers = {"X-Admin": "1"}
+    first = client.get(
+        "/api/audit-events",
+        params={"target_type": "task", "target_id": target_id, "limit": 1},
+        headers=headers,
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["has_more"] is True
+    assert first_body["events"][0]["detail"] == {"order": "newest"}
+
+    cursor = first_body["events"][0]
+    second = client.get(
+        "/api/audit-events",
+        params={
+            "target_type": "task",
+            "target_id": target_id,
+            "limit": 1,
+            "before_created_at": cursor["created_at"],
+            "before_id": cursor["id"],
+        },
+        headers=headers,
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["has_more"] is True
+    assert second_body["events"][0]["detail"] == {"order": "middle"}
+
+    older = second_body["events"][0]
+    third = client.get(
+        "/api/audit-events",
+        params={
+            "target_type": "task",
+            "target_id": target_id,
+            "limit": 1,
+            "before_created_at": older["created_at"],
+            "before_id": older["id"],
+        },
+        headers=headers,
+    )
+    assert third.status_code == 200
+    third_body = third.json()
+    assert third_body["has_more"] is False
+    assert third_body["events"][0]["detail"] == {"order": "oldest"}
+
+
+def test_audit_event_list_rejects_a_partial_cursor(monkeypatch):
+    monkeypatch.delenv("FORCE_ADMIN", raising=False)
+    client = TestClient(app)
+    headers = {"X-Admin": "1"}
+
+    missing_id = client.get(
+        "/api/audit-events",
+        params={"before_created_at": "2026-10-17T03:00:00"},
+        headers=headers,
+    )
+    missing_time = client.get(
+        "/api/audit-events",
+        params={"before_id": 1},
+        headers=headers,
+    )
+    invalid_time = client.get(
+        "/api/audit-events",
+        params={"before_created_at": "yesterday", "before_id": 1},
+        headers=headers,
+    )
+
+    assert missing_id.status_code == 400
+    assert missing_time.status_code == 400
+    assert invalid_time.status_code == 400
+    assert missing_id.json() == {"error": "invalid audit cursor"}

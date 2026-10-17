@@ -723,6 +723,11 @@ export interface components {
         AuditEventListResponse: {
             /** Events */
             events: components["schemas"]["AuditEventItem"][];
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
         };
         /** AuthFeaturesResponse */
         AuthFeaturesResponse: {
@@ -1455,6 +1460,8 @@ export interface operations {
                 action?: string | null;
                 target_type?: string | null;
                 target_id?: string | null;
+                before_created_at?: string | null;
+                before_id?: number | null;
                 limit?: number;
             };
             header?: never;

@@ -27,23 +27,47 @@ function actorLine(event: AuditEventItem): string {
   return parts.join(' · ');
 }
 
+type AuditFilters = { action?: string; target_type?: string; target_id?: string };
+
 export default function AuditEventsAdmin() {
   const [events, setEvents] = useState<AuditEventItem[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [action, setAction] = useState('');
   const [targetType, setTargetType] = useState('');
   const [targetId, setTargetId] = useState('');
+  const [applied, setApplied] = useState<AuditFilters>({});
   const { addToast } = useToast();
 
-  const load = async (filters: { action?: string; target_type?: string; target_id?: string }) => {
-    setLoading(true);
+  const load = async (filters: AuditFilters, before?: AuditEventItem) => {
+    if (before) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const data = await listAuditEvents(filters);
-      setEvents(data.events || []);
+      const data = await listAuditEvents(
+        before?.created_at
+          ? {
+              ...filters,
+              before_created_at: before.created_at,
+              before_id: before.id,
+            }
+          : filters
+      );
+      const incoming = data.events || [];
+      setHasMore(data.has_more === true);
+      if (before) {
+        setEvents((current) => {
+          const seen = new Set(current.map((event) => event.id));
+          return [...current, ...incoming.filter((event) => !seen.has(event.id))];
+        });
+      } else {
+        setEvents(incoming);
+      }
     } catch (e: unknown) {
       addToast(errorMessage(e, 'failed to load audit events'), { level: 'error' });
     } finally {
-      setLoading(false);
+      if (before) setLoadingMore(false);
+      else setLoading(false);
     }
   };
 
@@ -53,11 +77,19 @@ export default function AuditEventsAdmin() {
 
   const handleFilter = (e: React.FormEvent) => {
     e.preventDefault();
-    void load({
+    const filters = {
       action: action || undefined,
       target_type: targetType || undefined,
       target_id: targetId || undefined,
-    });
+    };
+    setApplied(filters);
+    void load(filters);
+  };
+
+  const showOlder = () => {
+    const last = events[events.length - 1];
+    if (!last?.created_at) return;
+    void load(applied, last);
   };
 
   return (
@@ -127,6 +159,16 @@ export default function AuditEventsAdmin() {
               </li>
             ))}
           </ul>
+        )}
+        {hasMore && events.length > 0 && events[events.length - 1]?.created_at && (
+          <button
+            type="button"
+            className="mt-3 rounded border px-3 py-1 text-sm"
+            disabled={loading || loadingMore}
+            onClick={showOlder}
+          >
+            {loadingMore ? 'Loading…' : 'Show older'}
+          </button>
         )}
       </div>
     </div>
