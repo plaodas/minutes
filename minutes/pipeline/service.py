@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from minutes.schemas import TaskStage
+from minutes.transcribe import jsonable_segments
 from minutes.upload_retention import remove_upload_family
 
 from .artifacts import write_text_atomic
@@ -24,6 +25,10 @@ from .transcription import (
 logger = logging.getLogger("minutes.pipeline.service")
 Preprocessor = Callable[[str], Any]
 Formatter = Callable[..., str]
+
+
+def _transcript_only(metadata: object) -> bool:
+    return isinstance(metadata, dict) and metadata.get("transcript_only") is True
 
 
 def _upload_field(metadata: object, key: str) -> str | None:
@@ -89,30 +94,39 @@ class PipelineService:
                 engine=engine,
             )
 
-        update_status(TaskStage.FORMATTING, None)
-        final_minutes = format_transcript(
-            transcription.raw_text,
-            metadata,
-            self.formatter,
-        )
-        timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime(
-            "%Y%m%d%H%M%S"
-        )
-        output_path = os.path.join(
-            outputs_dir or os.environ.get("OUTPUTS_DIR", "outputs"),
-            f"minutes_{timestamp}.txt",
-        )
-        self.artifact_writer(final_minutes, output_path)
+        if _transcript_only(metadata):
+            result = {
+                "transcript": transcription.raw_text,
+                "segments": jsonable_segments(transcription.segments),
+                "minutes": "",
+                "summary": "",
+                "action_items": [],
+            }
+        else:
+            update_status(TaskStage.FORMATTING, None)
+            final_minutes = format_transcript(
+                transcription.raw_text,
+                metadata,
+                self.formatter,
+            )
+            timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime(
+                "%Y%m%d%H%M%S"
+            )
+            output_path = os.path.join(
+                outputs_dir or os.environ.get("OUTPUTS_DIR", "outputs"),
+                f"minutes_{timestamp}.txt",
+            )
+            self.artifact_writer(final_minutes, output_path)
 
-        result = build_pipeline_result(
-            transcript=transcription.raw_text,
-            segments=transcription.segments,
-            minutes=final_minutes,
-            output_file=output_path,
-        )
-        minio_artifact = self.artifact_cache(task_id, timestamp, output_path)
-        if minio_artifact:
-            result["minio"] = minio_artifact
+            result = build_pipeline_result(
+                transcript=transcription.raw_text,
+                segments=transcription.segments,
+                minutes=final_minutes,
+                output_file=output_path,
+            )
+            minio_artifact = self.artifact_cache(task_id, timestamp, output_path)
+            if minio_artifact:
+                result["minio"] = minio_artifact
 
         if delete_intermediate:
             self._cleanup_intermediates(

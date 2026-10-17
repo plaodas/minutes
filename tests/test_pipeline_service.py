@@ -97,3 +97,63 @@ def test_pipeline_service_passes_language_to_local_transcription(monkeypatch, tm
 
     assert seen["language"] == "English"
     assert seen["engine"] == "hayamimi"
+
+
+def test_pipeline_service_stops_after_transcription_when_requested(
+    monkeypatch, tmp_path
+):
+    prepared = SimpleNamespace(
+        mono="mono.wav",
+        normalized="normalized.wav",
+        clean="clean.wav",
+        duration_seconds=3.0,
+    )
+    monkeypatch.setattr(
+        pipeline_service,
+        "prepare_audio",
+        lambda input_path, preprocess: prepared,
+    )
+    monkeypatch.setattr(
+        pipeline_service,
+        "transcribe_locally",
+        lambda *args, **kwargs: TranscriptionResult(
+            raw_text="short memo",
+            segments=[{"end": 3.0, "text": "short memo"}],
+        ),
+    )
+    statuses = []
+    formatted = []
+    written = []
+    cached = []
+    service = PipelineService(
+        preprocess=lambda path: path,
+        transcriber=lambda *args, **kwargs: ("unused", []),
+        formatter=lambda raw: formatted.append(raw),
+        post=lambda *args, **kwargs: None,
+        artifact_cache=lambda task_id, timestamp, output_path: cached.append(
+            output_path
+        ),
+        artifact_writer=lambda content, path: written.append(path),
+    )
+
+    result = service.run(
+        "input.m4a",
+        metadata={"transcript_only": True, "language": "Japanese"},
+        update_status=lambda stage, detail: statuses.append(stage),
+        update_progress=lambda progress: None,
+        outputs_dir=str(tmp_path),
+        delete_intermediate=False,
+    )
+
+    assert statuses == [TaskStage.PREPROCESS, TaskStage.TRANSCRIBING]
+    assert formatted == []
+    assert written == []
+    assert cached == []
+    assert result == {
+        "transcript": "short memo",
+        "segments": [{"end": 3.0, "text": "short memo"}],
+        "minutes": "",
+        "summary": "",
+        "action_items": [],
+    }
+    assert "output_file" not in result

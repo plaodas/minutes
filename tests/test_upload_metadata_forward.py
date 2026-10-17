@@ -45,15 +45,29 @@ def test_upload_passes_language_and_include_actions(monkeypatch):
 
     monkeypatch.setattr(bg, "create_task", fake_create)
 
-    wav = make_wav_bytes()
-    files = {"file": ("test.wav", io.BytesIO(wav), "audio/wav")}
+    def files():
+        return {"file": ("test.wav", io.BytesIO(make_wav_bytes()), "audio/wav")}
+
     data = {"language": "Japanese", "include_actions": "0", "engine": "hayamimi"}
 
-    r = client.post("/api/transcribe-upload-bg", files=files, data=data)
+    r = client.post("/api/transcribe-upload-bg", files=files(), data=data)
     assert r.status_code == 200
     assert called.get("metadata")
     assert called["metadata"].get("language") == "Japanese"
     assert called["metadata"].get("include_actions") is False
     assert called["metadata"].get("engine") == "hayamimi"
+    assert "transcript_only" not in called["metadata"]
     assert called["metadata"]["upload_path"].endswith(".wav")
     assert called["user_id"] == str(user_id)
+
+    called.clear()
+    data["transcript_only"] = "1"
+    enabled = client.post("/api/transcribe-upload", files=files(), data=data)
+    assert enabled.status_code == 200
+    assert called["metadata"].get("transcript_only") is True
+
+    called.clear()
+    data["transcript_only"] = "0"
+    disabled = client.post("/api/transcribe-upload-bg", files=files(), data=data)
+    assert disabled.status_code == 200
+    assert "transcript_only" not in called["metadata"]

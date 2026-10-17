@@ -325,6 +325,17 @@
               }
             ],
             "title": "Language"
+          },
+          "transcript_only": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Only"
           }
         },
         "required": [
@@ -372,6 +383,17 @@
               }
             ],
             "title": "Language"
+          },
+          "transcript_only": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript Only"
           }
         },
         "required": [
