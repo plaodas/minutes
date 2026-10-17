@@ -41,6 +41,15 @@ try:
                         "ON users (external_subject)"
                     )
                 )
+    if inspector.has_table("service_tokens"):
+        token_columns = {
+            column["name"] for column in inspector.get_columns("service_tokens")
+        }
+        if "revoked_at" not in token_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE service_tokens ADD COLUMN revoked_at DATETIME")
+                )
     if inspector.has_table("tasks"):
         task_columns = {column["name"] for column in inspector.get_columns("tasks")}
         if "search_text" not in task_columns:

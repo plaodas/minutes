@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -97,6 +98,7 @@ def revoke_token(token_id: str, request: Request = None):
         if not token:
             return error_json("not found", 404)
         token.revoked = True
+        token.revoked_at = datetime.now(tz=timezone.utc)
         record_audit(
             action="service_token.revoke",
             actor=actor,

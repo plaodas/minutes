@@ -196,7 +196,10 @@ def provision_external_user(external_id: str) -> tuple[str, str, str]:
                         db.query(ServiceToken)
                         .filter(ServiceToken.id.in_([row[0] for row in active_tokens]))
                         .update(
-                            {ServiceToken.revoked: True},
+                            {
+                                ServiceToken.revoked: True,
+                                ServiceToken.revoked_at: datetime.now(tz=timezone.utc),
+                            },
                             synchronize_session=False,
                         )
                     )
