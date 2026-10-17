@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from minutes.log_context import configure_logging
 from minutes.reconcile_bg_tasks import quarantine_unreferenced_outputs, reconcile_once
+from minutes.service_token_retention import sweep_expired_service_tokens
 from minutes.task_reclaim import reclaim_interrupted_tasks
 from minutes.upload_retention import sweep_expired_uploads
 
@@ -20,6 +21,7 @@ def _maintain_background_tasks() -> None:
     reclaim_interrupted_tasks()
     quarantine_unreferenced_outputs()
     sweep_expired_uploads()
+    sweep_expired_service_tokens()
 
 
 async def _reconcile_loop(interval: int) -> None:

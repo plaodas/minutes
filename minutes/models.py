@@ -107,6 +107,7 @@ class ServiceToken(Base):
     token_hash = Column(String, unique=True, nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     revoked = Column(Boolean, nullable=False, server_default="false")
+    revoked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 

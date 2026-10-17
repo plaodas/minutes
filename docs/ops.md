@@ -31,7 +31,7 @@ curl -sS -D - --max-time 3 http://localhost/api/bg/events -o /dev/null || true
 - Ollama のモデルは、任意の `llm` プロファイルを有効にしたとき、名前付きボリューム `ollama_data` を使う。
 - Redis は名前付きボリューム `redisdata` を使い、`appendonly yes` でキューを残す。
 
-`data/outputs/` 直下の `minutes_*` のうち、どのタスクの `result` も指していないファイルは、API が `data/outputs/deleted/` へ移す。対象は更新時刻が `OUTPUT_QUARANTINE_SECONDS`（既定 21600 秒）より古いものだけである。論理削除のタスクが指すファイルは残す。移動時に更新時刻を移した時刻へ直し、移動先に同じ名前があるときは上書きしない。`deleted/` へ移してから `OUTPUT_DELETED_RETENTION_SECONDS`（既定 86400 秒）を過ぎたファイルは消す。タスクの読み取りに失敗した回は移さない。この処理は成果物をタスクへ付けない。実行は起動時と、突き合わせと同じ `RECONCILE_INTERVAL_SECONDS`（既定 3600 秒）ごとで、突き合わせのあとである。
+`data/outputs/` 直下の `minutes_*` のうち、どのタスクの `result` も指していないファイルは、API が `data/outputs/deleted/` へ移す。対象は更新時刻が `OUTPUT_QUARANTINE_SECONDS`（既定 21600 秒）より古いものだけである。論理削除のタスクが指すファイルは残す。移動時に更新時刻を移した時刻へ直し、移動先に同じ名前があるときは上書きしない。`deleted/` へ移してから `OUTPUT_DELETED_RETENTION_SECONDS`（既定 86400 秒）を過ぎたファイルは消す。タスクの読み取りに失敗した回は移さない。この処理は成果物をタスクへ付けない。実行は起動時と、突き合わせと同じ `RECONCILE_INTERVAL_SECONDS`（既定 3600 秒）ごとで、突き合わせのあとである。失効したサービストークンは `revoked_at` から30日を過ぎると、同じ回で行を消す。有効なトークンと、失効時刻が空の行は残す。
 
 アップロードの期限は次のとおりである。
 

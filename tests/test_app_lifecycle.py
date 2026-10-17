@@ -32,6 +32,11 @@ def test_lifespan_starts_and_stops_services(monkeypatch):
         lambda: calls.append("sweep"),
     )
     monkeypatch.setattr(
+        app_lifecycle,
+        "sweep_expired_service_tokens",
+        lambda: calls.append("sweep_tokens"),
+    )
+    monkeypatch.setattr(
         sse,
         "start_redis_listener",
         lambda url: calls.append(("start_redis", url)),
@@ -49,6 +54,7 @@ def test_lifespan_starts_and_stops_services(monkeypatch):
             "reclaim",
             "quarantine",
             "sweep",
+            "sweep_tokens",
             ("start_redis", "redis://example:6379/0"),
         ]
         assert not reconcile_task.done()
