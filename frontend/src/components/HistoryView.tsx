@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react';
 import { getBgTasks } from '../api/client';
 import { useTasks } from '../hooks/useTasks';
 import { getTasksPageLimit } from '../lib/apiConfig';
+import { minutesHash, minutesTaskIdFromHash } from '../lib/minutesLink';
 import { toHistoryItem } from '../lib/taskState';
 import type { HistoryItem, TaskHistoryPreview } from '../lib/taskState';
 
@@ -15,8 +16,9 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalTask, setModalTask] = useState<string | null>(null);
-  const [minutesTask, setMinutesTask] = useState<string | null>(null);
-  const [isMinutesVisible, setIsMinutesVisible] = useState(false);
+  const linkedTaskId = minutesTaskIdFromHash(window.location.hash);
+  const [minutesTask, setMinutesTask] = useState<string | null>(linkedTaskId);
+  const [isMinutesVisible, setIsMinutesVisible] = useState(linkedTaskId !== null);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchInput, setSearchInput] = useState('');
@@ -73,6 +75,33 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
       document.body.style.overflow = '';
     };
   }, [modalTask]);
+
+  useEffect(() => {
+    const openLinkedMinutes = () => {
+      const taskId = minutesTaskIdFromHash(window.location.hash);
+      if (!taskId) return;
+      setMinutesTask(taskId);
+      setIsMinutesVisible(true);
+    };
+    window.addEventListener('hashchange', openLinkedMinutes);
+    return () => window.removeEventListener('hashchange', openLinkedMinutes);
+  }, []);
+
+  const openMinutes = (taskId: string) => {
+    setMinutesTask(taskId);
+    setIsMinutesVisible(true);
+    const nextHash = minutesHash(taskId);
+    if (window.location.hash !== nextHash) window.location.hash = nextHash;
+  };
+
+  const closeMinutes = () => {
+    const taskId = minutesTask;
+    setIsMinutesVisible(false);
+    setMinutesTask(null);
+    if (taskId && minutesTaskIdFromHash(window.location.hash) === taskId) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
+  };
 
   const handleEventsLoaded = useCallback((taskId: string, events: TaskHistoryPreview[]) => {
     setItems((prev) =>
@@ -187,10 +216,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
         <HistoryList
           items={items}
           sentinelRef={sentinelRef}
-          onOpenMinutes={(id) => {
-            setMinutesTask(id);
-            setIsMinutesVisible(true);
-          }}
+          onOpenMinutes={openMinutes}
           onOpenEvents={openModal}
         />
 
@@ -209,13 +235,7 @@ export function HistoryView({ onCreate }: { onCreate: () => void }) {
         />
       )}
       {minutesTask && isMinutesVisible && (
-        <MinutesDrawer
-          taskId={minutesTask}
-          onClose={() => {
-            setIsMinutesVisible(false);
-            setMinutesTask(null);
-          }}
-        />
+        <MinutesDrawer taskId={minutesTask} onClose={closeMinutes} />
       )}
     </>
   );
