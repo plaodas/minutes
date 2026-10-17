@@ -26,6 +26,17 @@ _FINISHED_STAGES = {"success", "cancelled", "deleted"}
 INTERRUPTED_TASK_ERROR = "restarting interrupted task"
 
 
+def _stored_metadata(task_id: str, fallback: object) -> object:
+    try:
+        task = get_task(task_id)
+    except SQLAlchemyError:
+        logger.exception("Failed to reload metadata for task %s", task_id)
+        return fallback
+    if not task:
+        return fallback
+    return task.get("result") or fallback
+
+
 def run_audio_pipeline(input_path: str, task_id: str | None = None) -> dict[str, Any]:
     """Run the shared pipeline and persist success or failure for a task."""
     logger.info("audio pipeline start: task_id=%r input=%s", task_id, input_path)
@@ -69,6 +80,9 @@ def run_audio_pipeline(input_path: str, task_id: str | None = None) -> dict[str,
             inference_url=os.environ.get("INFERENCE_URL"),
             delete_intermediate=os.environ.get("DELETE_INTERMEDIATE", "true").lower()
             in ("1", "true", "yes"),
+            reload_metadata=(
+                (lambda: _stored_metadata(task_id, metadata)) if task_id else None
+            ),
         )
         if task_id:
             update_task_success(task_id, structured)

@@ -157,3 +157,49 @@ def test_pipeline_service_stops_after_transcription_when_requested(
         "action_items": [],
     }
     assert "output_file" not in result
+
+
+def test_pipeline_reloads_transcript_only_before_formatting(monkeypatch, tmp_path):
+    prepared = SimpleNamespace(
+        mono="mono.wav",
+        normalized="normalized.wav",
+        clean="clean.wav",
+        duration_seconds=3.0,
+    )
+    monkeypatch.setattr(
+        pipeline_service,
+        "prepare_audio",
+        lambda input_path, preprocess: prepared,
+    )
+    monkeypatch.setattr(
+        pipeline_service,
+        "transcribe_locally",
+        lambda *args, **kwargs: TranscriptionResult(
+            raw_text="short memo",
+            segments=[],
+        ),
+    )
+    statuses = []
+    formatted = []
+    service = PipelineService(
+        preprocess=lambda path: path,
+        transcriber=lambda *args, **kwargs: ("unused", []),
+        formatter=lambda raw: formatted.append(raw),
+        post=lambda *args, **kwargs: None,
+        artifact_writer=lambda content, path: None,
+    )
+
+    result = service.run(
+        "input.wav",
+        metadata=None,
+        update_status=lambda stage, detail: statuses.append(stage),
+        update_progress=lambda progress: None,
+        outputs_dir=str(tmp_path),
+        delete_intermediate=False,
+        reload_metadata=lambda: {"transcript_only": True},
+    )
+
+    assert statuses == [TaskStage.PREPROCESS, TaskStage.TRANSCRIBING]
+    assert formatted == []
+    assert result["minutes"] == ""
+    assert result["transcript"] == "short memo"

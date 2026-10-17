@@ -38,13 +38,11 @@ def test_accept_wav_bg(monkeypatch):
     client, _user_id = logged_in_client(app)
     from minutes import tasks
 
-    # mock process_audio.delay or process_audio depending on implementation
-    def fake_delay(path):
-        return DummyTask("bg-fake-id")
+    def fake_apply_async(args, task_id=None):
+        return DummyTask(task_id or "bg-fake-id")
 
-    # some code paths call process_audio.delay (celery) or process_audio directly
-    if hasattr(tasks.process_audio, "delay"):
-        monkeypatch.setattr(tasks.process_audio, "delay", fake_delay)
+    if hasattr(tasks.process_audio, "apply_async"):
+        monkeypatch.setattr(tasks.process_audio, "apply_async", fake_apply_async)
     else:
         monkeypatch.setattr(
             tasks, "process_audio", lambda path: DummyTask("bg-fake-id")

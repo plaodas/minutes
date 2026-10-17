@@ -31,6 +31,20 @@ def _transcript_only(metadata: object) -> bool:
     return isinstance(metadata, dict) and metadata.get("transcript_only") is True
 
 
+def _metadata_for_formatting(
+    metadata: object,
+    reload_metadata: Callable[[], object] | None,
+) -> object:
+    if _transcript_only(metadata) or reload_metadata is None:
+        return metadata
+    try:
+        refreshed = reload_metadata()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        logger.exception("failed to reload task metadata before formatting")
+        return metadata
+    return refreshed if isinstance(refreshed, dict) and refreshed else metadata
+
+
 def _upload_field(metadata: object, key: str) -> str | None:
     if not isinstance(metadata, dict):
         return None
@@ -62,6 +76,7 @@ class PipelineService:
         inference_url: str | None = None,
         outputs_dir: str | None = None,
         delete_intermediate: bool = True,
+        reload_metadata: Callable[[], object] | None = None,
     ) -> dict[str, Any]:
         update_status(TaskStage.PREPROCESS, None)
         try:
@@ -94,6 +109,7 @@ class PipelineService:
                 engine=engine,
             )
 
+        metadata = _metadata_for_formatting(metadata, reload_metadata)
         if _transcript_only(metadata):
             result = {
                 "transcript": transcription.raw_text,
