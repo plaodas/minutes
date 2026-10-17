@@ -506,6 +506,7 @@ class AuditEventItem(BaseModel):
 
 class AuditEventListResponse(BaseModel):
     events: list[AuditEventItem]
+    has_more: bool = False
 
 
 class UserBucketResponse(BaseModel):

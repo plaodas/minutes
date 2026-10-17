@@ -1,6 +1,10 @@
+from datetime import datetime
+
 from fastapi import APIRouter
+from sqlalchemy import and_, or_
 
 from minutes.db import session_scope
+from minutes.http_errors import error_json
 from minutes.models import AuditEvent
 from minutes.schemas import AuditEventListResponse
 
@@ -25,16 +29,37 @@ def _bounded_limit(limit: int) -> int:
     return limit
 
 
+def _cursor(
+    before_created_at: str | None, before_id: int | None
+) -> tuple[datetime, int] | None:
+    created_at = _present(before_created_at)
+    if created_at is None and before_id is None:
+        return None
+    if created_at is None or before_id is None:
+        raise ValueError("invalid audit cursor")
+    try:
+        moment = datetime.fromisoformat(created_at)
+    except ValueError as exc:
+        raise ValueError("invalid audit cursor") from exc
+    return moment, before_id
+
+
 @router.get("", response_model=AuditEventListResponse)
 def list_audit_events(
     action: str | None = None,
     target_type: str | None = None,
     target_id: str | None = None,
+    before_created_at: str | None = None,
+    before_id: int | None = None,
     limit: int = DEFAULT_LIMIT,
 ):
     query_action = _present(action)
     query_target_type = _present(target_type)
     query_target_id = _present(target_id)
+    try:
+        cursor = _cursor(before_created_at, before_id)
+    except ValueError:
+        return error_json("invalid audit cursor", 400)
     bounded = _bounded_limit(limit)
     with session_scope() as session:
         query = session.query(AuditEvent)
@@ -44,12 +69,26 @@ def list_audit_events(
             query = query.filter(AuditEvent.target_type == query_target_type)
         if query_target_id:
             query = query.filter(AuditEvent.target_id == query_target_id)
+        if cursor is not None:
+            moment, event_id = cursor
+            query = query.filter(
+                or_(
+                    AuditEvent.created_at < moment,
+                    and_(
+                        AuditEvent.created_at == moment,
+                        AuditEvent.id < event_id,
+                    ),
+                )
+            )
         rows = (
             query.order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
-            .limit(bounded)
+            .limit(bounded + 1)
             .all()
         )
+        has_more = len(rows) > bounded
+        rows = rows[:bounded]
         return {
+            "has_more": has_more,
             "events": [
                 {
                     "id": str(row.id),
@@ -69,5 +108,5 @@ def list_audit_events(
                     "detail": row.detail,
                 }
                 for row in rows
-            ]
+            ],
         }
