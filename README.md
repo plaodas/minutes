@@ -1,39 +1,41 @@
+[日本語](README.ja.md)
+
 [![CI](https://github.com/plaodas/minutes/actions/workflows/ci.yml/badge.svg)](https://github.com/plaodas/minutes/actions/workflows/ci.yml)
 
 # Minutes
 
-会議の録音をアップロードすると、文字起こし・要約・アクションアイテム付きの議事録まで進むローカル Web アプリです。話者名の手動設定、Word 形式のダウンロード、自分の議事録の本文検索にも対応しています。Celery worker が処理し、ブラウザは SSE（切断時は polling）で進捗を見ます。
+A local web app that turns a meeting recording into minutes with a transcript, summary, and action items. You can set speaker names by hand, download a Word file, and search the text of your own minutes. A Celery worker does the processing, and the browser follows progress over SSE (polling if the stream drops).
 
-標準の Docker Compose 構成がデモです。FastAPI、CPU 版 Whisper worker、PostgreSQL、Redis、nginx フロントエンドが入ります。文字起こしと議事録データはログインユーザーごとに分離されます。
+The standard Docker Compose stack is the demo. It includes FastAPI, a CPU Whisper worker, PostgreSQL, Redis, and an nginx frontend. Transcripts and minutes are isolated per logged-in user.
 
-![ログイン](docs/screenshots/login.png)
-![アップロード画面](docs/screenshots/upload.png)
-![履歴](docs/screenshots/history.png)
+![Sign in](docs/screenshots/login.png)
+![Upload](docs/screenshots/upload.png)
+![History](docs/screenshots/history.png)
 
 ```text
-ブラウザ  →  nginx (/ と /api)
+browser  →  nginx (/ and /api)
                 →  FastAPI
                       →  Redis / Celery
-                            →  worker（faster-whisper、任意で Ollama）
+                            →  worker (faster-whisper, optional Ollama)
 ```
 
-## どこまでローカルか
+## What stays local
 
-処理中の録音と議事録は、このマシンの外へ出ません。
+Recordings and minutes never leave this machine while they are processed.
 
-- 録音、文字起こし、要約、議事録、アカウントは、Compose 内の PostgreSQL、Redis、`data/uploads/`、`data/outputs/` に残ります。
-- 文字起こしは worker 内の faster-whisper です。整形は同じマシンの Ollama か、Ollama が無いときのローカル要約です。
-- ログインはローカルの Cookie セッションです。利用状況の送信はありません。
+- Recordings, transcripts, summaries, minutes, and accounts stay in PostgreSQL, Redis, `data/uploads/`, and `data/outputs/` inside Compose.
+- Transcription runs in the worker with faster-whisper. Formatting uses Ollama on the same machine, or a local summary when Ollama is absent.
+- Sign-in is a local cookie session. Nothing is sent as usage telemetry.
 
-外へ出るのは、初回の取得だけです。
+The only outbound traffic is the first download of each dependency.
 
-- Docker イメージ、Whisper モデル、`docker compose --profile llm` で取る Ollama モデルを、それぞれ最初の一度だけ取得します。取得が終わったあとの音声本文は送りません。
-- `OLLAMA_HOST` を別のマシンに向けた場合、整形リクエストの先はローカルではなくなります。
-- MinIO は標準構成に含まれません。設定した場合の保管先は、そのエンドポイントです。
+- Docker images, the Whisper model, and the Ollama model pulled by `docker compose --profile llm` are each fetched once. Audio content is not sent after that download finishes.
+- If `OLLAMA_HOST` points at another machine, formatting requests leave the local machine.
+- MinIO is not part of the standard stack. If you configure it, objects are stored at that endpoint.
 
-## クイックスタート
+## Quick start
 
-ホストに Ollama がすでにある場合はこのままで構いません。Compose に Ollama も載せる場合は、下の「任意: Ollama」を参照してください。
+This is enough when Ollama is already running on the host. To run Ollama inside Compose, see [Optional: Ollama](#optional-ollama) below.
 
 ```bash
 git clone https://github.com/plaodas/minutes.git
@@ -42,96 +44,96 @@ docker compose up --build -d
 python3 scripts/smoke_compose.py
 ```
 
-<http://localhost> または <http://localhost:8080> を開いてログインします。
+Open <http://localhost> or <http://localhost:8080> and sign in.
 
 ```text
 username: demo
 password: demo
 ```
 
-[`docs/sample/demo-meeting.wav`](docs/sample/demo-meeting.wav) をアップロードしてください。デモ用の短い合成日本語音声で、実会議の録音ではありません。
+Upload [`docs/sample/demo-meeting.wav`](docs/sample/demo-meeting.wav). It is a short synthetic Japanese clip for the demo, not a recording of a real meeting.
 
-このファイル（2分28秒、24kHz、モノラル、合成日本語）を、WSL2上の Intel Core Ultra 5 228V（4コア、メモリ約16GB、GPUなし）で処理した参考時間は約9分30秒です。Whisper は `medium`、整形は `qwen3.5:4b` で、どちらも取得済みの状態です。初回のモデル取得時間は含みません。
+On a WSL2 Intel Core Ultra 5 228V (4 cores, about 16 GB RAM, no GPU), this file (2 minutes 28 seconds, 24 kHz, mono, synthetic Japanese) took about 9 minutes 30 seconds. Whisper was `medium` and formatting used `qwen3.5:4b`, both already downloaded. That time does not include the first model download.
 
-![処理後の議事録](docs/screenshots/minutes-drawer.png)
+![Minutes after processing](docs/screenshots/minutes-drawer.png)
 
-初回タスクは Whisper モデルのダウンロードがあり、数分かかることがあります。進捗は `docker compose logs -f worker` で確認できます。`llm` プロファイルなしでは整形が `[FALLBACK]` のローカル要約で終わります。
+The first task downloads the Whisper model and can take several minutes. Follow progress with `docker compose logs -f worker`. Without the `llm` profile, formatting ends as a `[FALLBACK]` local summary.
 
-## デモでできること
+## What the demo does
 
-- MP3 / WAV のアップロード
-- バックグラウンド処理: 前処理 → 文字起こし → 整形
-- SSE での進捗表示（イベントストリームが遮断された場合は status polling）
-- Markdown 表示の議事録、要約、アクションアイテム
-- 複数の文字起こし区間を選択した話者名の手動設定
-- テキスト成果物と、見出し・アクションアイテム表・話者時刻を含む Word 議事録のダウンロード
-- タスク名・文字起こし・要約・議事録本文を対象にした自分の履歴検索
-- 履歴、名前変更、削除、キャンセル
-- Cookie セッションログイン（`demo` / `demo`）
+- Upload MP3 / WAV
+- Background processing: preprocess → transcribe → format
+- Progress over SSE (status polling if the event stream is blocked)
+- Minutes, summary, and action items rendered from Markdown
+- Manual speaker names across selected transcript segments
+- Download of text outputs and a Word minutes file with headings, an action-item table, and speaker timestamps
+- Search your own history across task name, transcript, summary, and minutes body
+- History, rename, delete, and cancel
+- Cookie session sign-in (`demo` / `demo`)
 
-管理画面、バケット画面、サービストークン画面はポートフォリオデモの対象外です。必要なときだけ `VITE_SHOW_ADMIN_CONTROLS=true` で再ビルドしてください。
+The admin, bucket, and service-token screens are outside the portfolio demo. Rebuild with `VITE_SHOW_ADMIN_CONTROLS=true` only when you need them.
 
-## Compose サービス
+## Compose services
 
-- `frontend`: React SPA と FastAPI へのリバースプロキシ
-- `minutes`: FastAPI（ホストには公開しない）
-- `worker`: Celery と CPU 版 faster-whisper
+- `frontend`: React SPA and a reverse proxy to FastAPI
+- `minutes`: FastAPI (not published on the host)
+- `worker`: Celery and CPU faster-whisper
 - `db`, `redis`
-- `migrate`, `bootstrap`: Alembic とデモユーザー作成
+- `migrate`, `bootstrap`: Alembic and demo user creation
 
-成果物は `data/outputs/`、アップロードは `data/uploads/` に置きます。MinIO、GPU、別立ての推論サービスは標準構成には含まれません。
+Outputs go in `data/outputs/`. Uploads go in `data/uploads/`. MinIO, a GPU, and a separate inference service are not part of the standard stack.
 
-必要環境は Docker Engine 24 以降、Compose v2、初回 Whisper ダウンロード用のネットワーク、CPU 文字起こしでおおよそ 8 GB RAM です。
+You need Docker Engine 24 or newer, Compose v2, network access for the first Whisper download, and about 8 GB RAM for CPU transcription.
 
-ログインが `http://localhost/api/auth/login` に POST して `ERR_CONNECTION_REFUSED` になる場合、古い Service Worker がキャッシュ済み SPA を返していることがあります。DevTools → Application で登録を解除して再読み込みしてください。
+If sign-in POSTs to `http://localhost/api/auth/login` and fails with `ERR_CONNECTION_REFUSED`, an old service worker may be serving a cached SPA. In DevTools → Application, unregister it and reload.
 
 ### `.env`
 
-`docker compose` は `.env` を `docker-compose.yml` の `${VAR}` 展開にだけ使います。`env_file:` はありません。値を変えたいときは `.env.example` をコピーしてください。
+`docker compose` reads `.env` only to interpolate `${VAR}` in `docker-compose.yml`. There is no `env_file:`. Copy `.env.example` when you want to change a value.
 
-| キー | 用途 |
+| Key | Purpose |
 | --- | --- |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL とコンテナ内 `DATABASE_URL` |
-| `JWT_SECRET` | セッション署名 |
-| `PROVISION_SECRET` | `POST /api/external/users` の共有シークレット。未設定なら発行口は無効。`JWT_SECRET` とは別の値にする |
-| `ADMIN_USER`, `ADMIN_PASS` | bootstrap が作るデモユーザー |
-| `FRONTEND_PORT` | 追加のホストポート（既定 `8080`。80 番は常に公開） |
-| `TRANSCRIBE_MODEL_SIZE` | worker の Whisper モデル |
-| `INSTALL_HAYAMIMI`, `HAYAMIMI_ENABLED` | 任意の日本語エンジン。手順は [docs/ops.md](docs/ops.md) |
-| `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS`, `OLLAMA_TIMEOUT` | `--profile llm` のときだけ |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | PostgreSQL and the in-container `DATABASE_URL` |
+| `JWT_SECRET` | Session signing |
+| `PROVISION_SECRET` | Shared secret for `POST /api/external/users`. Unset disables the endpoint. Use a value different from `JWT_SECRET` |
+| `ADMIN_USER`, `ADMIN_PASS` | Demo user created by bootstrap |
+| `FRONTEND_PORT` | Extra host port (default `8080`. Port 80 is always published) |
+| `TRANSCRIBE_MODEL_SIZE` | Whisper model for the worker |
+| `INSTALL_HAYAMIMI`, `HAYAMIMI_ENABLED` | Optional Japanese engine. Steps are in [docs/ops.md](docs/ops.md) |
+| `OLLAMA_MODEL`, `OLLAMA_FALLBACK_MODELS`, `OLLAMA_TIMEOUT` | Only with `--profile llm` |
 
-`.env` にある `MINIO_*`、`ADMIN_API_TOKEN`、`DATABASE_URL` はこの Compose では無視されます。Compose は `POSTGRES_*` から `postgresql+psycopg2://...@db:5432/...` を組み立てます。ホスト側の Python から DB に繋ぐときは `localhost`、コンテナ同士は `db` です。サンプルの秘密情報は localhost 以外で使わないでください。
+`MINIO_*`, `ADMIN_API_TOKEN`, and `DATABASE_URL` in `.env` are ignored by this Compose file. Compose builds `postgresql+psycopg2://...@db:5432/...` from `POSTGRES_*`. Use `localhost` from Python on the host, and `db` between containers. Do not use the sample secrets anywhere except localhost.
 
-### 既存環境の更新
+### Updating an existing install
 
-`docker compose up --build -d` は `migrate` サービスで Alembic を自動実行します。既存のタスクを履歴検索の対象にする場合は、起動後に検索文字列を再生成してください。
+`docker compose up --build -d` runs Alembic through the `migrate` service. To include existing tasks in history search, regenerate the search text after startup.
 
 ```bash
 export DATABASE_URL=postgresql+psycopg2://minutes:minutes_password@localhost:5432/minutes
 PYTHONPATH=. python scripts/backfill_search_text.py
 ```
 
-`.env` で PostgreSQL のユーザー名、パスワード、DB 名を変更している場合は、上の URL も同じ値にします。ホストから Alembic だけを手動実行する場合も、この `DATABASE_URL` を設定して `alembic upgrade head` を実行します。
+If `.env` changes the PostgreSQL user, password, or database name, use those same values in the URL above. To run Alembic by hand from the host, set this `DATABASE_URL` and run `alembic upgrade head`.
 
-### 任意: Ollama
+### Optional: Ollama
 
 ```bash
 docker compose --profile llm up --build -d
 docker compose logs -f ollama-pull
 ```
 
-既定モデルは `qwen3.5:4b` です。モデルは `ollama_data` ボリュームに残ります。
+The default model is `qwen3.5:4b`. The model stays in the `ollama_data` volume.
 
-### 停止
+### Stop
 
 ```bash
 docker compose down
-docker compose --profile llm down -v   # 名前付きボリュームも削除
+docker compose --profile llm down -v   # also removes named volumes
 ```
 
-## スモークテスト
+## Smoke test
 
-`scripts/smoke_compose.py` は必須コンテナ、Alembic、Redis、`/api/health`、フロントエンド URL（既定 `http://localhost:8080`）経由のデモログインを確認します。
+`scripts/smoke_compose.py` checks the required containers, Alembic, Redis, `/api/health`, and demo sign-in through the frontend URL (default `http://localhost:8080`).
 
 ```bash
 MINUTES_DEMO_URL=http://localhost:8081 \
@@ -140,7 +142,7 @@ ADMIN_PASS=my-password \
 python3 scripts/smoke_compose.py
 ```
 
-## ローカル開発
+## Local development
 
 ```bash
 python -m venv .venv
@@ -159,11 +161,11 @@ npm ci
 npm run dev
 ```
 
-Vite は `/api` を `localhost:8000` にプロキシするので、ブラウザは同一オリジンのままです。`minutes/api.py` の CORS は FastAPI に直接つなぐ場合（プロキシなしの `http://localhost:5173` など）向けです。Compose の nginx では `:8080` 用の追加 CORS は不要です。
+Vite proxies `/api` to `localhost:8000`, so the browser stays on one origin. CORS in `minutes/api.py` is for talking to FastAPI directly (for example `http://localhost:5173` with no proxy). Compose nginx does not need extra CORS for `:8080`.
 
-## テスト
+## Tests
 
-実行手順の正本は [docs/test.md](docs/test.md) です。
+The procedure is in [docs/test.md](docs/test.md).
 
 ```bash
 DATABASE_URL=sqlite:///./.pytest_fresh.db .venv/bin/python -m pytest -q
@@ -175,23 +177,23 @@ npm run lint
 npm run build
 ```
 
-## 開発者向け文書
+## Developer docs
 
-- [AGENTS.md](AGENTS.md): 開発支援AIが守る作業範囲
-- [docs/ops.md](docs/ops.md): 変更の反映先、タスクの中身、切り分け
-- [docs/external.md](docs/external.md): 外部サービスからのユーザー発行、API の呼び方、[minutes-ext-access](https://github.com/plaodas/minutes-ext-access) の起動順
-- [docs/test.md](docs/test.md): テストの実行方法
+- [AGENTS.md](AGENTS.md): scope the coding agent follows
+- [docs/ops.md](docs/ops.md): where a change is applied, what a task contains, and how to narrow a failure
+- [docs/external.md](docs/external.md): user provisioning from an external service, how to call the API, and the startup order for [minutes-ext-access](https://github.com/plaodas/minutes-ext-access)
+- [docs/test.md](docs/test.md): how to run tests
 
-## 構成
+## Layout
 
 ```text
-minutes/          FastAPI の構成ルート、ルーター、パイプライン、タスク領域
-frontend/src/     API クライアント、SSE プロバイダ、hooks、UI
-alembic/          PostgreSQL マイグレーション
-docs/openapi.json 生成した OpenAPI スキーマ
-docs/sample/      デモ音声
-scripts/          bootstrap、スキーマ出力、スモークテスト
-tests/            バックエンドテスト
+minutes/          FastAPI composition root, routers, pipeline, task area
+frontend/src/     API client, SSE provider, hooks, UI
+alembic/          PostgreSQL migrations
+docs/openapi.json generated OpenAPI schema
+docs/sample/      demo audio
+scripts/          bootstrap, schema export, smoke test
+tests/            backend tests
 ```
 
 ```bash
@@ -199,13 +201,13 @@ cd frontend
 npm run generate:api-types
 ```
 
-この MVP は単一 Docker ホスト向けです。Redis outbox、GPU、OAuth、TLS、本番 MinIO、厳密なマルチ worker イベント配送は対象外です。
+This MVP targets a single Docker host. A Redis outbox, GPU, OAuth, TLS, production MinIO, and strict multi-worker event delivery are out of scope.
 
-## ライセンス
+## License
 
-`LICENSE` を参照してください。
+See `LICENSE`.
 
-### 音声サンプルのクレジット
+### Audio sample credit
 
 docs/sample/demo-meeting.wav  
 VOICEVOX:波音リツ  
