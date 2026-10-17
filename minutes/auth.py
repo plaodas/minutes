@@ -114,18 +114,28 @@ def _hash_token(token: str) -> str:
 def create_service_token(name: str | None = None, user_id: str | None = None, db=None):
     """Create a new service token, store its hash in DB, return plaintext token and model id.
 
-    Pass ``db`` to insert inside the caller's transaction. Otherwise this opens its own.
+    ``user_id`` must already exist. Pass ``db`` to insert inside the caller's transaction.
+    Otherwise this opens its own. Nothing is stored when the user is missing.
     """
     token = uuid.uuid4().hex + uuid.uuid4().hex
     token_hash = _hash_token(token)
 
     def insert(session):
-        service_token = ServiceToken(name=name, token_hash=token_hash, revoked=False)
-        if user_id:
-            try:
-                service_token.user_id = uuid.UUID(user_id)
-            except (ValueError, TypeError):
-                pass
+        presented = user_id.strip() if isinstance(user_id, str) else ""
+        if not presented:
+            raise ValueError("user_id is required")
+        try:
+            key = uuid.UUID(presented)
+        except (ValueError, TypeError, AttributeError):
+            raise ValueError("invalid user id")
+        if session.get(User, key) is None:
+            raise ValueError("unknown user")
+        service_token = ServiceToken(
+            name=name,
+            token_hash=token_hash,
+            revoked=False,
+            user_id=key,
+        )
         session.add(service_token)
         session.flush()
         return token, str(service_token.id)

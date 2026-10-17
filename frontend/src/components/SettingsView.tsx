@@ -4,6 +4,7 @@ import { SlidersHorizontal } from 'lucide-react';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { API_BASE, isJapaneseLanguage, rememberHayamimiAvailability } from '../lib/apiConfig';
 
+import MyServiceTokens from './MyServiceTokens';
 import { useToast } from './ToastProvider';
 
 export function SettingsView() {
@@ -134,6 +135,7 @@ export function SettingsView() {
       <p className="mt-3 text-xs text-[var(--muted)]">
         Settings are saved locally to your browser.
       </p>
+      <MyServiceTokens />
     </section>
   );
 }

@@ -30,6 +30,10 @@ describe('SettingsView', () => {
 
     renderSettings();
 
+    expect(screen.queryByRole('combobox', { name: 'user' })).toBeNull();
+    expect(screen.queryByPlaceholderText('associate user id (optional)')).toBeNull();
+    expect(screen.getByLabelText('token name')).toBeTruthy();
+
     const engine = await screen.findByLabelText('Japanese transcript engine');
     fireEvent.change(engine, { target: { value: 'hayamimi' } });
     expect(JSON.parse(localStorage.getItem('minutes.settings') || '{}').engine).toBe('hayamimi');

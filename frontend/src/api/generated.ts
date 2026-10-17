@@ -529,6 +529,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/my/service-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List My Tokens */
+        get: operations["list_my_tokens_api_my_service_tokens_get"];
+        put?: never;
+        /** Create My Token */
+        post: operations["create_my_token_api_my_service_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/my/service-tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke My Token */
+        delete: operations["revoke_my_token_api_my_service_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/service-tokens": {
         parameters: {
             query?: never;
@@ -592,6 +627,23 @@ export interface paths {
         put?: never;
         /** Transcribe Upload Background */
         post: operations["transcribe_upload_background_api_transcribe_upload_bg_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_users_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -750,6 +802,13 @@ export interface components {
              */
             public: boolean | null;
         };
+        /** CreateMyServiceTokenRequest */
+        CreateMyServiceTokenRequest: {
+            /** Name */
+            name?: string | null;
+            /** User Id */
+            user_id?: string | null;
+        };
         /** CreateServiceTokenRequest */
         CreateServiceTokenRequest: {
             /** Name */
@@ -875,6 +934,8 @@ export interface components {
             revoked: boolean;
             /** User Id */
             user_id?: string | null;
+            /** Username */
+            username?: string | null;
         };
         /** ServiceTokenListResponse */
         ServiceTokenListResponse: {
@@ -1118,6 +1179,18 @@ export interface components {
             owner_id: string;
             /** Public */
             public: boolean;
+        };
+        /** UserListItem */
+        UserListItem: {
+            /** Id */
+            id: string;
+            /** Username */
+            username: string;
+        };
+        /** UserListResponse */
+        UserListResponse: {
+            /** Users */
+            users: components["schemas"]["UserListItem"][];
         };
         /** ValidationError */
         ValidationError: {
@@ -2790,6 +2863,138 @@ export interface operations {
             };
         };
     };
+    list_my_tokens_api_my_service_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceTokenListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_my_token_api_my_service_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                minutes_session?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMyServiceTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceTokenCreatedResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_my_token_api_my_service_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                token_id: string;
+            };
+            cookie?: {
+                minutes_session?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokedResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_tokens_api_service_tokens_get: {
         parameters: {
             query?: never;
@@ -2830,6 +3035,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceTokenCreatedResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2962,6 +3176,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserListResponse"];
                 };
             };
         };

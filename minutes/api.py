@@ -13,11 +13,13 @@ from minutes.routers.background_tasks import (
     router as background_tasks_router,
 )
 from minutes.routers.external_users import router as external_users_router
+from minutes.routers.my_service_tokens import router as my_service_tokens_router
 from minutes.routers.pipeline import router as pipeline_router
 from minutes.routers.service_tokens import router as service_tokens_router
 from minutes.routers.upload_cleanup import router as upload_cleanup_router
 from minutes.routers.uploads import router as uploads_router
 from minutes.routers.user_buckets import router as user_buckets_router
+from minutes.routers.users import router as users_router
 
 app = FastAPI(title="Minutes Service (prototype)", lifespan=app_lifespan)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
@@ -33,6 +35,8 @@ app.include_router(background_tasks_router)
 app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
 app.include_router(audit_events_router, dependencies=[Depends(require_admin)])
 app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
+app.include_router(users_router, dependencies=[Depends(require_admin)])
+app.include_router(my_service_tokens_router)
 include_canonical_and_legacy_alias(
     upload_cleanup_router, dependencies=[Depends(require_admin)]
 )

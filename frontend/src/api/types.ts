@@ -24,6 +24,7 @@ export type UserBucketResponse = ApiSchemas['UserBucketResponse'];
 export type ServiceTokenItem = ApiSchemas['ServiceTokenItem'];
 export type ServiceTokenListResponse = ApiSchemas['ServiceTokenListResponse'];
 export type ServiceTokenCreatedResponse = ApiSchemas['ServiceTokenCreatedResponse'];
+export type UserListResponse = ApiSchemas['UserListResponse'];
 export type RevokedResponse = ApiSchemas['RevokedResponse'];
 export type AuditEventItem = ApiSchemas['AuditEventItem'];
 export type AuditEventListResponse = ApiSchemas['AuditEventListResponse'];
