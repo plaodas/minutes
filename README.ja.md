@@ -203,6 +203,11 @@ npm run generate:api-types
 
 この MVP は単一 Docker ホスト向けです。Redis outbox、GPU、OAuth、TLS、本番 MinIO、厳密なマルチ worker イベント配送は対象外です。
 
+## 関連リポジトリ
+
+- [minutes-ext-access](https://github.com/plaodas/minutes-ext-access): Laravel の認証から minutes のユーザーを発行し、この API を呼ぶ
+- [memoroku](https://github.com/plaodas/memoroku): スマホのネイティブアプリから短い録音を送り、文字起こしをホーム画面のウィジェットに出す
+
 ## ライセンス
 
 `LICENSE` を参照してください。
