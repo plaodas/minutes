@@ -8,6 +8,7 @@ from minutes.bg_store import (
 )
 from minutes.pipeline import task_runner
 from minutes.schemas import TaskStage
+from minutes.task_state import restart_result
 
 
 def _block_pipeline(monkeypatch, seen):
@@ -85,3 +86,18 @@ def test_interrupted_stage_restarts_with_upload_metadata(monkeypatch):
     stored = get_task(task_id)
     assert stored["status"] == "success"
     assert stored["fail_count"] == 0
+
+
+def test_restart_result_keeps_transcript_only():
+    kept = restart_result(
+        {
+            "upload_path": "/tmp/audio.wav",
+            "transcript_only": True,
+            "minutes": "partial",
+        }
+    )
+
+    assert kept == {
+        "upload_path": "/tmp/audio.wav",
+        "transcript_only": True,
+    }

@@ -183,6 +183,7 @@ _RESTART_RESULT_KEYS = (
     "language",
     "include_actions",
     "engine",
+    "transcript_only",
 )
 
 

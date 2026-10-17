@@ -88,12 +88,17 @@ def _is_allowed_upload(file: UploadFile) -> tuple[bool, str]:
     )
 
 
+def _form_enabled(value: str | None) -> bool:
+    return isinstance(value, str) and value.strip().lower() in {"1", "true"}
+
+
 def _metadata(
     filename: str,
     language: str | None,
     include_actions: str | None,
     upload_path: str | None = None,
     engine: str | None = None,
+    transcript_only: str | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {"upload_filename": filename}
     if upload_path:
@@ -107,6 +112,8 @@ def _metadata(
             metadata["include_actions"] = include_actions in {"1", "true", "True"}
     if isinstance(engine, str) and engine.strip():
         metadata["engine"] = engine.strip()
+    if _form_enabled(transcript_only):
+        metadata["transcript_only"] = True
     return metadata
 
 
@@ -119,6 +126,7 @@ def handle_audio_upload(
     create_task_record: CreateTask,
     include_filename: bool,
     engine: str | None = None,
+    transcript_only: str | None = None,
 ) -> dict[str, Any] | JSONResponse:
     allowed, reason = _is_allowed_upload(file)
     if not allowed:
@@ -145,7 +153,12 @@ def handle_audio_upload(
         create_task_record(
             task.id,
             metadata=_metadata(
-                filename, language, include_actions, destination, engine
+                filename,
+                language,
+                include_actions,
+                destination,
+                engine,
+                transcript_only,
             ),
             user_id=str(owner_id),
         )

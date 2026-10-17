@@ -763,6 +763,8 @@ export interface components {
             include_actions?: string | null;
             /** Language */
             language?: string | null;
+            /** Transcript Only */
+            transcript_only?: string | null;
         };
         /** Body_transcribe_upload_background_api_transcribe_upload_bg_post */
         Body_transcribe_upload_background_api_transcribe_upload_bg_post: {
@@ -777,6 +779,8 @@ export interface components {
             include_actions?: string | null;
             /** Language */
             language?: string | null;
+            /** Transcript Only */
+            transcript_only?: string | null;
         };
         /** BucketNameResponse */
         BucketNameResponse: {
