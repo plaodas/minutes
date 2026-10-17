@@ -1,14 +1,26 @@
 import React, { useEffect, useState } from 'react';
 
-import { listServiceTokens, createServiceToken, revokeServiceToken } from '../api/client';
-import type { ServiceTokenItem } from '../api/types';
+import {
+  listServiceTokens,
+  listUsers,
+  createServiceToken,
+  revokeServiceToken,
+} from '../api/client';
+import type { ServiceTokenItem, UserListResponse } from '../api/types';
 import { errorMessage } from '../lib/errorMessage';
 
 import { useToast } from './ToastProvider';
 import ConfirmModal from './ConfirmModal';
 
+function userLine(token: ServiceTokenItem): string {
+  if (token.username && token.user_id) return `${token.username} · ${token.user_id}`;
+  if (token.user_id) return token.user_id;
+  return '—';
+}
+
 export default function ServiceTokensAdmin() {
   const [tokens, setTokens] = useState<ServiceTokenItem[]>([]);
+  const [users, setUsers] = useState<UserListResponse['users']>([]);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
   const [userId, setUserId] = useState('');
@@ -20,8 +32,9 @@ export default function ServiceTokensAdmin() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await listServiceTokens();
-      setTokens(data.tokens || []);
+      const [tokenData, userData] = await Promise.all([listServiceTokens(), listUsers()]);
+      setTokens(tokenData.tokens || []);
+      setUsers(userData.users || []);
     } catch (e: unknown) {
       addToast(errorMessage(e, 'failed to load tokens'), { level: 'error' });
     } finally {
@@ -35,8 +48,9 @@ export default function ServiceTokensAdmin() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!userId) return;
     try {
-      const data = await createServiceToken(name || undefined, userId || undefined);
+      const data = await createServiceToken(name || undefined, userId);
       addToast('Token created — copy it now (shown once)', { level: 'success' });
       try {
         window.prompt('Service token (copy and store securely):', data.token);
@@ -82,13 +96,24 @@ export default function ServiceTokensAdmin() {
           placeholder="token name (optional)"
           className="rounded border px-2 py-1"
         />
-        <input
+        <select
+          aria-label="user"
           value={userId}
           onChange={(e) => setUserId(e.target.value)}
-          placeholder="associate user id (optional)"
           className="rounded border px-2 py-1"
-        />
-        <button className="rounded bg-[var(--accent)] px-3 py-1 text-white" type="submit">
+        >
+          <option value="">select a user</option>
+          {users.map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.username}
+            </option>
+          ))}
+        </select>
+        <button
+          className="rounded bg-[var(--accent)] px-3 py-1 text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          type="submit"
+          disabled={!userId}
+        >
           Create token
         </button>
       </form>
@@ -116,7 +141,7 @@ export default function ServiceTokensAdmin() {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-[var(--muted)]">user: {t.user_id || '—'}</div>
+                  <div className="break-all text-xs text-[var(--muted)]">user: {userLine(t)}</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <button

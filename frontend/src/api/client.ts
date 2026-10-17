@@ -18,6 +18,7 @@ import type {
   RevokedResponse,
   ServiceTokenCreatedResponse,
   ServiceTokenListResponse,
+  UserListResponse,
   StatusResponse,
   TaskCancelledResponse,
   TaskDeletedResponse,
@@ -372,6 +373,15 @@ export async function listAuditEvents(
   return res.json() as Promise<AuditEventListResponse>;
 }
 
+export async function listUsers(): Promise<UserListResponse> {
+  const res = await fetch(`${API_BASE}/users`, {
+    credentials: 'same-origin',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error('failed to fetch users');
+  return res.json() as Promise<UserListResponse>;
+}
+
 export async function listServiceTokens(): Promise<ServiceTokenListResponse> {
   const res = await fetch(`${API_BASE}/service-tokens`, {
     credentials: 'same-origin',
@@ -393,6 +403,36 @@ export async function createServiceToken(
   });
   if (!res.ok) throw new Error('failed to create service token');
   return res.json() as Promise<ServiceTokenCreatedResponse>;
+}
+
+export async function listMyServiceTokens(): Promise<ServiceTokenListResponse> {
+  const res = await fetch(`${API_BASE}/my/service-tokens`, {
+    credentials: 'same-origin',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error('failed to fetch service tokens');
+  return res.json() as Promise<ServiceTokenListResponse>;
+}
+
+export async function createMyServiceToken(name?: string): Promise<ServiceTokenCreatedResponse> {
+  const res = await fetch(`${API_BASE}/my/service-tokens`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error('failed to create service token');
+  return res.json() as Promise<ServiceTokenCreatedResponse>;
+}
+
+export async function revokeMyServiceToken(id: string): Promise<RevokedResponse> {
+  const res = await fetch(`${API_BASE}/my/service-tokens/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error('failed to revoke token');
+  return res.json() as Promise<RevokedResponse>;
 }
 
 export async function revokeServiceToken(id: string): Promise<RevokedResponse> {

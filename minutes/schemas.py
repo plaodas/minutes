@@ -470,8 +470,18 @@ class ServiceTokenItem(BaseModel):
     id: str
     name: str | None = None
     user_id: str | None = None
+    username: str | None = None
     revoked: bool
     created_at: str | None = None
+
+
+class UserListItem(BaseModel):
+    id: str
+    username: str
+
+
+class UserListResponse(BaseModel):
+    users: list[UserListItem]
 
 
 class ServiceTokenListResponse(BaseModel):

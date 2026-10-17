@@ -7,7 +7,7 @@ from minutes.audit import actor_from_admin_request, record_audit
 from minutes.auth import create_service_token
 from minutes.db import session_scope
 from minutes.http_errors import error_json
-from minutes.models import ServiceToken
+from minutes.models import ServiceToken, User
 from minutes.schemas import (
     JSON_ERROR_RESPONSES,
     RevokedResponse,
@@ -23,12 +23,39 @@ class CreateServiceTokenRequest(BaseModel):
     user_id: str | None = None
 
 
-@router.post("", response_model=ServiceTokenCreatedResponse)
-def create_token(payload: CreateServiceTokenRequest, request: Request = None):
-    token, token_id = create_service_token(
-        name=payload.name,
-        user_id=payload.user_id,
+def token_rows(session, user_id=None):
+    query = session.query(ServiceToken, User.username).outerjoin(
+        User, ServiceToken.user_id == User.id
     )
+    if user_id is not None:
+        query = query.filter(ServiceToken.user_id == user_id)
+    return query.all()
+
+
+def present_token(token: ServiceToken, username: str | None) -> dict:
+    return {
+        "id": str(token.id),
+        "name": token.name,
+        "user_id": str(token.user_id) if token.user_id else None,
+        "username": username,
+        "revoked": bool(token.revoked),
+        "created_at": token.created_at.isoformat() if token.created_at else None,
+    }
+
+
+@router.post(
+    "",
+    response_model=ServiceTokenCreatedResponse,
+    responses={400: JSON_ERROR_RESPONSES[400]},
+)
+def create_token(payload: CreateServiceTokenRequest, request: Request = None):
+    try:
+        token, token_id = create_service_token(
+            name=payload.name,
+            user_id=payload.user_id,
+        )
+    except ValueError as exc:
+        return error_json(str(exc), 400)
     record_audit(
         action="service_token.create",
         actor=actor_from_admin_request(request),
@@ -42,19 +69,10 @@ def create_token(payload: CreateServiceTokenRequest, request: Request = None):
 @router.get("", response_model=ServiceTokenListResponse)
 def list_tokens():
     with session_scope() as session:
-        tokens = session.query(ServiceToken).all()
         return {
             "tokens": [
-                {
-                    "id": str(token.id),
-                    "name": token.name,
-                    "user_id": str(token.user_id) if token.user_id else None,
-                    "revoked": bool(token.revoked),
-                    "created_at": (
-                        token.created_at.isoformat() if token.created_at else None
-                    ),
-                }
-                for token in tokens
+                present_token(token, username)
+                for token, username in token_rows(session)
             ]
         }
 

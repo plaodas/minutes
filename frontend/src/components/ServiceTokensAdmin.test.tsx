@@ -1,26 +1,32 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { listServiceTokens } from '../api/client';
+import { createServiceToken, listServiceTokens, listUsers } from '../api/client';
 
 import ServiceTokensAdmin from './ServiceTokensAdmin';
 import { ToastProvider } from './ToastProvider';
 
 vi.mock('../api/client', () => ({
   listServiceTokens: vi.fn(),
+  listUsers: vi.fn(),
   createServiceToken: vi.fn(),
   revokeServiceToken: vi.fn(),
 }));
 
 describe('ServiceTokensAdmin', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.mocked(listServiceTokens).mockResolvedValue({
       tokens: [
         {
           id: 'active-id',
           name: 'memoroku',
-          user_id: null,
+          user_id: 'user-1',
+          username: 'demo',
           revoked: false,
           created_at: '2026-10-17T03:52:47.736003',
         },
@@ -32,6 +38,9 @@ describe('ServiceTokensAdmin', () => {
           created_at: '2026-10-17T03:56:58.985600',
         },
       ],
+    });
+    vi.mocked(listUsers).mockResolvedValue({
+      users: [{ id: 'user-1', username: 'demo' }],
     });
   });
 
@@ -50,5 +59,30 @@ describe('ServiceTokensAdmin', () => {
     expect(revokeButtons).toHaveLength(2);
     expect((revokeButtons[0] as HTMLButtonElement).disabled).toBe(false);
     expect((revokeButtons[1] as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('user: demo · user-1')).toBeTruthy();
+  });
+
+  it('creates a token only after a username is selected', async () => {
+    vi.mocked(createServiceToken).mockResolvedValue({ token: 'secret', id: 'new-id' });
+    vi.spyOn(window, 'prompt').mockReturnValue(null);
+    render(
+      <ToastProvider>
+        <ServiceTokensAdmin />
+      </ToastProvider>
+    );
+
+    const userSelect = await screen.findByRole('combobox', { name: 'user' });
+    expect(screen.getByRole('option', { name: 'demo' })).toBeTruthy();
+    expect(screen.queryByPlaceholderText('associate user id (optional)')).toBeNull();
+    const createButton = screen.getByRole('button', { name: 'Create token' });
+    expect((createButton as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(userSelect, { target: { value: 'user-1' } });
+    expect((createButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(createServiceToken).toHaveBeenCalledWith(undefined, 'user-1');
+    });
   });
 });
