@@ -132,3 +132,7 @@ def test_default_prompt_asks_for_machine_readable_actions():
     assert "何を:" in DEFAULT_SYSTEM_PROMPT
     assert "いつまでに:" in DEFAULT_SYSTEM_PROMPT
     assert "発言は1つずつ空行で区切る" in DEFAULT_SYSTEM_PROMPT
+    assert (
+        "文字起こしに無い事実・話者・決定・タスクは書かず、会議として短すぎればその旨だけ書く。"
+        in DEFAULT_SYSTEM_PROMPT
+    )
