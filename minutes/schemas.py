@@ -482,6 +482,22 @@ class RevokedResponse(BaseModel):
     revoked: bool
 
 
+class AuditEventItem(BaseModel):
+    id: str
+    created_at: str | None = None
+    action: str
+    actor_kind: str
+    actor_user_id: str | None = None
+    actor_token_id: str | None = None
+    target_type: str
+    target_id: str
+    detail: dict[str, Any] | None = None
+
+
+class AuditEventListResponse(BaseModel):
+    events: list[AuditEventItem]
+
+
 class UserBucketResponse(BaseModel):
     id: str
     name: str

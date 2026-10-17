@@ -172,18 +172,42 @@ def provision_external_user(external_id: str) -> tuple[str, str, str]:
                     )
                     db.add(user)
                     db.flush()
-                (
-                    db.query(ServiceToken)
+                active_tokens = (
+                    db.query(ServiceToken.id)
                     .filter(
                         ServiceToken.user_id == user.id,
                         ServiceToken.revoked.is_(False),
                     )
-                    .update({ServiceToken.revoked: True}, synchronize_session=False)
+                    .all()
                 )
+                revoked_token_ids = [str(row[0]) for row in active_tokens]
+                if revoked_token_ids:
+                    (
+                        db.query(ServiceToken)
+                        .filter(ServiceToken.id.in_([row[0] for row in active_tokens]))
+                        .update(
+                            {ServiceToken.revoked: True},
+                            synchronize_session=False,
+                        )
+                    )
                 token, token_id = create_service_token(
                     name="external",
                     user_id=str(user.id),
                     db=db,
+                )
+                from minutes.audit import Actor, record_audit
+
+                record_audit(
+                    action="external_user.provision",
+                    actor=Actor("provision"),
+                    target_type="user",
+                    target_id=str(user.id),
+                    detail={
+                        "external_id": external_id,
+                        "token_id": token_id,
+                        "revoked_token_ids": revoked_token_ids,
+                    },
+                    session=db,
                 )
                 return str(user.id), token, token_id
         except IntegrityError as exc:
@@ -191,6 +215,27 @@ def provision_external_user(external_id: str) -> tuple[str, str, str]:
     if last_error is None:
         raise RuntimeError("external user provision failed")
     raise last_error
+
+
+def resolve_service_token(token: str) -> tuple[uuid.UUID, uuid.UUID | None] | None:
+    """Return ``(token_id, user_id)`` for an active service token, or None."""
+    if not token:
+        return None
+    if isinstance(token, str) and token.lower().startswith("bearer "):
+        token = token.split(" ", 1)[1]
+    token_hash = _hash_token(token)
+    with session_scope() as db:
+        service_token = (
+            db.query(ServiceToken)
+            .filter(
+                ServiceToken.token_hash == token_hash,
+                ServiceToken.revoked.is_(False),
+            )
+            .one_or_none()
+        )
+        if service_token is None:
+            return None
+        return service_token.id, service_token.user_id
 
 
 def verify_service_token(token: str):

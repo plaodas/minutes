@@ -10,6 +10,7 @@ import HistoryView from './components/HistoryView';
 import SettingsView from './components/SettingsView';
 import BucketsAdmin from './components/BucketsAdmin';
 import ServiceTokensAdmin from './components/ServiceTokensAdmin';
+import AuditEventsAdmin from './components/AuditEventsAdmin';
 import { getUserFeatures } from './api/client';
 import { API_BASE, rememberHayamimiAvailability, showAdminControls } from './lib/apiConfig';
 
@@ -109,6 +110,9 @@ export default function App() {
                 <BucketsAdmin />
                 <div className="mt-8">
                   <ServiceTokensAdmin />
+                </div>
+                <div className="mt-8">
+                  <AuditEventsAdmin />
                 </div>
               </>
             )}

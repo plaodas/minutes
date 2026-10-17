@@ -128,11 +128,13 @@ def test_undelete_restores_successful_task_to_success(monkeypatch):
 def test_task_status_rejects_unknown_stage():
     task_id = uuid.uuid4()
     create_task(str(task_id))
-    with pytest.raises((LookupError, StatementError, IntegrityError)):
-        with session_scope() as session:
-            task = session.get(Task, task_id)
-            assert task is not None
-            task.status = "not-a-stage"
+    with (
+        pytest.raises((LookupError, StatementError, IntegrityError)),
+        session_scope() as session,
+    ):
+        task = session.get(Task, task_id)
+        assert task is not None
+        task.status = "not-a-stage"
 
     with session_scope() as session:
         task = session.get(Task, task_id)
@@ -309,7 +311,7 @@ def test_hard_delete_falls_back_when_broker_is_unavailable(monkeypatch):
     monkeypatch.setattr(
         background_task_lifecycle,
         "bg_force_delete",
-        lambda fallback_task_id, _user: {
+        lambda fallback_task_id, _user, request=None: {
             "task_id": fallback_task_id,
             "deleted": True,
         },

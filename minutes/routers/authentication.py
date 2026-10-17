@@ -5,6 +5,7 @@ from fastapi import APIRouter, Cookie, Header, HTTPException, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from minutes.audit import Actor, record_audit
 from minutes.auth import (
     create_access_token,
     get_current_user_from_cookie,
@@ -66,45 +67,68 @@ def login(payload: AuthLoginRequest, response: Response):
             )
         except SQLAlchemyError:
             user = None
+        if user:
+            user_id = user.id
+            password_hash = user.password_hash
+            is_admin = bool(user.is_admin)
+        else:
+            user_id = None
+            password_hash = None
+            is_admin = False
 
-        if not user:
-            logger.warning("Failed login: unknown user %s", payload.username)
+    if user_id is None:
+        logger.warning("Failed login: unknown user %s", payload.username)
+        _record_login_failure(payload.username)
+        return error_json("invalid credentials", 401)
+
+    try:
+        if not password_hash or not verify_password(payload.password, password_hash):
+            logger.warning("Failed login: bad password for user %s", payload.username)
+            _record_login_failure(payload.username, user_id)
             return error_json("invalid credentials", 401)
+    except (ValueError, TypeError):
+        logger.exception("Failed login verification for %s", payload.username)
+        _record_login_failure(payload.username, user_id)
+        return error_json("invalid credentials", 401)
 
-        try:
-            if not user.password_hash or not verify_password(
-                payload.password,
-                user.password_hash,
-            ):
-                logger.warning(
-                    "Failed login: bad password for user %s", payload.username
-                )
-                return error_json("invalid credentials", 401)
-        except (ValueError, TypeError):
-            logger.exception("Failed login verification for %s", payload.username)
-            return error_json("invalid credentials", 401)
+    token = create_access_token(str(user_id))
+    secure = os.environ.get("ENV", "").lower() == "production" or os.environ.get(
+        "FORCE_HTTPS",
+        "false",
+    ).lower() in {"1", "true"}
+    result = JSONResponse(
+        AuthLoginResponse(
+            id=str(user_id),
+            is_admin=is_admin,
+        ).model_dump()
+    )
+    result.set_cookie(
+        "minutes_session",
+        token,
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        max_age=int(os.environ.get("JWT_EXPIRE_HOURS", "8")) * 3600,
+    )
+    logger.info("User logged in: username=%s id=%s", payload.username, user_id)
+    record_audit(
+        action="auth.login.success",
+        actor=Actor("session", user_id),
+        target_type="user",
+        target_id=str(user_id),
+        detail={"username": payload.username},
+    )
+    return result
 
-        token = create_access_token(str(user.id))
-        secure = os.environ.get("ENV", "").lower() == "production" or os.environ.get(
-            "FORCE_HTTPS",
-            "false",
-        ).lower() in {"1", "true"}
-        result = JSONResponse(
-            AuthLoginResponse(
-                id=str(user.id),
-                is_admin=bool(user.is_admin),
-            ).model_dump()
-        )
-        result.set_cookie(
-            "minutes_session",
-            token,
-            httponly=True,
-            samesite="lax",
-            secure=secure,
-            max_age=int(os.environ.get("JWT_EXPIRE_HOURS", "8")) * 3600,
-        )
-        logger.info("User logged in: username=%s id=%s", payload.username, user.id)
-        return result
+
+def _record_login_failure(username: str, user_id=None) -> None:
+    record_audit(
+        action="auth.login.failure",
+        actor=Actor("session", user_id),
+        target_type="user",
+        target_id=str(user_id) if user_id else username,
+        detail={"username": username},
+    )
 
 
 @router.post("/logout", response_model=AuthLogoutResponse)

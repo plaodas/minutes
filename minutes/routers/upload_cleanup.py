@@ -3,6 +3,7 @@ import time
 
 from fastapi import APIRouter, Request
 
+from minutes.audit import actor_from_admin_request, record_audit
 from minutes.http_errors import error_json
 from minutes.schemas import (
     JSON_ERROR_RESPONSES,
@@ -112,4 +113,15 @@ def delete_uploads(payload: UploadCleanupDeleteRequest, request: Request = None)
     except OSError as exc:
         return error_json(str(exc), 500)
 
+    record_audit(
+        action="upload.cleanup",
+        actor=actor_from_admin_request(request),
+        target_type="upload",
+        target_id=uploads_dir,
+        detail={
+            "count": len(deleted),
+            "pattern": pattern,
+            "names": [os.path.basename(path) for path in deleted],
+        },
+    )
     return {"deleted": deleted, "errors": errors, "count": len(deleted)}

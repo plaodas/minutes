@@ -7,6 +7,7 @@ from minutes.http_errors import http_exception_handler
 from minutes.request_auth import require_admin
 from minutes.request_id import RequestIdMiddleware
 from minutes.routers.admin_buckets import router as admin_buckets_router
+from minutes.routers.audit_events import router as audit_events_router
 from minutes.routers.authentication import router as authentication_router
 from minutes.routers.background_tasks import (
     router as background_tasks_router,
@@ -30,6 +31,7 @@ def include_canonical_and_legacy_alias(router, **kwargs) -> None:
 app.include_router(background_tasks_router)
 
 app.include_router(admin_buckets_router, dependencies=[Depends(require_admin)])
+app.include_router(audit_events_router, dependencies=[Depends(require_admin)])
 app.include_router(service_tokens_router, dependencies=[Depends(require_admin)])
 include_canonical_and_legacy_alias(
     upload_cleanup_router, dependencies=[Depends(require_admin)]
