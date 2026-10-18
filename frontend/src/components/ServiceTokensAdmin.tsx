@@ -9,8 +9,9 @@ import {
 import type { ServiceTokenItem, UserListResponse } from '../api/types';
 import { errorMessage } from '../lib/errorMessage';
 
-import { useToast } from './ToastProvider';
 import ConfirmModal from './ConfirmModal';
+import CreatedServiceToken from './CreatedServiceToken';
+import { useToast } from './ToastProvider';
 
 function userLine(token: ServiceTokenItem): string {
   if (token.username && token.user_id) return `${token.username} · ${token.user_id}`;
@@ -24,6 +25,7 @@ export default function ServiceTokensAdmin() {
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
   const [userId, setUserId] = useState('');
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
   const { addToast } = useToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
@@ -51,14 +53,8 @@ export default function ServiceTokensAdmin() {
     if (!userId) return;
     try {
       const data = await createServiceToken(name || undefined, userId);
-      addToast('トークンを作成しました。今すぐコピーしてください（一度だけ表示）', {
-        level: 'success',
-      });
-      try {
-        window.prompt('サービストークン（コピーして安全に保管）:', data.token);
-      } catch {
-        // window.prompt can throw if the browser blocks it
-      }
+      setCreatedToken(data.token);
+      addToast('トークンを作成しました', { level: 'success' });
       setName('');
       setUserId('');
       await load();
@@ -90,6 +86,10 @@ export default function ServiceTokensAdmin() {
           プログラムから使うサービストークンを作成し、失効します。
         </p>
       </div>
+
+      {createdToken && (
+        <CreatedServiceToken token={createdToken} onClose={() => setCreatedToken(null)} />
+      )}
 
       <form onSubmit={handleCreate} className="mb-4 flex flex-col sm:flex-row gap-2">
         <input

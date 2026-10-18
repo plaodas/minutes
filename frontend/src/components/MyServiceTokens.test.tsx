@@ -1,6 +1,6 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMyServiceToken, listMyServiceTokens } from '../api/client';
 
@@ -14,13 +14,17 @@ vi.mock('../api/client', () => ({
 }));
 
 describe('MyServiceTokens', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.mocked(listMyServiceTokens).mockResolvedValue({ tokens: [] });
   });
 
   it('creates a token for the current user without a user field', async () => {
     vi.mocked(createMyServiceToken).mockResolvedValue({ token: 'secret', id: 'new-id' });
-    vi.spyOn(window, 'prompt').mockReturnValue(null);
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue(null);
     render(
       <ToastProvider>
         <MyServiceTokens />
@@ -35,5 +39,9 @@ describe('MyServiceTokens', () => {
     await waitFor(() => {
       expect(createMyServiceToken).toHaveBeenCalledWith('phone');
     });
+    expect((screen.getByLabelText('作成したサービストークン') as HTMLInputElement).value).toBe(
+      'secret'
+    );
+    expect(prompt).not.toHaveBeenCalled();
   });
 });

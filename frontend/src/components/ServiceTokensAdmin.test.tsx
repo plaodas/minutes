@@ -64,7 +64,7 @@ describe('ServiceTokensAdmin', () => {
 
   it('creates a token only after a username is selected', async () => {
     vi.mocked(createServiceToken).mockResolvedValue({ token: 'secret', id: 'new-id' });
-    vi.spyOn(window, 'prompt').mockReturnValue(null);
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue(null);
     render(
       <ToastProvider>
         <ServiceTokensAdmin />
@@ -84,5 +84,9 @@ describe('ServiceTokensAdmin', () => {
     await waitFor(() => {
       expect(createServiceToken).toHaveBeenCalledWith(undefined, 'user-1');
     });
+    expect((screen.getByLabelText('作成したサービストークン') as HTMLInputElement).value).toBe(
+      'secret'
+    );
+    expect(prompt).not.toHaveBeenCalled();
   });
 });

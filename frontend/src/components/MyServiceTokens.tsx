@@ -5,12 +5,14 @@ import type { ServiceTokenItem } from '../api/types';
 import { errorMessage } from '../lib/errorMessage';
 
 import ConfirmModal from './ConfirmModal';
+import CreatedServiceToken from './CreatedServiceToken';
 import { useToast } from './ToastProvider';
 
 export default function MyServiceTokens() {
   const [tokens, setTokens] = useState<ServiceTokenItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
   const { addToast } = useToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
@@ -36,14 +38,8 @@ export default function MyServiceTokens() {
     e.preventDefault();
     try {
       const data = await createMyServiceToken(name || undefined);
-      addToast('トークンを作成しました。今すぐコピーしてください（一度だけ表示）', {
-        level: 'success',
-      });
-      try {
-        window.prompt('サービストークン（コピーして安全に保管）:', data.token);
-      } catch {
-        // window.prompt can throw if the browser blocks it
-      }
+      setCreatedToken(data.token);
+      addToast('トークンを作成しました', { level: 'success' });
       setName('');
       await load();
     } catch (e: unknown) {
@@ -71,9 +67,13 @@ export default function MyServiceTokens() {
       <div className="mb-4">
         <h2 className="text-lg font-semibold">サービストークン</h2>
         <p className="text-sm text-[var(--muted)]">
-          このアカウント用のトークンを作成します。表示されたらコピーしてください。一度だけ表示されます。
+          このアカウント用のトークンを作成します。作成すると、この画面に一度だけ表示されます。
         </p>
       </div>
+
+      {createdToken && (
+        <CreatedServiceToken token={createdToken} onClose={() => setCreatedToken(null)} />
+      )}
 
       <form onSubmit={handleCreate} className="mb-4 flex flex-col gap-2 sm:flex-row">
         <input
